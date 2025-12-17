@@ -1,0 +1,65 @@
+flowchart LR
+
+  %% 1. Data sources
+  subgraph Sources[Data sources]
+    ERP[ERP/WMS: Factory inventory, receipts, shipments]
+    MPS[Production plan]
+    Sales[Sales history (sell-in/out)]
+    Targets[Targets (unit/value) + remaining target]
+    Master[Product master + prices + factory mapping]
+    CRM[Special orders / large orders]
+    Rules[Eligibility lists / basket restrictions]
+  end
+
+  %% 2. Data & snapshot layer
+  subgraph Data[Data & snapshot layer]
+    direction TB
+    Ingest[ETL/ELT + validation]
+    DWH[(Warehouse/Lakehouse)]
+    Snap[Snapshot Builder\n"As-of" dataset + derived metrics\n(MA sales, MA deliveries, 6m flags)]
+  end
+
+  %% 3. Policy & governance
+  subgraph Policy[Policy & governance]
+    direction TB
+    Config[(Versioned config repo)]
+    PolicySvc[Policy/Rules Service\ncoefficients, hard/soft flags,\npenalties, exceptions, calendars]
+  end
+
+  %% 4. Optimization layer
+  subgraph Solve[Optimization layer]
+    direction TB
+    OptAPI[Optimization Orchestrator API]
+    Workers[Solver workers\nLP/MILP/CP-SAT]
+    RunDB[(Run Registry + Audit)]
+  end
+
+  %% 5. Planning & execution
+  subgraph Plan[Planning & execution]
+    direction TB
+    UI[Planner UI\nreview / what-if / override]
+    Approvals[Approval workflow]
+    Exec[Execution adapter\nERP orders / ASN / transfers]
+    Monitor[Monitoring + Alerts]
+  end
+
+  %% Data flow
+  Sources --> Ingest
+  Ingest --> DWH
+  DWH --> Snap
+
+  %% Policy config
+  Config --> PolicySvc
+
+  %% Optimization
+  Snap --> OptAPI
+  PolicySvc --> OptAPI
+  OptAPI --> Workers
+  Workers --> RunDB
+
+  %% Planning & execution
+  Workers --> UI
+  UI --> Approvals
+  Approvals --> Exec
+  Exec --> Monitor
+  UI --> RunDB
