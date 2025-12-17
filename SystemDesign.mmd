@@ -3,20 +3,19 @@ graph LR
   %% 1. Data sources
   subgraph Sources["Data sources"]
     direction TB
-    ERP["ERP/WMS: Factory inventory, receipts, shipments"]
-    MPS["Production plan"]
-    Sales["Sales history (sell-in/out)"]
-    Targets["Targets (unit/value) + remaining target"]
-    Master["Product master + prices + factory mapping"]
-    CRM["Special orders / large orders"]
-    Rules["Eligibility lists / basket restrictions"]
+    HDI["Historical Distrubutor Inventory<br> [DWOrchid].[dbo].[FactInventoryHistorical]"]
+    CFI["Current Factory Inventory<br> [DWOrchid].[dbo].[FactFactoryInventory]"]
+    CMS["Current Month Sales<br>[DWOrchid].[dbo].[Flat_Fact_Sale]"]
+    SH6M["Sales History (Last 6 Months) <br> [DWOrchid].[dbo].[Flat_Fact_Sale]"]
+    DT["Distributor Target<br> [Iris_DW].[import].[Data0_Main_SC_Distributors_Target_Template]"]
+    PT["Product Target<br>SQL Server: [DWOrchid].[dbo].[FactTarget]"]
   end
 
   %% 2. Data & snapshot layer
   subgraph Data["Data & snapshot layer"]
     direction TB
-    Ingest["ETL/ELT + validation"]
-    DWH["Warehouse/Lakehouse"]
+    Ingest["ELT + validation"]
+    DWH["Data Warehouse"]
     Snap["Snapshot Builder<br>As-of dataset + derived metrics<br>(MA sales, MA deliveries, 6m flags)"]
   end
 
@@ -45,13 +44,12 @@ graph LR
   end
 
   %% Data flow from individual sources
-  ERP --> Ingest
-  MPS --> Ingest
-  Sales --> Ingest
-  Targets --> Ingest
-  Master --> Ingest
-  CRM --> Ingest
-  Rules --> Ingest
+  HDI --> Ingest
+  CFI --> Ingest
+  CMS --> Ingest
+  DT --> Ingest
+  PT --> Ingest
+  SH6M --> Ingest
   Ingest --> DWH
   DWH --> Snap
 
