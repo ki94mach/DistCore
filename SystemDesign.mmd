@@ -2,7 +2,7 @@ graph LR
 
   %% 1. Data sources
   subgraph Sources["Data sources"]
-    direction LR
+    direction TB
     ERP["ERP/WMS: Factory inventory, receipts, shipments"]
     MPS["Production plan"]
     Sales["Sales history (sell-in/out)"]
@@ -10,9 +10,6 @@ graph LR
     Master["Product master + prices + factory mapping"]
     CRM["Special orders / large orders"]
     Rules["Eligibility lists / basket restrictions"]
-
-    %% Layout-only links to keep sources on a single horizontal row
-    ERP --> MPS --> Sales --> Targets --> Master --> CRM --> Rules
   end
 
   %% 2. Data & snapshot layer
@@ -25,7 +22,7 @@ graph LR
 
   %% 3. Policy & governance
   subgraph Policy["Policy & governance"]
-    direction TB
+    direction LR
     Config["Versioned config repo"]
     PolicySvc["Policy/Rules Service\ncoefficients, hard/soft flags,\npenalties, exceptions, calendars"]
   end
@@ -40,15 +37,21 @@ graph LR
 
   %% 5. Planning & execution
   subgraph Plan["Planning & execution"]
-    direction TB
+    direction LR
     UI["Planner UI\nreview / what-if / override"]
     Approvals["Approval workflow"]
     Exec["Execution adapter\nERP orders / ASN / transfers"]
     Monitor["Monitoring + Alerts"]
   end
 
-  %% Data flow
-  Sources --> Ingest
+  %% Data flow from individual sources
+  ERP --> Ingest
+  MPS --> Ingest
+  Sales --> Ingest
+  Targets --> Ingest
+  Master --> Ingest
+  CRM --> Ingest
+  Rules --> Ingest
   Ingest --> DWH
   DWH --> Snap
 
@@ -62,8 +65,8 @@ graph LR
   Workers --> RunDB
 
   %% Planning & execution
-  Workers --> UI
+  OptAPI --> UI
   UI --> Approvals
   Approvals --> Exec
   Exec --> Monitor
-  UI --> RunDB
+  Approvals --> RunDB
