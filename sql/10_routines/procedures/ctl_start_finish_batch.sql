@@ -1,0 +1,147 @@
+/*
+Purpose: Create stored procedures for starting and finishing batch runs in the control table.
+Assumptions: T-SQL on SQL Server; `ctl` schema and `ctl.BatchRun` table already exist (see 010_ctl_batchrun.sql); requires permissions to create procedures and insert/update on ctl.BatchRun.
+Usage: These procedures provide a standardized way to track batch execution lifecycle. Use usp_start_batch at the beginning of a batch process and usp_finish_batch at the end (success or failure).
+How to run: Execute in SSMS or via sqlcmd against the target database; script is idempotent using CREATE OR ALTER.
+*/
+
+-- =============================================
+-- Procedure: ctl.usp_start_batch
+-- Purpose: Insert a new batch run record and return the generated batch_id
+-- =============================================
+CREATE OR ALTER PROCEDURE ctl.usp_start_batch
+    @batch_type NVARCHAR(50),
+    @triggered_by NVARCHAR(100) = NULL,
+    @batch_id BIGINT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        -- Validate required parameter
+        IF @batch_type IS NULL OR LEN(LTRIM(RTRIM(@batch_type))) = 0
+        BEGIN
+            RAISERROR('@batch_type cannot be NULL or empty', 16, 1);
+            RETURN;
+        END;
+        
+        -- Insert new batch run record
+        INSERT INTO ctl.BatchRun (
+            batch_type,
+            triggered_by,
+            started_at,
+            status
+        )
+        VALUES (
+            @batch_type,
+            @triggered_by,
+            SYSUTCDATETIME(),
+            N'RUNNING'
+        );
+        
+        -- Return the generated batch_id
+        SET @batch_id = SCOPE_IDENTITY();
+        
+        IF @batch_id IS NULL
+        BEGIN
+            RAISERROR('Failed to generate batch_id. Check that ctl.BatchRun.batch_id is an IDENTITY column.', 16, 1);
+            RETURN;
+        END;
+        
+    END TRY
+    BEGIN CATCH
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+        DECLARE @ErrorState INT = ERROR_STATE();
+        
+        RAISERROR('ctl.usp_start_batch failed: %s', @ErrorSeverity, @ErrorState, @ErrorMessage);
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- =============================================
+-- Procedure: ctl.usp_finish_batch
+-- Purpose: Update a batch run record with completion status and message
+-- =============================================
+CREATE OR ALTER PROCEDURE ctl.usp_finish_batch
+    @batch_id BIGINT,
+    @status NVARCHAR(20),
+    @message NVARCHAR(4000) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        -- Validate required parameters
+        IF @batch_id IS NULL
+        BEGIN
+            RAISERROR('@batch_id cannot be NULL', 16, 1);
+            RETURN;
+        END;
+        
+        IF @status IS NULL OR LEN(LTRIM(RTRIM(@status))) = 0
+        BEGIN
+            RAISERROR('@status cannot be NULL or empty', 16, 1);
+            RETURN;
+        END;
+        
+        -- Validate that batch exists
+        IF NOT EXISTS (SELECT 1 FROM ctl.BatchRun WHERE batch_id = @batch_id)
+        BEGIN
+            RAISERROR('Batch ID %d does not exist in ctl.BatchRun', 16, 1, @batch_id);
+            RETURN;
+        END;
+        
+        -- Update batch run record
+        UPDATE ctl.BatchRun
+        SET finished_at = SYSUTCDATETIME(),
+            status = @status,
+            message = @message
+        WHERE batch_id = @batch_id;
+        
+        IF @@ROWCOUNT = 0
+        BEGIN
+            RAISERROR('Failed to update batch ID %d. No rows were affected.', 16, 1, @batch_id);
+            RETURN;
+        END;
+        
+    END TRY
+    BEGIN CATCH
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+        DECLARE @ErrorState INT = ERROR_STATE();
+        
+        RAISERROR('ctl.usp_finish_batch failed: %s', @ErrorSeverity, @ErrorState, @ErrorMessage);
+        THROW;
+    END CATCH;
+END;
+GO
+
+/*
+Example Usage:
+
+-- Start a batch
+DECLARE @NewBatchId BIGINT;
+EXEC ctl.usp_start_batch 
+    @batch_type = N'INVENTORY_LOAD',
+    @triggered_by = N'SCHEDULED_JOB',
+    @batch_id = @NewBatchId OUTPUT;
+
+PRINT N'Started batch ID: ' + CAST(@NewBatchId AS NVARCHAR(20));
+
+-- ... perform batch operations ...
+
+-- Finish the batch successfully
+EXEC ctl.usp_finish_batch 
+    @batch_id = @NewBatchId,
+    @status = N'SUCCESS',
+    @message = N'Batch completed successfully. Processed 1,234 records.';
+
+-- Or finish with failure
+EXEC ctl.usp_finish_batch 
+    @batch_id = @NewBatchId,
+    @status = N'FAILED',
+    @message = N'Batch failed: Connection timeout after 30 seconds.';
+*/
+
