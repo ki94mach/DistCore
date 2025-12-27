@@ -85,6 +85,21 @@ BEGIN
 END;
 GO
 
+-- Unique index on (batch_id, rule_name) for dq.ValidationResult to prevent duplicate rows per batch and rule
+-- Idempotent: rerun safety - create only if not exists
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes i
+    JOIN sys.tables t ON i.object_id = t.object_id
+    JOIN sys.schemas s ON t.schema_id = s.schema_id
+    WHERE s.name = N'dq' AND t.name = N'ValidationResult' AND i.name = N'UX_ValidationResult_BatchId_RuleName'
+)
+BEGIN
+    CREATE UNIQUE NONCLUSTERED INDEX UX_ValidationResult_BatchId_RuleName
+        ON dq.ValidationResult (batch_id, rule_name);
+END;
+GO
+
 -- Optional FK from dq.ValidationResult.rule_name to dq.RuleCatalog.rule_name
 IF EXISTS (
     SELECT 1
