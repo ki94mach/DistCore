@@ -18,14 +18,14 @@ BEGIN
 
   -- Validate parameters
   IF @batch_id IS NULL
-    THROW 50000, '@batch_id cannot be NULL. Provide a valid batch identifier.', 1;
+    THROW 50000, N'@batch_id cannot be NULL. Provide a valid batch identifier.', 1;
 
   IF @snapshot_date IS NULL
-    THROW 50000, '@snapshot_date cannot be NULL. Provide a valid snapshot date.', 1;
+    THROW 50000, N'@snapshot_date cannot be NULL. Provide a valid snapshot date.', 1;
 
   -- Guard: Ensure staging has rows for this batch
   IF NOT EXISTS (SELECT 1 FROM stg.FactoryInventory WHERE batch_id = @batch_id)
-    THROW 50000, 'No staging data found for batch_id. This should have been caught by validation (FI_EMPTY_LOAD).', 1;
+    THROW 50000, N'No staging data found for batch_id. This should have been caught by validation (FI_EMPTY_LOAD).', 1;
 
   -- Table variable to capture MERGE results
   DECLARE @MergeResults TABLE (

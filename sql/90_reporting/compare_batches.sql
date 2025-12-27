@@ -1,23 +1,26 @@
 /*
-Purpose: Compare two inventory batches to help identify differences in factory inventory data between batch runs. This script provides row counts, detailed differences by factory/product combination, and summary statistics to facilitate batch comparison and troubleshooting.
+Purpose: Compare two inventory batches to help identify differences in factory inventory data between batch runs. This stored procedure provides row counts, detailed differences by factory/product combination, and summary statistics to facilitate batch comparison and troubleshooting.
 Grain: Aggregated by (factory_id, product_id) per batch using MAX(on_hand_qty) to match the publish logic. Multiple rows for the same (factory_id, product_id) within a batch are aggregated to a single quantity value.
 Assumptions: T-SQL on SQL Server; staging table stg.FactoryInventory exists (see 020_stg_factory_inventory.sql); both batch_id values exist in stg.FactoryInventory; aggregation uses MAX(on_hand_qty) to match the publish.sql aggregation rule.
-Usage: Execute in SSMS or via sqlcmd. Set @batch_a and @batch_b parameters to the batch identifiers you want to compare. The script returns multiple result sets: row counts, top differences, and summary statistics.
+Usage: Execute via EXEC reporting.usp_compare_batches @batch_a = 123, @batch_b = 124. The procedure returns multiple result sets: row counts, top differences, and summary statistics.
 Parameters:
     @batch_a BIGINT - First batch identifier to compare (must exist in stg.FactoryInventory).
     @batch_b BIGINT - Second batch identifier to compare (must exist in stg.FactoryInventory).
-How to run: Set the @batch_a and @batch_b parameters at the top of the script, then execute. All queries are pure SELECTs with no side effects.
+How to run: Execute via EXEC reporting.usp_compare_batches @batch_a = 123, @batch_b = 124. All queries are pure SELECTs with no side effects.
 */
 
-DECLARE @batch_a BIGINT = NULL;  -- TODO: Set this parameter when calling
-DECLARE @batch_b BIGINT = NULL;  -- TODO: Set this parameter when calling
-
--- Validate parameters
-IF @batch_a IS NULL OR @batch_b IS NULL
+CREATE OR ALTER PROCEDURE reporting.usp_compare_batches
+    @batch_a BIGINT,
+    @batch_b BIGINT
+AS
 BEGIN
-    RAISERROR('Both @batch_a and @batch_b must be provided. Set valid batch identifiers.', 16, 1);
-    RETURN;
-END;
+    SET NOCOUNT ON;
+
+    -- Validate parameters
+    IF @batch_a IS NULL OR @batch_b IS NULL
+    BEGIN
+        THROW 50000, N'Both @batch_a and @batch_b must be provided. Set valid batch identifiers.', 1;
+    END;
 
 -- ============================================================================
 -- 1. Row Counts Per Batch
@@ -154,27 +157,25 @@ SELECT
     SUM(CASE WHEN delta > 0.0 THEN delta ELSE 0.0 END) AS total_positive_delta,
     SUM(CASE WHEN delta < 0.0 THEN ABS(delta) ELSE 0.0 END) AS total_negative_delta
 FROM Comparison;
+END;
+GO
 
 /*
 Example Usage:
 
 -- Example 1: Compare batches 123 and 124
-DECLARE @batch_a BIGINT = 123;
-DECLARE @batch_b BIGINT = 124;
--- Execute the entire script
+EXEC reporting.usp_compare_batches @batch_a = 123, @batch_b = 124;
 
 -- Example 2: Compare latest two batches
 DECLARE @batch_a BIGINT = (SELECT MAX(batch_id) - 1 FROM stg.FactoryInventory);
 DECLARE @batch_b BIGINT = (SELECT MAX(batch_id) FROM stg.FactoryInventory);
--- Execute the entire script
+EXEC reporting.usp_compare_batches @batch_a = @batch_a, @batch_b = @batch_b;
 
 -- Example 3: Verify batch exists before comparing
 IF EXISTS (SELECT 1 FROM stg.FactoryInventory WHERE batch_id = 123)
    AND EXISTS (SELECT 1 FROM stg.FactoryInventory WHERE batch_id = 124)
 BEGIN
-    DECLARE @batch_a BIGINT = 123;
-    DECLARE @batch_b BIGINT = 124;
-    -- Execute the entire script
+    EXEC reporting.usp_compare_batches @batch_a = 123, @batch_b = 124;
 END
 ELSE
 BEGIN

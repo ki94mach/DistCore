@@ -39,19 +39,22 @@ BEGIN
 
   -- Validate @batch_id
   IF @batch_id IS NULL
-    THROW 50000, '@batch_id cannot be NULL. Provide a valid batch identifier.', 1;
+    THROW 50000, N'@batch_id cannot be NULL. Provide a valid batch identifier.', 1;
 
   -- Rerun-safe: delete any existing staging rows for this batch_id
   DELETE FROM stg.FactoryInventory WHERE batch_id = @batch_id;
 
   -- Insert from source table into staging
+  -- TODO: Replace placeholder column names with actual source table column names
+  --       Verify the actual column names in [DWOrchid].[dbo].[FactFactoryInventory]
+  --       Common variations: FactoryId, FactoryID, ProductId, ProductID, AsOfDateTime, OnHandQty, etc.
   INSERT INTO stg.FactoryInventory (batch_id, factory_id, product_id, as_of_datetime, on_hand_qty)
   SELECT
     @batch_id,
-    CAST([factory_id] AS INT)      AS factory_id,
-    CAST([product_id] AS INT)      AS product_id,
-    CAST([as_of_datetime] AS DATETIME2) AS as_of_datetime,
-    CAST([on_hand_qty] AS DECIMAL(18,3)) AS on_hand_qty
+    CAST([factory_id] AS INT)      AS factory_id,          -- TODO: Replace [factory_id] with actual source column name
+    CAST([product_id] AS INT)      AS product_id,          -- TODO: Replace [product_id] with actual source column name
+    CAST([as_of_datetime] AS DATETIME2) AS as_of_datetime, -- TODO: Replace [as_of_datetime] with actual source column name
+    CAST([on_hand_qty] AS DECIMAL(18,3)) AS on_hand_qty    -- TODO: Replace [on_hand_qty] with actual source column name
   FROM [DWOrchid].[dbo].[FactFactoryInventory];
 
   SELECT @@ROWCOUNT AS inserted_rows;

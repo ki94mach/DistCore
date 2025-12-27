@@ -21,8 +21,7 @@ BEGIN
         -- Validate required parameter
         IF @batch_type IS NULL OR LEN(LTRIM(RTRIM(@batch_type))) = 0
         BEGIN
-            RAISERROR('@batch_type cannot be NULL or empty', 16, 1);
-            RETURN;
+            THROW 50000, N'@batch_type cannot be NULL or empty', 1;
         END;
         
         -- Insert new batch run record
@@ -44,17 +43,11 @@ BEGIN
         
         IF @batch_id IS NULL
         BEGIN
-            RAISERROR('Failed to generate batch_id. Check that ctl.BatchRun.batch_id is an IDENTITY column.', 16, 1);
-            RETURN;
+            THROW 50000, N'Failed to generate batch_id. Check that ctl.BatchRun.batch_id is an IDENTITY column.', 1;
         END;
         
     END TRY
     BEGIN CATCH
-        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
-        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
-        DECLARE @ErrorState INT = ERROR_STATE();
-        
-        RAISERROR('ctl.usp_start_batch failed: %s', @ErrorSeverity, @ErrorState, @ErrorMessage);
         THROW;
     END CATCH;
 END;
@@ -76,21 +69,18 @@ BEGIN
         -- Validate required parameters
         IF @batch_id IS NULL
         BEGIN
-            RAISERROR('@batch_id cannot be NULL', 16, 1);
-            RETURN;
+            THROW 50000, N'@batch_id cannot be NULL', 1;
         END;
         
         IF @status IS NULL OR LEN(LTRIM(RTRIM(@status))) = 0
         BEGIN
-            RAISERROR('@status cannot be NULL or empty', 16, 1);
-            RETURN;
+            THROW 50000, N'@status cannot be NULL or empty', 1;
         END;
         
         -- Validate that batch exists
         IF NOT EXISTS (SELECT 1 FROM ctl.BatchRun WHERE batch_id = @batch_id)
         BEGIN
-            RAISERROR('Batch ID %d does not exist in ctl.BatchRun', 16, 1, @batch_id);
-            RETURN;
+            THROW 50000, N'Batch ID ' + CAST(@batch_id AS NVARCHAR(20)) + N' does not exist in ctl.BatchRun', 1;
         END;
         
         -- Update batch run record
@@ -102,17 +92,11 @@ BEGIN
         
         IF @@ROWCOUNT = 0
         BEGIN
-            RAISERROR('Failed to update batch ID %d. No rows were affected.', 16, 1, @batch_id);
-            RETURN;
+            THROW 50000, N'Failed to update batch ID ' + CAST(@batch_id AS NVARCHAR(20)) + N'. No rows were affected.', 1;
         END;
         
     END TRY
     BEGIN CATCH
-        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
-        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
-        DECLARE @ErrorState INT = ERROR_STATE();
-        
-        RAISERROR('ctl.usp_finish_batch failed: %s', @ErrorSeverity, @ErrorState, @ErrorMessage);
         THROW;
     END CATCH;
 END;
