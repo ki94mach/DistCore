@@ -23,16 +23,33 @@ END;
 -- 1. Row Counts Per Batch
 -- ============================================================================
 -- Shows the raw row count and distinct (factory_id, product_id) count for each batch
+WITH DistinctCombos AS (
+    SELECT 
+        batch_id,
+        factory_id,
+        product_id
+    FROM stg.FactoryInventory
+    WHERE batch_id IN (@batch_a, @batch_b)
+    GROUP BY batch_id, factory_id, product_id
+),
+ComboCounts AS (
+    SELECT 
+        batch_id,
+        COUNT(*) AS distinct_factory_product_combos
+    FROM DistinctCombos
+    GROUP BY batch_id
+)
 SELECT 
-    batch_id,
+    f.batch_id,
     COUNT(*) AS total_rows,
-    COUNT(DISTINCT factory_id) AS distinct_factories,
-    COUNT(DISTINCT product_id) AS distinct_products,
-    COUNT(DISTINCT CONCAT(CAST(factory_id AS NVARCHAR(10)), '_', CAST(product_id AS NVARCHAR(10)))) AS distinct_factory_product_combos
-FROM stg.FactoryInventory
-WHERE batch_id IN (@batch_a, @batch_b)
-GROUP BY batch_id
-ORDER BY batch_id;
+    COUNT(DISTINCT f.factory_id) AS distinct_factories,
+    COUNT(DISTINCT f.product_id) AS distinct_products,
+    ISNULL(cc.distinct_factory_product_combos, 0) AS distinct_factory_product_combos
+FROM stg.FactoryInventory f
+LEFT JOIN ComboCounts cc ON f.batch_id = cc.batch_id
+WHERE f.batch_id IN (@batch_a, @batch_b)
+GROUP BY f.batch_id, cc.distinct_factory_product_combos
+ORDER BY f.batch_id;
 
 -- ============================================================================
 -- 2. Top Differences Per (factory_id, product_id)
