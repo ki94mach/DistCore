@@ -58,5 +58,6 @@ BEGIN
   FROM [DWOrchid].[dbo].[FactFactoryInventory];
 
   SELECT @@ROWCOUNT AS inserted_rows;
-END
+END;
+GO
 

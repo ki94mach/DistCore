@@ -2,6 +2,7 @@
 Purpose: Create staging landing table for weekly factory inventory loads.
 Assumptions: T-SQL on SQL Server; `stg` schema already exists (see 000_init_schemas.sql); requires permissions to create tables and indexes.
 How to run: Execute in SSMS or via sqlcmd against the target database; script is idempotent.
+Note: Staging accepts imperfect rows (nullable keys) to enable data quality validation before curated layer. Curated tables enforce constraints.
 */
 
 -- Create stg.FactoryInventory if missing
@@ -15,14 +16,42 @@ BEGIN
     CREATE TABLE stg.FactoryInventory (
         batch_id BIGINT NOT NULL,
         ingested_at DATETIME2 NOT NULL CONSTRAINT DF_FactoryInventory_ingested_at DEFAULT SYSUTCDATETIME(),
-        factory_id INT NOT NULL,
-        product_id INT NOT NULL,
+        factory_id INT NULL,
+        product_id INT NULL,
         as_of_datetime DATETIME2 NULL,
         on_hand_qty DECIMAL(18, 3) NULL,
         source_system NVARCHAR(50) NULL CONSTRAINT DF_FactoryInventory_source_system DEFAULT N'DWOrchid',
         source_table NVARCHAR(128) NULL CONSTRAINT DF_FactoryInventory_source_table DEFAULT N'dbo.FactFactoryInventory',
         row_hash VARBINARY(32) NULL
     );
+END;
+GO
+
+-- Alter existing table to make factory_id and product_id nullable (idempotent)
+-- Staging accepts imperfect rows; curated enforces constraints
+IF EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    JOIN sys.schemas s ON t.schema_id = s.schema_id
+    JOIN sys.columns c ON c.object_id = t.object_id
+    WHERE s.name = N'stg' AND t.name = N'FactoryInventory' AND c.name = N'factory_id' AND c.is_nullable = 0
+)
+BEGIN
+    ALTER TABLE stg.FactoryInventory
+        ALTER COLUMN factory_id INT NULL;
+END;
+GO
+
+IF EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    JOIN sys.schemas s ON t.schema_id = s.schema_id
+    JOIN sys.columns c ON c.object_id = t.object_id
+    WHERE s.name = N'stg' AND t.name = N'FactoryInventory' AND c.name = N'product_id' AND c.is_nullable = 0
+)
+BEGIN
+    ALTER TABLE stg.FactoryInventory
+        ALTER COLUMN product_id INT NULL;
 END;
 GO
 

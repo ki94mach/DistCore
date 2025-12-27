@@ -25,13 +25,12 @@ BEGIN
     IF @batch_id IS NULL
     BEGIN
         THROW 50000, N'@batch_id cannot be NULL. Provide a valid batch identifier.', 1;
-        RETURN;
     END;
     
     -- Make script rerun-safe: delete existing validation results for this batch and these rules
     DELETE FROM dq.ValidationResult
     WHERE batch_id = @batch_id
-      AND rule_name IN (N'FI_NULL_KEYS', N'FI_NEGATIVE_QTY', N'FI_DUP_KEYS', N'FI_EMPTY_LOAD', N'FI_NULL_QTY');
+      AND rule_name IN (N'FI_NULL_KEYS', N'FI_NULL_QTY', N'FI_NEGATIVE_QTY', N'FI_DUP_KEYS', N'FI_EMPTY_LOAD');
     
     -- =============================================
     -- Check 1: Null Keys (FI_NULL_KEYS)
@@ -61,7 +60,34 @@ BEGIN
     );
     
     -- =============================================
-    -- Check 2: Negative On Hand Quantity (FI_NEGATIVE_QTY)
+    -- Check 2: Null Quantity (FI_NULL_QTY)
+    -- Validates that on_hand_qty is not NULL
+    -- =============================================
+    SET @check_rule_name = N'FI_NULL_QTY';
+    SET @check_sample_query = N'SELECT batch_id, factory_id, product_id, as_of_datetime, on_hand_qty FROM stg.FactoryInventory WHERE batch_id = ' + CAST(@batch_id AS NVARCHAR(20)) + N' AND on_hand_qty IS NULL';
+    
+    SELECT @check_failed_count = COUNT(*)
+    FROM stg.FactoryInventory
+    WHERE batch_id = @batch_id
+      AND on_hand_qty IS NULL;
+    
+    INSERT INTO dq.ValidationResult (
+        batch_id,
+        rule_name,
+        severity,
+        failed_count,
+        sample_query
+    )
+    VALUES (
+        @batch_id,
+        @check_rule_name,
+        N'HARD',
+        @check_failed_count,
+        @check_sample_query
+    );
+    
+    -- =============================================
+    -- Check 3: Negative On Hand Quantity (FI_NEGATIVE_QTY)
     -- Validates that on_hand_qty is not negative (unless @allow_negative = 1)
     -- =============================================
     SET @check_rule_name = N'FI_NEGATIVE_QTY';
@@ -97,7 +123,7 @@ BEGIN
     );
     
     -- =============================================
-    -- Check 3: Duplicate Keys (FI_DUP_KEYS)
+    -- Check 4: Duplicate Keys (FI_DUP_KEYS)
     -- Validates that there are no duplicate (factory_id, product_id) combinations within this batch
     -- =============================================
     SET @check_rule_name = N'FI_DUP_KEYS';
@@ -128,7 +154,7 @@ BEGIN
     );
     
     -- =============================================
-    -- Check 4: Empty Load (FI_EMPTY_LOAD)
+    -- Check 5: Empty Load (FI_EMPTY_LOAD)
     -- Validates that at least one row was loaded for this batch
     -- =============================================
     SET @check_rule_name = N'FI_EMPTY_LOAD';
@@ -137,33 +163,6 @@ BEGIN
     SELECT @check_failed_count = CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END
     FROM stg.FactoryInventory
     WHERE batch_id = @batch_id;
-    
-    INSERT INTO dq.ValidationResult (
-        batch_id,
-        rule_name,
-        severity,
-        failed_count,
-        sample_query
-    )
-    VALUES (
-        @batch_id,
-        @check_rule_name,
-        N'HARD',
-        @check_failed_count,
-        @check_sample_query
-    );
-    
-    -- =============================================
-    -- Check 5: Null Quantity (FI_NULL_QTY)
-    -- Validates that on_hand_qty is not NULL
-    -- =============================================
-    SET @check_rule_name = N'FI_NULL_QTY';
-    SET @check_sample_query = N'SELECT batch_id, factory_id, product_id, as_of_datetime, on_hand_qty FROM stg.FactoryInventory WHERE batch_id = ' + CAST(@batch_id AS NVARCHAR(20)) + N' AND on_hand_qty IS NULL';
-    
-    SELECT @check_failed_count = COUNT(*)
-    FROM stg.FactoryInventory
-    WHERE batch_id = @batch_id
-      AND on_hand_qty IS NULL;
     
     INSERT INTO dq.ValidationResult (
         batch_id,

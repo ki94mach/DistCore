@@ -49,7 +49,7 @@ SELECT
     is_enabled,
     created_at
 FROM dq.RuleCatalog
-WHERE rule_name IN (N'FI_NULL_KEYS', N'FI_NEGATIVE_QTY', N'FI_DUP_KEYS', N'FI_EMPTY_LOAD', N'FI_NULL_QTY')
+WHERE rule_name LIKE N'FI_%'
 ORDER BY rule_name;
 
 /*

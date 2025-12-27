@@ -77,7 +77,8 @@ BEGIN
     SUM(CASE WHEN ActionType = 'UPDATE' THEN 1 ELSE 0 END) AS rows_updated,
     COUNT(*) AS total
   FROM @MergeResults;
-END
+END;
+GO
 
 /*
 Example Execution:
