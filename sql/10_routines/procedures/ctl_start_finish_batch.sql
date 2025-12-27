@@ -1,15 +1,15 @@
 /*
 Purpose: Create stored procedures for starting and finishing batch runs in the control table.
-Assumptions: T-SQL on SQL Server; `ctl` schema and `ctl.BatchRun` table already exist (see 010_ctl_batchrun.sql); requires permissions to create procedures and insert/update on ctl.BatchRun.
-Usage: These procedures provide a standardized way to track batch execution lifecycle. Use usp_start_batch at the beginning of a batch process and usp_finish_batch at the end (success or failure).
+Assumptions: T-SQL on SQL Server; [Data] schema and [Data].[ctl_BatchRun] table already exist (see 010_ctl_batchrun.sql); requires permissions to create procedures and insert/update on [Data].[ctl_BatchRun].
+Usage: These procedures provide a standardized way to track batch execution lifecycle. Use [Data].[ctl_usp_start_batch] at the beginning of a batch process and [Data].[ctl_usp_finish_batch] at the end (success or failure).
 How to run: Execute in SSMS or via sqlcmd against the target database; script is idempotent using CREATE OR ALTER.
 */
 
 -- =============================================
--- Procedure: ctl.usp_start_batch
+-- Procedure: [Data].[ctl_usp_start_batch]
 -- Purpose: Insert a new batch run record and return the generated batch_id
 -- =============================================
-CREATE OR ALTER PROCEDURE ctl.usp_start_batch
+CREATE OR ALTER PROCEDURE [Data].[ctl_usp_start_batch]
     @batch_type NVARCHAR(50),
     @triggered_by NVARCHAR(100) = NULL,
     @batch_id BIGINT OUTPUT
@@ -25,7 +25,7 @@ BEGIN
         END;
         
         -- Insert new batch run record
-        INSERT INTO ctl.BatchRun (
+        INSERT INTO [Data].[ctl_BatchRun] (
             batch_type,
             triggered_by,
             started_at,
@@ -43,7 +43,7 @@ BEGIN
         
         IF @batch_id IS NULL
         BEGIN
-            THROW 50000, N'Failed to generate batch_id. Check that ctl.BatchRun.batch_id is an IDENTITY column.', 1;
+            THROW 50000, N'Failed to generate batch_id. Check that [Data].[ctl_BatchRun].batch_id is an IDENTITY column.', 1;
         END;
         
     END TRY
@@ -54,10 +54,10 @@ END;
 GO
 
 -- =============================================
--- Procedure: ctl.usp_finish_batch
+-- Procedure: [Data].[ctl_usp_finish_batch]
 -- Purpose: Update a batch run record with completion status and message
 -- =============================================
-CREATE OR ALTER PROCEDURE ctl.usp_finish_batch
+CREATE OR ALTER PROCEDURE [Data].[ctl_usp_finish_batch]
     @batch_id BIGINT,
     @status NVARCHAR(20),
     @message NVARCHAR(4000) = NULL
@@ -78,13 +78,13 @@ BEGIN
         END;
         
         -- Validate that batch exists
-        IF NOT EXISTS (SELECT 1 FROM ctl.BatchRun WHERE batch_id = @batch_id)
+        IF NOT EXISTS (SELECT 1 FROM [Data].[ctl_BatchRun] WHERE batch_id = @batch_id)
         BEGIN
-            THROW 50000, N'Batch ID ' + CAST(@batch_id AS NVARCHAR(20)) + N' does not exist in ctl.BatchRun', 1;
+            THROW 50000, N'Batch ID ' + CAST(@batch_id AS NVARCHAR(20)) + N' does not exist in [Data].[ctl_BatchRun]', 1;
         END;
         
         -- Update batch run record
-        UPDATE ctl.BatchRun
+        UPDATE [Data].[ctl_BatchRun]
         SET finished_at = SYSUTCDATETIME(),
             status = @status,
             message = @message
@@ -107,7 +107,7 @@ Example Usage:
 
 -- Start a batch
 DECLARE @NewBatchId BIGINT;
-EXEC ctl.usp_start_batch 
+EXEC [Data].[ctl_usp_start_batch] 
     @batch_type = N'INVENTORY_LOAD',
     @triggered_by = N'SCHEDULED_JOB',
     @batch_id = @NewBatchId OUTPUT;
@@ -117,13 +117,13 @@ PRINT N'Started batch ID: ' + CAST(@NewBatchId AS NVARCHAR(20));
 -- ... perform batch operations ...
 
 -- Finish the batch successfully
-EXEC ctl.usp_finish_batch 
+EXEC [Data].[ctl_usp_finish_batch] 
     @batch_id = @NewBatchId,
     @status = N'SUCCESS',
     @message = N'Batch completed successfully. Processed 1,234 records.';
 
 -- Or finish with failure
-EXEC ctl.usp_finish_batch 
+EXEC [Data].[ctl_usp_finish_batch] 
     @batch_id = @NewBatchId,
     @status = N'FAILED',
     @message = N'Batch failed: Connection timeout after 30 seconds.';

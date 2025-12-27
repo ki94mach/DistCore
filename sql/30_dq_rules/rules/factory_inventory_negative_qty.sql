@@ -1,9 +1,9 @@
 /*
-Purpose: Data quality rule to check for negative on_hand_qty values in stg.FactoryInventory for a given batch.
-Assumptions: T-SQL on SQL Server; staging table stg.FactoryInventory exists (see 020_stg_factory_inventory.sql); @batch_id corresponds to rows loaded in staging.
+Purpose: Data quality rule to check for negative on_hand_qty values in [Data].[stg_FactoryInventory] for a given batch.
+Assumptions: T-SQL on SQL Server; staging table [Data].[stg_FactoryInventory] exists (see 020_stg_factory_inventory.sql); @batch_id corresponds to rows loaded in staging.
 Usage: This rule validates that on_hand_qty is not negative. Negative quantities may indicate data quality issues, backorders, or other business conditions that should be flagged. Returns the count of failed rows and a sample of up to 50 failing records.
 Parameters:
-    @batch_id BIGINT - The batch identifier to validate (must match rows in stg.FactoryInventory).
+    @batch_id BIGINT - The batch identifier to validate (must match rows in [Data].[stg_FactoryInventory]).
 How to run: Execute in SSMS or via sqlcmd. Set @batch_id parameter and execute. Returns failed_count and sample rows.
 */
 
@@ -19,7 +19,7 @@ END;
 -- Return failed count
 SELECT 
     COUNT(*) AS failed_count
-FROM stg.FactoryInventory
+FROM [Data].[stg_FactoryInventory]
 WHERE batch_id = @batch_id
   AND on_hand_qty < 0;
 
@@ -31,7 +31,7 @@ SELECT TOP 50
     as_of_datetime,
     on_hand_qty,
     ingested_at
-FROM stg.FactoryInventory
+FROM [Data].[stg_FactoryInventory]
 WHERE batch_id = @batch_id
   AND on_hand_qty < 0
 ORDER BY factory_id, product_id;
@@ -54,7 +54,7 @@ SELECT
         WHEN on_hand_qty = 0 THEN 'ZERO'
         ELSE 'POSITIVE'
     END AS qty_status
-FROM stg.FactoryInventory
+FROM [Data].[stg_FactoryInventory]
 WHERE batch_id = 123
 ORDER BY on_hand_qty, factory_id, product_id;
 */

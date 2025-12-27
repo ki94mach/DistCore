@@ -1,15 +1,15 @@
 /*
-Purpose: Publish validated factory inventory data from staging (stg.FactoryInventory) into curated snapshot table (cur.FactoryInventorySnapshot) for a given snapshot date.
-Assumptions: T-SQL on SQL Server; staging table stg.FactoryInventory exists (see 020_stg_factory_inventory.sql); curated table cur.FactoryInventorySnapshot exists (see 030_cur_factory_inventory_snapshot.sql); data has been validated (via validate.sql) before publishing.
+Purpose: Publish validated factory inventory data from staging ([Data].[stg_FactoryInventory]) into curated snapshot table ([Data].[cur_FactoryInventorySnapshot]) for a given snapshot date.
+Assumptions: T-SQL on SQL Server; staging table [Data].[stg_FactoryInventory] exists (see 020_stg_factory_inventory.sql); curated table [Data].[cur_FactoryInventorySnapshot] exists (see 030_cur_factory_inventory_snapshot.sql); data has been validated (via validate.sql) before publishing.
 Usage: This stored procedure is typically called as part of an ETL pipeline after validation (via validate.sql). It aggregates staging data by (factory_id, product_id) and merges into the curated snapshot table. The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will update existing records if staging data has changed, or leave them unchanged if data is identical. This allows safe reruns of the ETL pipeline without creating duplicate snapshots.
 Parameters:
-    @batch_id BIGINT - The batch identifier for the staging data to publish (must exist in stg.FactoryInventory).
+    @batch_id BIGINT - The batch identifier for the staging data to publish (must exist in [Data].[stg_FactoryInventory]).
     @snapshot_date DATE - The snapshot date to assign to published records. Typically corresponds to the as-of date for inventory levels (e.g., end-of-week date).
 Returns: A resultset with columns: inserted_count, updated_count, total_count (one row summary).
-How to run: Execute via EXEC etl.usp_publish_factory_inventory_snapshot @batch_id = 123, @snapshot_date = '2024-01-15'. Should be called after validate.sql succeeds.
+How to run: Execute via EXEC [Data].[etl_usp_publish_factory_inventory_snapshot] @batch_id = 123, @snapshot_date = '2024-01-15'. Should be called after validate.sql succeeds.
 */
 
-CREATE OR ALTER PROCEDURE etl.usp_publish_factory_inventory_snapshot
+CREATE OR ALTER PROCEDURE [Data].[etl_usp_publish_factory_inventory_snapshot]
     @batch_id BIGINT,
     @snapshot_date DATE
 AS
@@ -30,7 +30,7 @@ BEGIN
     -- Defensive guard: Check for FI_NULL_QTY violation (even though validate should catch it)
     IF EXISTS (
         SELECT 1
-        FROM stg.FactoryInventory
+        FROM [Data].[stg_FactoryInventory]
         WHERE batch_id = @batch_id
           AND on_hand_qty IS NULL
     )
@@ -54,14 +54,14 @@ BEGIN
             factory_id,
             product_id,
             MAX(on_hand_qty) AS on_hand_qty
-        FROM stg.FactoryInventory
+        FROM [Data].[stg_FactoryInventory]
         WHERE batch_id = @batch_id
           AND factory_id IS NOT NULL
           AND product_id IS NOT NULL
         GROUP BY factory_id, product_id
     )
     -- MERGE into curated snapshot table
-    MERGE cur.FactoryInventorySnapshot AS target
+    MERGE [Data].[cur_FactoryInventorySnapshot] AS target
     USING AggregatedStaging AS source
         ON target.snapshot_date = @snapshot_date
        AND target.factory_id = source.factory_id
@@ -94,7 +94,7 @@ GO
 Example Execution:
 
 -- Example 1: Publish batch 123 for snapshot date 2024-01-15
-EXEC etl.usp_publish_factory_inventory_snapshot @batch_id = 123, @snapshot_date = '2024-01-15';
+EXEC [Data].[etl_usp_publish_factory_inventory_snapshot] @batch_id = 123, @snapshot_date = '2024-01-15';
 
 -- Example 2: Verify published data
 SELECT 
@@ -104,7 +104,7 @@ SELECT
     on_hand_qty,
     batch_id,
     created_at
-FROM cur.FactoryInventorySnapshot
+FROM [Data].[cur_FactoryInventorySnapshot]
 WHERE snapshot_date = '2024-01-15'
 ORDER BY factory_id, product_id;
 
@@ -115,10 +115,10 @@ SELECT
     stg.product_id
 FROM (
     SELECT DISTINCT factory_id, product_id
-    FROM stg.FactoryInventory
+    FROM [Data].[stg_FactoryInventory]
     WHERE batch_id = 123
 ) AS stg
-LEFT JOIN cur.FactoryInventorySnapshot AS cur
+LEFT JOIN [Data].[cur_FactoryInventorySnapshot] AS cur
     ON cur.snapshot_date = '2024-01-15'
    AND cur.factory_id = stg.factory_id
    AND cur.product_id = stg.product_id
@@ -130,10 +130,10 @@ SELECT
     'Extra in curated' AS issue_type,
     cur.factory_id,
     cur.product_id
-FROM cur.FactoryInventorySnapshot AS cur
+FROM [Data].[cur_FactoryInventorySnapshot] AS cur
 LEFT JOIN (
     SELECT DISTINCT factory_id, product_id
-    FROM stg.FactoryInventory
+    FROM [Data].[stg_FactoryInventory]
     WHERE batch_id = 123
 ) AS stg
     ON stg.factory_id = cur.factory_id
@@ -142,6 +142,6 @@ WHERE cur.snapshot_date = '2024-01-15'
   AND stg.factory_id IS NULL;
 
 -- Example 4: Rerun publish (idempotent - will update if data changed, no-op if unchanged)
-EXEC etl.usp_publish_factory_inventory_snapshot @batch_id = 123, @snapshot_date = '2024-01-15';
+EXEC [Data].[etl_usp_publish_factory_inventory_snapshot] @batch_id = 123, @snapshot_date = '2024-01-15';
 -- Safe to rerun - will update existing records or leave unchanged if data is identical
 */

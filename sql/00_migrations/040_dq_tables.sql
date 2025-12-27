@@ -1,18 +1,13 @@
 /*
 Purpose: Create data quality tables for rule cataloging, validation result tracking, and record quarantine.
-Assumptions: T-SQL on SQL Server; `dq` schema already exists (see 000_init_schemas.sql); requires permissions to create tables and indexes.
+Assumptions: T-SQL on SQL Server; [Data] schema already exists; requires permissions to create tables and indexes.
 How to run: Execute in SSMS or via sqlcmd against the target database; script is idempotent.
 */
 
--- Create dq.RuleCatalog if missing
-IF NOT EXISTS (
-    SELECT 1
-    FROM sys.tables t
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'dq' AND t.name = N'RuleCatalog'
-)
+-- Create [Data].[dq_RuleCatalog] if missing
+IF OBJECT_ID(N'[Data].[dq_RuleCatalog]', 'U') IS NULL
 BEGIN
-    CREATE TABLE dq.RuleCatalog (
+    CREATE TABLE [Data].[dq_RuleCatalog] (
         rule_name NVARCHAR(200) NOT NULL CONSTRAINT PK_RuleCatalog PRIMARY KEY,
         target_object NVARCHAR(200) NOT NULL,
         severity NVARCHAR(10) NOT NULL, -- HARD/SOFT
@@ -23,15 +18,10 @@ BEGIN
 END;
 GO
 
--- Create dq.ValidationResult if missing
-IF NOT EXISTS (
-    SELECT 1
-    FROM sys.tables t
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'dq' AND t.name = N'ValidationResult'
-)
+-- Create [Data].[dq_ValidationResult] if missing
+IF OBJECT_ID(N'[Data].[dq_ValidationResult]', 'U') IS NULL
 BEGIN
-    CREATE TABLE dq.ValidationResult (
+    CREATE TABLE [Data].[dq_ValidationResult] (
         validation_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_ValidationResult PRIMARY KEY,
         batch_id BIGINT NOT NULL,
         rule_name NVARCHAR(200) NOT NULL,
@@ -43,99 +33,79 @@ BEGIN
 END;
 GO
 
--- Index on batch_id for dq.ValidationResult
+-- Index on batch_id for [Data].[dq_ValidationResult]
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    JOIN sys.tables t ON i.object_id = t.object_id
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'dq' AND t.name = N'ValidationResult' AND i.name = N'IX_ValidationResult_BatchId'
+    WHERE i.object_id = OBJECT_ID(N'[Data].[dq_ValidationResult]', 'U')
+      AND i.name = N'IX_ValidationResult_BatchId'
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_ValidationResult_BatchId
-        ON dq.ValidationResult (batch_id);
+        ON [Data].[dq_ValidationResult] (batch_id);
 END;
 GO
 
--- Index on rule_name for dq.ValidationResult
+-- Index on rule_name for [Data].[dq_ValidationResult]
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    JOIN sys.tables t ON i.object_id = t.object_id
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'dq' AND t.name = N'ValidationResult' AND i.name = N'IX_ValidationResult_RuleName'
+    WHERE i.object_id = OBJECT_ID(N'[Data].[dq_ValidationResult]', 'U')
+      AND i.name = N'IX_ValidationResult_RuleName'
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_ValidationResult_RuleName
-        ON dq.ValidationResult (rule_name);
+        ON [Data].[dq_ValidationResult] (rule_name);
 END;
 GO
 
--- Index on severity for dq.ValidationResult
+-- Index on severity for [Data].[dq_ValidationResult]
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    JOIN sys.tables t ON i.object_id = t.object_id
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'dq' AND t.name = N'ValidationResult' AND i.name = N'IX_ValidationResult_Severity'
+    WHERE i.object_id = OBJECT_ID(N'[Data].[dq_ValidationResult]', 'U')
+      AND i.name = N'IX_ValidationResult_Severity'
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_ValidationResult_Severity
-        ON dq.ValidationResult (severity);
+        ON [Data].[dq_ValidationResult] (severity);
 END;
 GO
 
--- Unique index on (batch_id, rule_name) for dq.ValidationResult to prevent duplicate rows per batch and rule
+-- Unique index on (batch_id, rule_name) for [Data].[dq_ValidationResult] to prevent duplicate rows per batch and rule
 -- Idempotent: rerun safety - create only if not exists
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    JOIN sys.tables t ON i.object_id = t.object_id
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'dq' AND t.name = N'ValidationResult' AND i.name = N'UX_ValidationResult_BatchId_RuleName'
+    WHERE i.object_id = OBJECT_ID(N'[Data].[dq_ValidationResult]', 'U')
+      AND i.name = N'UX_ValidationResult_BatchId_RuleName'
 )
 BEGIN
     CREATE UNIQUE NONCLUSTERED INDEX UX_ValidationResult_BatchId_RuleName
-        ON dq.ValidationResult (batch_id, rule_name);
+        ON [Data].[dq_ValidationResult] (batch_id, rule_name);
 END;
 GO
 
--- Optional FK from dq.ValidationResult.rule_name to dq.RuleCatalog.rule_name
-IF EXISTS (
-    SELECT 1
-    FROM sys.tables t
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'dq' AND t.name = N'RuleCatalog'
-)
-AND EXISTS (
-    SELECT 1
-    FROM sys.tables t
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'dq' AND t.name = N'ValidationResult'
-)
+-- Optional FK from [Data].[dq_ValidationResult].rule_name to [Data].[dq_RuleCatalog].rule_name
+IF OBJECT_ID(N'[Data].[dq_RuleCatalog]', 'U') IS NOT NULL
+AND OBJECT_ID(N'[Data].[dq_ValidationResult]', 'U') IS NOT NULL
 AND NOT EXISTS (
     SELECT 1
     FROM sys.foreign_keys fk
-    JOIN sys.tables t ON fk.parent_object_id = t.object_id
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'dq' AND t.name = N'ValidationResult' AND fk.name = N'FK_ValidationResult_RuleCatalog'
+    WHERE fk.parent_object_id = OBJECT_ID(N'[Data].[dq_ValidationResult]', 'U')
+      AND fk.name = N'FK_ValidationResult_RuleCatalog'
 )
 BEGIN
-    ALTER TABLE dq.ValidationResult
+    ALTER TABLE [Data].[dq_ValidationResult]
         ADD CONSTRAINT FK_ValidationResult_RuleCatalog
-        FOREIGN KEY (rule_name) REFERENCES dq.RuleCatalog (rule_name);
+        FOREIGN KEY (rule_name) REFERENCES [Data].[dq_RuleCatalog] (rule_name);
 END;
 GO
 
--- Create dq.Quarantine_FactoryInventory if missing
-IF NOT EXISTS (
-    SELECT 1
-    FROM sys.tables t
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'dq' AND t.name = N'Quarantine_FactoryInventory'
-)
+-- Create [Data].[dq_Quarantine_FactoryInventory] if missing
+IF OBJECT_ID(N'[Data].[dq_Quarantine_FactoryInventory]', 'U') IS NULL
 BEGIN
-    CREATE TABLE dq.Quarantine_FactoryInventory (
+    CREATE TABLE [Data].[dq_Quarantine_FactoryInventory] (
         batch_id BIGINT NOT NULL,
         reason NVARCHAR(200) NOT NULL,
         factory_id INT NULL,
@@ -148,17 +118,16 @@ BEGIN
 END;
 GO
 
--- Index on batch_id for dq.Quarantine_FactoryInventory
+-- Index on batch_id for [Data].[dq_Quarantine_FactoryInventory]
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    JOIN sys.tables t ON i.object_id = t.object_id
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'dq' AND t.name = N'Quarantine_FactoryInventory' AND i.name = N'IX_Quarantine_FactoryInventory_BatchId'
+    WHERE i.object_id = OBJECT_ID(N'[Data].[dq_Quarantine_FactoryInventory]', 'U')
+      AND i.name = N'IX_Quarantine_FactoryInventory_BatchId'
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_Quarantine_FactoryInventory_BatchId
-        ON dq.Quarantine_FactoryInventory (batch_id);
+        ON [Data].[dq_Quarantine_FactoryInventory] (batch_id);
 END;
 GO
 

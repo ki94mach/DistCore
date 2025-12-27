@@ -1,19 +1,14 @@
 /*
 Purpose: Create staging landing table for weekly factory inventory loads.
-Assumptions: T-SQL on SQL Server; `stg` schema already exists (see 000_init_schemas.sql); requires permissions to create tables and indexes.
+Assumptions: T-SQL on SQL Server; [Data] schema already exists; requires permissions to create tables and indexes.
 How to run: Execute in SSMS or via sqlcmd against the target database; script is idempotent.
 Note: Staging accepts imperfect rows (nullable keys) to enable data quality validation before curated layer. Curated tables enforce constraints.
 */
 
--- Create stg.FactoryInventory if missing
-IF NOT EXISTS (
-    SELECT 1
-    FROM sys.tables t
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'stg' AND t.name = N'FactoryInventory'
-)
+-- Create [Data].[stg_FactoryInventory] if missing
+IF OBJECT_ID(N'[Data].[stg_FactoryInventory]', 'U') IS NULL
 BEGIN
-    CREATE TABLE stg.FactoryInventory (
+    CREATE TABLE [Data].[stg_FactoryInventory] (
         batch_id BIGINT NOT NULL,
         ingested_at DATETIME2 NOT NULL CONSTRAINT DF_FactoryInventory_ingested_at DEFAULT SYSUTCDATETIME(),
         factory_id INT NULL,
@@ -31,26 +26,24 @@ GO
 -- Staging accepts imperfect rows; curated enforces constraints
 IF EXISTS (
     SELECT 1
-    FROM sys.tables t
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    JOIN sys.columns c ON c.object_id = t.object_id
-    WHERE s.name = N'stg' AND t.name = N'FactoryInventory' AND c.name = N'factory_id' AND c.is_nullable = 0
+    FROM sys.columns c
+    WHERE c.object_id = OBJECT_ID(N'[Data].[stg_FactoryInventory]', 'U')
+      AND c.name = N'factory_id' AND c.is_nullable = 0
 )
 BEGIN
-    ALTER TABLE stg.FactoryInventory
+    ALTER TABLE [Data].[stg_FactoryInventory]
         ALTER COLUMN factory_id INT NULL;
 END;
 GO
 
 IF EXISTS (
     SELECT 1
-    FROM sys.tables t
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    JOIN sys.columns c ON c.object_id = t.object_id
-    WHERE s.name = N'stg' AND t.name = N'FactoryInventory' AND c.name = N'product_id' AND c.is_nullable = 0
+    FROM sys.columns c
+    WHERE c.object_id = OBJECT_ID(N'[Data].[stg_FactoryInventory]', 'U')
+      AND c.name = N'product_id' AND c.is_nullable = 0
 )
 BEGIN
-    ALTER TABLE stg.FactoryInventory
+    ALTER TABLE [Data].[stg_FactoryInventory]
         ALTER COLUMN product_id INT NULL;
 END;
 GO
@@ -59,13 +52,12 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    JOIN sys.tables t ON i.object_id = t.object_id
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'stg' AND t.name = N'FactoryInventory' AND i.name = N'CI_FactoryInventory_Batch_Factory_Product'
+    WHERE i.object_id = OBJECT_ID(N'[Data].[stg_FactoryInventory]', 'U')
+      AND i.name = N'CI_FactoryInventory_Batch_Factory_Product'
 )
 BEGIN
     CREATE CLUSTERED INDEX CI_FactoryInventory_Batch_Factory_Product
-        ON stg.FactoryInventory (batch_id, factory_id, product_id);
+        ON [Data].[stg_FactoryInventory] (batch_id, factory_id, product_id);
 END;
 GO
 
@@ -73,13 +65,12 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    JOIN sys.tables t ON i.object_id = t.object_id
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'stg' AND t.name = N'FactoryInventory' AND i.name = N'IX_FactoryInventory_Factory_Product_Incl'
+    WHERE i.object_id = OBJECT_ID(N'[Data].[stg_FactoryInventory]', 'U')
+      AND i.name = N'IX_FactoryInventory_Factory_Product_Incl'
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_FactoryInventory_Factory_Product_Incl
-        ON stg.FactoryInventory (factory_id, product_id)
+        ON [Data].[stg_FactoryInventory] (factory_id, product_id)
         INCLUDE (on_hand_qty, as_of_datetime, batch_id);
 END;
 GO

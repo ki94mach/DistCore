@@ -1,15 +1,15 @@
 /*
-Purpose: Run data quality validation checks on stg.FactoryInventory for a given batch and record results in dq.ValidationResult.
-Assumptions: T-SQL on SQL Server; staging table stg.FactoryInventory exists (see 020_stg_factory_inventory.sql); validation result table dq.ValidationResult exists (see 040_dq_tables.sql); @batch_id corresponds to rows loaded in staging.
+Purpose: Run data quality validation checks on [Data].[stg_FactoryInventory] for a given batch and record results in [Data].[dq_ValidationResult].
+Assumptions: T-SQL on SQL Server; staging table [Data].[stg_FactoryInventory] exists (see 020_stg_factory_inventory.sql); validation result table [Data].[dq_ValidationResult] exists (see 040_dq_tables.sql); @batch_id corresponds to rows loaded in staging.
 Usage: This stored procedure is typically called as part of an ETL pipeline after loading data into staging (via load_stage.sql) and before transformation. It performs critical data quality checks and fails fast if any HARD severity rules are violated, preventing bad data from propagating downstream.
 Parameters:
-    @batch_id BIGINT - The batch identifier to validate (must match rows in stg.FactoryInventory).
+    @batch_id BIGINT - The batch identifier to validate (must match rows in [Data].[stg_FactoryInventory]).
     @allow_negative BIT = 0 - If 1, allows negative on_hand_qty values (for systems where negatives are valid, e.g., backorders). If 0, treats negative quantities as validation failures.
 Returns: A resultset with columns: rule_name, severity, failed_count, sample_query for all validation rules executed for the batch.
-How to run: Execute via EXEC etl.usp_validate_factory_inventory @batch_id = 123, @allow_negative = 0. The procedure will THROW an error if any HARD validation checks fail.
+How to run: Execute via EXEC [Data].[etl_usp_validate_factory_inventory] @batch_id = 123, @allow_negative = 0. The procedure will THROW an error if any HARD validation checks fail.
 */
 
-CREATE OR ALTER PROCEDURE etl.usp_validate_factory_inventory
+CREATE OR ALTER PROCEDURE [Data].[etl_usp_validate_factory_inventory]
     @batch_id BIGINT,
     @allow_negative BIT = 0
 AS
@@ -28,7 +28,7 @@ BEGIN
     END;
     
     -- Make script rerun-safe: delete existing validation results for this batch and these rules
-    DELETE FROM dq.ValidationResult
+    DELETE FROM [Data].[dq_ValidationResult]
     WHERE batch_id = @batch_id
       AND rule_name IN (N'FI_NULL_KEYS', N'FI_NULL_QTY', N'FI_NEGATIVE_QTY', N'FI_DUP_KEYS', N'FI_EMPTY_LOAD');
     
@@ -37,14 +37,14 @@ BEGIN
     -- Validates that factory_id and product_id are not NULL
     -- =============================================
     SET @check_rule_name = N'FI_NULL_KEYS';
-    SET @check_sample_query = N'SELECT batch_id, factory_id, product_id, as_of_datetime, on_hand_qty FROM stg.FactoryInventory WHERE batch_id = ' + CAST(@batch_id AS NVARCHAR(20)) + N' AND (factory_id IS NULL OR product_id IS NULL)';
+    SET @check_sample_query = N'SELECT batch_id, factory_id, product_id, as_of_datetime, on_hand_qty FROM [Data].[stg_FactoryInventory] WHERE batch_id = ' + CAST(@batch_id AS NVARCHAR(20)) + N' AND (factory_id IS NULL OR product_id IS NULL)';
     
     SELECT @check_failed_count = COUNT(*)
-    FROM stg.FactoryInventory
+    FROM [Data].[stg_FactoryInventory]
     WHERE batch_id = @batch_id
       AND (factory_id IS NULL OR product_id IS NULL);
     
-    INSERT INTO dq.ValidationResult (
+    INSERT INTO [Data].[dq_ValidationResult] (
         batch_id,
         rule_name,
         severity,
@@ -64,14 +64,14 @@ BEGIN
     -- Validates that on_hand_qty is not NULL
     -- =============================================
     SET @check_rule_name = N'FI_NULL_QTY';
-    SET @check_sample_query = N'SELECT batch_id, factory_id, product_id, as_of_datetime, on_hand_qty FROM stg.FactoryInventory WHERE batch_id = ' + CAST(@batch_id AS NVARCHAR(20)) + N' AND on_hand_qty IS NULL';
+    SET @check_sample_query = N'SELECT batch_id, factory_id, product_id, as_of_datetime, on_hand_qty FROM [Data].[stg_FactoryInventory] WHERE batch_id = ' + CAST(@batch_id AS NVARCHAR(20)) + N' AND on_hand_qty IS NULL';
     
     SELECT @check_failed_count = COUNT(*)
-    FROM stg.FactoryInventory
+    FROM [Data].[stg_FactoryInventory]
     WHERE batch_id = @batch_id
       AND on_hand_qty IS NULL;
     
-    INSERT INTO dq.ValidationResult (
+    INSERT INTO [Data].[dq_ValidationResult] (
         batch_id,
         rule_name,
         severity,
@@ -91,12 +91,12 @@ BEGIN
     -- Validates that on_hand_qty is not negative (unless @allow_negative = 1)
     -- =============================================
     SET @check_rule_name = N'FI_NEGATIVE_QTY';
-    SET @check_sample_query = N'SELECT batch_id, factory_id, product_id, as_of_datetime, on_hand_qty FROM stg.FactoryInventory WHERE batch_id = ' + CAST(@batch_id AS NVARCHAR(20)) + N' AND on_hand_qty < 0';
+    SET @check_sample_query = N'SELECT batch_id, factory_id, product_id, as_of_datetime, on_hand_qty FROM [Data].[stg_FactoryInventory] WHERE batch_id = ' + CAST(@batch_id AS NVARCHAR(20)) + N' AND on_hand_qty < 0';
     
     IF @allow_negative = 0
     BEGIN
         SELECT @check_failed_count = COUNT(*)
-        FROM stg.FactoryInventory
+        FROM [Data].[stg_FactoryInventory]
         WHERE batch_id = @batch_id
           AND on_hand_qty < 0;
     END
@@ -107,7 +107,7 @@ BEGIN
         SET @check_sample_query = @check_sample_query + N' -- Check skipped: @allow_negative = 1';
     END;
     
-    INSERT INTO dq.ValidationResult (
+    INSERT INTO [Data].[dq_ValidationResult] (
         batch_id,
         rule_name,
         severity,
@@ -127,18 +127,18 @@ BEGIN
     -- Validates that there are no duplicate (factory_id, product_id) combinations within this batch
     -- =============================================
     SET @check_rule_name = N'FI_DUP_KEYS';
-    SET @check_sample_query = N'SELECT factory_id, product_id, COUNT(*) AS duplicate_count FROM stg.FactoryInventory WHERE batch_id = ' + CAST(@batch_id AS NVARCHAR(20)) + N' GROUP BY factory_id, product_id HAVING COUNT(*) > 1';
+    SET @check_sample_query = N'SELECT factory_id, product_id, COUNT(*) AS duplicate_count FROM [Data].[stg_FactoryInventory] WHERE batch_id = ' + CAST(@batch_id AS NVARCHAR(20)) + N' GROUP BY factory_id, product_id HAVING COUNT(*) > 1';
     
     SELECT @check_failed_count = COUNT(*)
     FROM (
         SELECT factory_id, product_id
-        FROM stg.FactoryInventory
+        FROM [Data].[stg_FactoryInventory]
         WHERE batch_id = @batch_id
         GROUP BY factory_id, product_id
         HAVING COUNT(*) > 1
     ) AS duplicates;
     
-    INSERT INTO dq.ValidationResult (
+    INSERT INTO [Data].[dq_ValidationResult] (
         batch_id,
         rule_name,
         severity,
@@ -158,13 +158,13 @@ BEGIN
     -- Validates that at least one row was loaded for this batch
     -- =============================================
     SET @check_rule_name = N'FI_EMPTY_LOAD';
-    SET @check_sample_query = N'SELECT COUNT(*) AS row_count FROM stg.FactoryInventory WHERE batch_id = ' + CAST(@batch_id AS NVARCHAR(20));
+    SET @check_sample_query = N'SELECT COUNT(*) AS row_count FROM [Data].[stg_FactoryInventory] WHERE batch_id = ' + CAST(@batch_id AS NVARCHAR(20));
     
     SELECT @check_failed_count = CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END
-    FROM stg.FactoryInventory
+    FROM [Data].[stg_FactoryInventory]
     WHERE batch_id = @batch_id;
     
-    INSERT INTO dq.ValidationResult (
+    INSERT INTO [Data].[dq_ValidationResult] (
         batch_id,
         rule_name,
         severity,
@@ -184,26 +184,26 @@ BEGIN
     -- =============================================
     IF EXISTS (
         SELECT 1
-        FROM dq.ValidationResult
+        FROM [Data].[dq_ValidationResult]
         WHERE batch_id = @batch_id
           AND severity = N'HARD'
           AND failed_count > 0
     )
     BEGIN
         -- Make quarantine inserts idempotent: delete existing quarantine rows for this batch_id
-        DELETE FROM dq.Quarantine_FactoryInventory
+        DELETE FROM [Data].[dq_Quarantine_FactoryInventory]
         WHERE batch_id = @batch_id;
         
         -- Quarantine rows for FI_NULL_KEYS
         IF EXISTS (
             SELECT 1
-            FROM dq.ValidationResult
+            FROM [Data].[dq_ValidationResult]
             WHERE batch_id = @batch_id
               AND rule_name = N'FI_NULL_KEYS'
               AND failed_count > 0
         )
         BEGIN
-            INSERT INTO dq.Quarantine_FactoryInventory (
+            INSERT INTO [Data].[dq_Quarantine_FactoryInventory] (
                 batch_id,
                 reason,
                 factory_id,
@@ -220,7 +220,7 @@ BEGIN
                 as_of_datetime,
                 on_hand_qty,
                 ingested_at
-            FROM stg.FactoryInventory
+            FROM [Data].[stg_FactoryInventory]
             WHERE batch_id = @batch_id
               AND (factory_id IS NULL OR product_id IS NULL);
         END;
@@ -228,13 +228,13 @@ BEGIN
         -- Quarantine rows for FI_NULL_QTY
         IF EXISTS (
             SELECT 1
-            FROM dq.ValidationResult
+            FROM [Data].[dq_ValidationResult]
             WHERE batch_id = @batch_id
               AND rule_name = N'FI_NULL_QTY'
               AND failed_count > 0
         )
         BEGIN
-            INSERT INTO dq.Quarantine_FactoryInventory (
+            INSERT INTO [Data].[dq_Quarantine_FactoryInventory] (
                 batch_id,
                 reason,
                 factory_id,
@@ -251,7 +251,7 @@ BEGIN
                 as_of_datetime,
                 on_hand_qty,
                 ingested_at
-            FROM stg.FactoryInventory
+            FROM [Data].[stg_FactoryInventory]
             WHERE batch_id = @batch_id
               AND on_hand_qty IS NULL;
         END;
@@ -260,13 +260,13 @@ BEGIN
         IF @allow_negative = 0
         AND EXISTS (
             SELECT 1
-            FROM dq.ValidationResult
+            FROM [Data].[dq_ValidationResult]
             WHERE batch_id = @batch_id
               AND rule_name = N'FI_NEGATIVE_QTY'
               AND failed_count > 0
         )
         BEGIN
-            INSERT INTO dq.Quarantine_FactoryInventory (
+            INSERT INTO [Data].[dq_Quarantine_FactoryInventory] (
                 batch_id,
                 reason,
                 factory_id,
@@ -283,7 +283,7 @@ BEGIN
                 as_of_datetime,
                 on_hand_qty,
                 ingested_at
-            FROM stg.FactoryInventory
+            FROM [Data].[stg_FactoryInventory]
             WHERE batch_id = @batch_id
               AND on_hand_qty < 0;
         END;
@@ -291,13 +291,13 @@ BEGIN
         -- Quarantine rows for FI_DUP_KEYS (all rows with duplicate keys)
         IF EXISTS (
             SELECT 1
-            FROM dq.ValidationResult
+            FROM [Data].[dq_ValidationResult]
             WHERE batch_id = @batch_id
               AND rule_name = N'FI_DUP_KEYS'
               AND failed_count > 0
         )
         BEGIN
-            INSERT INTO dq.Quarantine_FactoryInventory (
+            INSERT INTO [Data].[dq_Quarantine_FactoryInventory] (
                 batch_id,
                 reason,
                 factory_id,
@@ -314,10 +314,10 @@ BEGIN
                 stg.as_of_datetime,
                 stg.on_hand_qty,
                 stg.ingested_at
-            FROM stg.FactoryInventory stg
+            FROM [Data].[stg_FactoryInventory] stg
             INNER JOIN (
                 SELECT factory_id, product_id
-                FROM stg.FactoryInventory
+                FROM [Data].[stg_FactoryInventory]
                 WHERE batch_id = @batch_id
                 GROUP BY factory_id, product_id
                 HAVING COUNT(*) > 1
@@ -329,7 +329,7 @@ BEGIN
         
         -- Throw error after quarantining
         DECLARE @error_message NVARCHAR(MAX) = N'Data quality validation failed for batch_id ' + CAST(@batch_id AS NVARCHAR(20)) + 
-            N'. One or more HARD severity rule(s) failed. Check dq.ValidationResult for details. Failing rows have been quarantined in dq.Quarantine_FactoryInventory.';
+            N'. One or more HARD severity rule(s) failed. Check [Data].[dq_ValidationResult] for details. Failing rows have been quarantined in [Data].[dq_Quarantine_FactoryInventory].';
         
         THROW 50000, @error_message, 1;
     END;
@@ -340,7 +340,7 @@ BEGIN
         severity,
         failed_count,
         sample_query
-    FROM dq.ValidationResult
+    FROM [Data].[dq_ValidationResult]
     WHERE batch_id = @batch_id
     ORDER BY rule_name;
 END;
@@ -350,10 +350,10 @@ GO
 Example Execution:
 
 -- Example 1: Validate with default settings (negative quantities not allowed)
-EXEC etl.usp_validate_factory_inventory @batch_id = 123, @allow_negative = 0;
+EXEC [Data].[etl_usp_validate_factory_inventory] @batch_id = 123, @allow_negative = 0;
 
 -- Example 2: Validate allowing negative quantities (for systems where negatives are valid)
-EXEC etl.usp_validate_factory_inventory @batch_id = 123, @allow_negative = 1;
+EXEC [Data].[etl_usp_validate_factory_inventory] @batch_id = 123, @allow_negative = 1;
 
 -- Example 3: Review validation results for a batch
 SELECT 
@@ -364,14 +364,14 @@ SELECT
     failed_count,
     sample_query,
     created_at
-FROM dq.ValidationResult
+FROM [Data].[dq_ValidationResult]
 WHERE batch_id = 123
 ORDER BY created_at DESC;
 
 -- Example 4: Run sample query from a failed validation
--- (Copy the sample_query value from dq.ValidationResult and execute it)
+-- (Copy the sample_query value from [Data].[dq_ValidationResult] and execute it)
 -- Example output: SELECT factory_id, product_id, COUNT(*) AS duplicate_count 
---                 FROM stg.FactoryInventory WHERE batch_id = 123 
+--                 FROM [Data].[stg_FactoryInventory] WHERE batch_id = 123 
 --                 GROUP BY factory_id, product_id HAVING COUNT(*) > 1;
 
 -- Example 5: Check which validation rules failed for a batch
@@ -383,7 +383,7 @@ SELECT
         WHEN failed_count > 0 THEN 'FAILED'
         ELSE 'PASSED'
     END AS status
-FROM dq.ValidationResult
+FROM [Data].[dq_ValidationResult]
 WHERE batch_id = 123
 ORDER BY 
     CASE severity 

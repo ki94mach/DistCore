@@ -1,20 +1,15 @@
 /*
 Purpose: Create optimization output tables to store solver results and decisions. This script creates the initial table structure for recording optimization decisions made by the solver engine.
 Grain: One row per optimization decision. A single optimization run may produce multiple decisions (e.g., multiple product allocations, transfers between factories and distributors).
-Assumptions: T-SQL on SQL Server; `opt` schema already exists (see 000_init_schemas.sql); requires permissions to create tables and indexes. The run_id column references opt.RunRegistry.run_id (see 050_run_registry.sql).
+Assumptions: T-SQL on SQL Server; [Data] schema already exists; requires permissions to create tables and indexes. The run_id column references [Data].[opt_RunRegistry].run_id (see 050_run_registry.sql).
 Usage: This table stores the output decisions from optimization solver runs. Each decision represents an allocation, transfer, or other action determined by the solver. The decision_type field categorizes the type of decision (e.g., 'ALLOCATE', 'TRANSFER', 'HOLD'). Decisions are linked to a specific optimization run via run_id for traceability and audit purposes.
 How to run: Execute in SSMS or via sqlcmd against the target database; script is idempotent.
 */
 
--- Create opt.OptimizationDecision if missing
-IF NOT EXISTS (
-    SELECT 1
-    FROM sys.tables t
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'opt' AND t.name = N'OptimizationDecision'
-)
+-- Create [Data].[opt_OptimizationDecision] if missing
+IF OBJECT_ID(N'[Data].[opt_OptimizationDecision]', 'U') IS NULL
 BEGIN
-    CREATE TABLE opt.OptimizationDecision (
+    CREATE TABLE [Data].[opt_OptimizationDecision] (
         decision_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_OptimizationDecision PRIMARY KEY,
         run_id BIGINT NOT NULL,
         decision_type NVARCHAR(50) NOT NULL,
@@ -24,8 +19,8 @@ BEGIN
         qty DECIMAL(18, 3) NOT NULL,
         created_at DATETIME2 NOT NULL CONSTRAINT DF_OptimizationDecision_created_at DEFAULT SYSUTCDATETIME()
         
-        -- TODO: Add foreign key constraint to opt.RunRegistry once table relationship is confirmed
-        -- CONSTRAINT FK_OptimizationDecision_RunRegistry FOREIGN KEY (run_id) REFERENCES opt.RunRegistry (run_id)
+        -- TODO: Add foreign key constraint to [Data].[opt_RunRegistry] once table relationship is confirmed
+        -- CONSTRAINT FK_OptimizationDecision_RunRegistry FOREIGN KEY (run_id) REFERENCES [Data].[opt_RunRegistry] (run_id)
         
         -- TODO: Consider additional columns for future enhancements:
         --   - Priority or ranking score from solver
@@ -44,13 +39,12 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    JOIN sys.tables t ON i.object_id = t.object_id
-    JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = N'opt' AND t.name = N'OptimizationDecision' AND i.name = N'IX_OptimizationDecision_RunId_ProductId'
+    WHERE i.object_id = OBJECT_ID(N'[Data].[opt_OptimizationDecision]', 'U')
+      AND i.name = N'IX_OptimizationDecision_RunId_ProductId'
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_OptimizationDecision_RunId_ProductId
-        ON opt.OptimizationDecision (run_id, product_id);
+        ON [Data].[opt_OptimizationDecision] (run_id, product_id);
 END;
 GO
 
@@ -65,7 +59,7 @@ Example Usage:
 
 -- Example 1: Insert optimization decisions for a run
 -- Note: In practice, this would typically be done via bulk insert or from the solver output
-INSERT INTO opt.OptimizationDecision (run_id, decision_type, from_factory_id, to_distributor_id, product_id, qty)
+INSERT INTO [Data].[opt_OptimizationDecision] (run_id, decision_type, from_factory_id, to_distributor_id, product_id, qty)
 VALUES 
     (1, N'ALLOCATE', 101, 201, 1001, 500.000),
     (1, N'ALLOCATE', 101, 202, 1001, 300.000),
@@ -81,7 +75,7 @@ SELECT
     product_id,
     qty,
     created_at
-FROM opt.OptimizationDecision
+FROM [Data].[opt_OptimizationDecision]
 WHERE run_id = 1
 ORDER BY product_id, decision_type;
 
@@ -92,7 +86,7 @@ SELECT
     decision_type,
     SUM(qty) AS total_qty,
     COUNT(*) AS decision_count
-FROM opt.OptimizationDecision
+FROM [Data].[opt_OptimizationDecision]
 WHERE run_id = 1
 GROUP BY run_id, product_id, decision_type
 ORDER BY product_id, decision_type;
@@ -107,8 +101,8 @@ SELECT
     d.product_id,
     d.qty,
     d.created_at
-FROM opt.OptimizationDecision AS d
-INNER JOIN opt.RunRegistry AS r
+FROM [Data].[opt_OptimizationDecision] AS d
+INNER JOIN [Data].[opt_RunRegistry] AS r
     ON d.run_id = r.run_id
 WHERE r.snapshot_date = '2024-01-15'
 ORDER BY d.product_id, d.decision_type;

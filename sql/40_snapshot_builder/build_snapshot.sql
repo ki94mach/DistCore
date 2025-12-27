@@ -1,10 +1,10 @@
 /*
 Purpose: Build an optimization-ready "as-of" snapshot by joining curated tables. This query assembles factory inventory data with sales features, targets, and derived metrics for input to the optimization engine.
 Grain: One row per (snapshot_date, factory_id, product_id) combination. This grain matches the optimizer input requirements, providing a consistent point-in-time view of inventory levels along with related features and targets needed for decision-making.
-Assumptions: T-SQL on SQL Server; curated table cur.FactoryInventorySnapshot exists (see 030_cur_factory_inventory_snapshot.sql); additional curated tables for sales, targets, and derived metrics will be joined as they become available.
+Assumptions: T-SQL on SQL Server; curated table [Data].[cur_FactoryInventorySnapshot] exists (see 030_cur_factory_inventory_snapshot.sql); additional curated tables for sales, targets, and derived metrics will be joined as they become available.
 Usage: This is a view-like SELECT query that will evolve to include joins with sales features, targets, and derived metrics. Currently scaffolds the base inventory snapshot. The query is intended to be materialized or used as a CTE in downstream optimization processes that require a complete, feature-rich snapshot at a specific point in time.
 Parameters:
-    @snapshot_date DATE - The snapshot date for which to build the optimization-ready dataset. Must correspond to a snapshot_date that exists in cur.FactoryInventorySnapshot.
+    @snapshot_date DATE - The snapshot date for which to build the optimization-ready dataset. Must correspond to a snapshot_date that exists in [Data].[cur_FactoryInventorySnapshot].
 How to run: Execute in SSMS or via sqlcmd with @snapshot_date parameter set. For now, this returns the base inventory snapshot; TODO sections indicate where additional joins will be added.
 */
 
@@ -61,19 +61,19 @@ SELECT
     -- , CASE WHEN sales.ma_sales_4w > 0 THEN inv.on_hand_qty / (sales.ma_sales_4w / 28.0) ELSE NULL END AS days_of_supply
     -- , CASE WHEN inv.on_hand_qty < reorder_point THEN 1 ELSE 0 END AS low_stock_flag
 
-FROM cur.FactoryInventorySnapshot AS inv
+FROM [Data].[cur_FactoryInventorySnapshot] AS inv
 WHERE inv.snapshot_date = @snapshot_date
 
 -- TODO: Add LEFT JOIN statements for sales features
 -- Example (to be implemented):
--- LEFT JOIN cur.SalesFeatures AS sales
+-- LEFT JOIN [Data].[cur_SalesFeatures] AS sales
 --     ON sales.snapshot_date = inv.snapshot_date
 --    AND sales.factory_id = inv.factory_id
 --    AND sales.product_id = inv.product_id
 
 -- TODO: Add LEFT JOIN statements for targets
 -- Example (to be implemented):
--- LEFT JOIN cur.ProductTargets AS tgt
+-- LEFT JOIN [Data].[cur_ProductTargets] AS tgt
 --     ON tgt.product_id = inv.product_id
 --    AND @snapshot_date BETWEEN tgt.target_period_start AND tgt.target_period_end
 
@@ -96,7 +96,7 @@ SELECT
     COUNT(*) AS row_count,
     COUNT(DISTINCT factory_id) AS factory_count,
     COUNT(DISTINCT product_id) AS product_count
-FROM cur.FactoryInventorySnapshot
+FROM [Data].[cur_FactoryInventorySnapshot]
 WHERE snapshot_date = @snapshot_date
 GROUP BY snapshot_date;
 */
