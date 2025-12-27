@@ -180,7 +180,7 @@ BEGIN
     );
     
     -- =============================================
-    -- Final Validation: Throw error if any HARD checks failed
+    -- Final Validation: Quarantine failing rows and throw error if any HARD checks failed
     -- =============================================
     IF EXISTS (
         SELECT 1
@@ -190,8 +190,146 @@ BEGIN
           AND failed_count > 0
     )
     BEGIN
+        -- Make quarantine inserts idempotent: delete existing quarantine rows for this batch_id
+        DELETE FROM dq.Quarantine_FactoryInventory
+        WHERE batch_id = @batch_id;
+        
+        -- Quarantine rows for FI_NULL_KEYS
+        IF EXISTS (
+            SELECT 1
+            FROM dq.ValidationResult
+            WHERE batch_id = @batch_id
+              AND rule_name = N'FI_NULL_KEYS'
+              AND failed_count > 0
+        )
+        BEGIN
+            INSERT INTO dq.Quarantine_FactoryInventory (
+                batch_id,
+                reason,
+                factory_id,
+                product_id,
+                as_of_datetime,
+                on_hand_qty,
+                ingested_at
+            )
+            SELECT
+                batch_id,
+                N'FI_NULL_KEYS',
+                factory_id,
+                product_id,
+                as_of_datetime,
+                on_hand_qty,
+                ingested_at
+            FROM stg.FactoryInventory
+            WHERE batch_id = @batch_id
+              AND (factory_id IS NULL OR product_id IS NULL);
+        END;
+        
+        -- Quarantine rows for FI_NULL_QTY
+        IF EXISTS (
+            SELECT 1
+            FROM dq.ValidationResult
+            WHERE batch_id = @batch_id
+              AND rule_name = N'FI_NULL_QTY'
+              AND failed_count > 0
+        )
+        BEGIN
+            INSERT INTO dq.Quarantine_FactoryInventory (
+                batch_id,
+                reason,
+                factory_id,
+                product_id,
+                as_of_datetime,
+                on_hand_qty,
+                ingested_at
+            )
+            SELECT
+                batch_id,
+                N'FI_NULL_QTY',
+                factory_id,
+                product_id,
+                as_of_datetime,
+                on_hand_qty,
+                ingested_at
+            FROM stg.FactoryInventory
+            WHERE batch_id = @batch_id
+              AND on_hand_qty IS NULL;
+        END;
+        
+        -- Quarantine rows for FI_NEGATIVE_QTY (only if @allow_negative = 0)
+        IF @allow_negative = 0
+        AND EXISTS (
+            SELECT 1
+            FROM dq.ValidationResult
+            WHERE batch_id = @batch_id
+              AND rule_name = N'FI_NEGATIVE_QTY'
+              AND failed_count > 0
+        )
+        BEGIN
+            INSERT INTO dq.Quarantine_FactoryInventory (
+                batch_id,
+                reason,
+                factory_id,
+                product_id,
+                as_of_datetime,
+                on_hand_qty,
+                ingested_at
+            )
+            SELECT
+                batch_id,
+                N'FI_NEGATIVE_QTY',
+                factory_id,
+                product_id,
+                as_of_datetime,
+                on_hand_qty,
+                ingested_at
+            FROM stg.FactoryInventory
+            WHERE batch_id = @batch_id
+              AND on_hand_qty < 0;
+        END;
+        
+        -- Quarantine rows for FI_DUP_KEYS (all rows with duplicate keys)
+        IF EXISTS (
+            SELECT 1
+            FROM dq.ValidationResult
+            WHERE batch_id = @batch_id
+              AND rule_name = N'FI_DUP_KEYS'
+              AND failed_count > 0
+        )
+        BEGIN
+            INSERT INTO dq.Quarantine_FactoryInventory (
+                batch_id,
+                reason,
+                factory_id,
+                product_id,
+                as_of_datetime,
+                on_hand_qty,
+                ingested_at
+            )
+            SELECT
+                stg.batch_id,
+                N'FI_DUP_KEYS',
+                stg.factory_id,
+                stg.product_id,
+                stg.as_of_datetime,
+                stg.on_hand_qty,
+                stg.ingested_at
+            FROM stg.FactoryInventory stg
+            INNER JOIN (
+                SELECT factory_id, product_id
+                FROM stg.FactoryInventory
+                WHERE batch_id = @batch_id
+                GROUP BY factory_id, product_id
+                HAVING COUNT(*) > 1
+            ) AS duplicates
+                ON stg.factory_id = duplicates.factory_id
+               AND stg.product_id = duplicates.product_id
+            WHERE stg.batch_id = @batch_id;
+        END;
+        
+        -- Throw error after quarantining
         DECLARE @error_message NVARCHAR(MAX) = N'Data quality validation failed for batch_id ' + CAST(@batch_id AS NVARCHAR(20)) + 
-            N'. One or more HARD severity rule(s) failed. Check dq.ValidationResult for details.';
+            N'. One or more HARD severity rule(s) failed. Check dq.ValidationResult for details. Failing rows have been quarantined in dq.Quarantine_FactoryInventory.';
         
         THROW 50000, @error_message, 1;
     END;
