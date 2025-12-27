@@ -9,100 +9,81 @@ Parameters:
 How to run: Execute in SSMS or via sqlcmd. Should be called after validate.sql succeeds. Returns summary counts of inserted and updated rows.
 */
 
-DECLARE @batch_id BIGINT = NULL;        -- TODO: Set this parameter when calling
-DECLARE @snapshot_date DATE = NULL;     -- TODO: Set this parameter when calling
-
--- Validate parameters
-IF @batch_id IS NULL
+CREATE OR ALTER PROCEDURE etl.usp_publish_factory_inventory_snapshot
+  @batch_id BIGINT,
+  @snapshot_date DATE
+AS
 BEGIN
-    RAISERROR('@batch_id cannot be NULL. Provide a valid batch identifier.', 16, 1);
-    RETURN;
-END;
+  SET NOCOUNT ON;
 
-IF @snapshot_date IS NULL
-BEGIN
-    RAISERROR('@snapshot_date cannot be NULL. Provide a valid snapshot date.', 16, 1);
-    RETURN;
-END;
+  -- Validate parameters
+  IF @batch_id IS NULL
+    THROW 50000, '@batch_id cannot be NULL. Provide a valid batch identifier.', 1;
 
--- Table variable to capture MERGE results
-DECLARE @MergeResults TABLE (
+  IF @snapshot_date IS NULL
+    THROW 50000, '@snapshot_date cannot be NULL. Provide a valid snapshot date.', 1;
+
+  -- Guard: Ensure staging has rows for this batch
+  IF NOT EXISTS (SELECT 1 FROM stg.FactoryInventory WHERE batch_id = @batch_id)
+    THROW 50000, 'No staging data found for batch_id. This should have been caught by validation (FI_EMPTY_LOAD).', 1;
+
+  -- Table variable to capture MERGE results
+  DECLARE @MergeResults TABLE (
     ActionType NVARCHAR(10),
     snapshot_date DATE,
     factory_id INT,
     product_id INT
-);
+  );
 
--- Build source dataset: aggregate staging data by (factory_id, product_id)
--- TODO: Review aggregation rule choice based on business requirements:
---   - MAX(on_hand_qty): Use maximum quantity if multiple rows exist for same (factory_id, product_id).
---                       Appropriate when staging may contain multiple snapshots or updates, and we want
---                       the highest quantity seen during the batch load.
---   - SUM(on_hand_qty): Use sum if quantities should be additive (e.g., multiple transactions or adjustments).
---                       Appropriate when staging contains transaction-level data that should be aggregated.
---   - Alternative: Consider MAX(as_of_datetime) to pick the most recent quantity if timestamps are available.
---   Current choice: MAX(on_hand_qty) - assumes we want the peak/maximum inventory level for the snapshot.
-WITH AggregatedStaging AS (
+  -- Build source dataset: aggregate staging data by (factory_id, product_id)
+  -- Aggregation rule: MAX(on_hand_qty) - assumes we want the peak/maximum inventory level for the snapshot.
+  -- Filter out NULL keys and NULL quantities (defensive; FI_NULL_QTY validation should catch NULL quantities before this procedure runs).
+  WITH AggregatedStaging AS (
     SELECT 
-        factory_id,
-        product_id,
-        MAX(on_hand_qty) AS on_hand_qty  -- TODO: Consider changing to SUM(on_hand_qty) if additive aggregation is required
+      factory_id,
+      product_id,
+      MAX(on_hand_qty) AS on_hand_qty
     FROM stg.FactoryInventory
     WHERE batch_id = @batch_id
       AND factory_id IS NOT NULL
       AND product_id IS NOT NULL
+      AND on_hand_qty IS NOT NULL  -- Defensive filter: cur.FactoryInventorySnapshot.on_hand_qty is NOT NULL; FI_NULL_QTY validation should catch NULLs before publish
     GROUP BY factory_id, product_id
-)
--- MERGE into curated snapshot table
-MERGE cur.FactoryInventorySnapshot AS target
-USING AggregatedStaging AS source
+  )
+  -- MERGE into curated snapshot table
+  MERGE cur.FactoryInventorySnapshot AS target
+  USING AggregatedStaging AS source
     ON target.snapshot_date = @snapshot_date
    AND target.factory_id = source.factory_id
    AND target.product_id = source.product_id
-WHEN MATCHED THEN
+  WHEN MATCHED THEN
     UPDATE SET
-        on_hand_qty = source.on_hand_qty,
-        batch_id = @batch_id
-        -- Note: created_at is not updated to preserve original creation timestamp
-WHEN NOT MATCHED BY TARGET THEN
+      on_hand_qty = source.on_hand_qty,
+      batch_id = @batch_id
+      -- Note: created_at is not updated to preserve original creation timestamp
+  WHEN NOT MATCHED BY TARGET THEN
     INSERT (snapshot_date, factory_id, product_id, on_hand_qty, batch_id)
     VALUES (@snapshot_date, source.factory_id, source.product_id, source.on_hand_qty, @batch_id)
-OUTPUT 
+  OUTPUT 
     $action AS ActionType,
     inserted.snapshot_date,
     inserted.factory_id,
     inserted.product_id
-INTO @MergeResults;
+  INTO @MergeResults;
 
--- Return summary counts
-SELECT 
-    ActionType,
-    COUNT(*) AS row_count
-FROM @MergeResults
-GROUP BY ActionType
-
-UNION ALL
-
-SELECT 
-    N'TOTAL' AS ActionType,
-    COUNT(*) AS row_count
-FROM @MergeResults
-
-ORDER BY 
-    CASE ActionType
-        WHEN 'INSERT' THEN 1
-        WHEN 'UPDATE' THEN 2
-        WHEN 'TOTAL' THEN 3
-        ELSE 4
-    END;
+  -- Return summary counts
+  SELECT 
+    SUM(CASE WHEN ActionType = 'INSERT' THEN 1 ELSE 0 END) AS rows_inserted,
+    SUM(CASE WHEN ActionType = 'UPDATE' THEN 1 ELSE 0 END) AS rows_updated,
+    COUNT(*) AS total
+  FROM @MergeResults;
+END
 
 /*
 Example Execution:
 
 -- Example 1: Publish batch 123 for snapshot date 2024-01-15
-DECLARE @batch_id BIGINT = 123;
-DECLARE @snapshot_date DATE = '2024-01-15';
--- Then execute the entire script
+EXEC etl.usp_publish_factory_inventory_snapshot @batch_id = 123, @snapshot_date = '2024-01-15';
 
 -- Example 2: Verify published data
 SELECT 
@@ -150,8 +131,7 @@ WHERE cur.snapshot_date = '2024-01-15'
   AND stg.factory_id IS NULL;
 
 -- Example 4: Rerun publish (idempotent - will update if data changed, no-op if unchanged)
-DECLARE @batch_id BIGINT = 123;
-DECLARE @snapshot_date DATE = '2024-01-15';
--- Execute script again - safe to rerun
+EXEC etl.usp_publish_factory_inventory_snapshot @batch_id = 123, @snapshot_date = '2024-01-15';
+-- Safe to rerun - will update existing records or leave unchanged if data is identical
 */
 
