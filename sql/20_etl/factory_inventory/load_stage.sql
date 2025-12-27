@@ -11,7 +11,8 @@ How to run: Execute in SSMS or via sqlcmd. Should be called after starting a bat
 -- Column Mapping Reference
 -- =============================================
 -- This section documents the assumed source column names and their mapping to staging columns.
--- TODO: Verify and update the source column names in the INSERT...SELECT below if they differ.
+-- IMPORTANT: The source column names in the INSERT...SELECT below are PLACEHOLDERS.
+-- You MUST update them to match the actual source table schema before using this procedure.
 --
 -- Source Table: [DWOrchid].[dbo].[FactFactoryInventory]
 -- Staging Table: stg.FactoryInventory
@@ -30,38 +31,29 @@ How to run: Execute in SSMS or via sqlcmd. Should be called after starting a bat
 --   On Hand Qty: OnHandQty, OnHandQuantity, on_hand_qty, On_Hand_Qty, Quantity, Qty
 -- =============================================
 
-DECLARE @batch_id BIGINT = NULL;  -- TODO: Set this parameter when calling (e.g., from stored procedure or variable)
-
--- Validate @batch_id is provided
-IF @batch_id IS NULL
+CREATE OR ALTER PROCEDURE etl.usp_load_stage_factory_inventory
+  @batch_id BIGINT
+AS
 BEGIN
-    RAISERROR('@batch_id cannot be NULL. Provide a valid batch identifier.', 16, 1);
-    RETURN;
-END;
+  SET NOCOUNT ON;
 
--- Insert rows from source into staging, tagged with the provided batch_id
-INSERT INTO stg.FactoryInventory (
-    batch_id,
-    factory_id,
-    product_id,
-    as_of_datetime,
-    on_hand_qty
-)
-SELECT 
-    @batch_id AS batch_id,
-    -- TODO: Replace placeholder column names with actual source column names
-    -- Example mappings (uncomment and adapt):
-    -- CAST([FactoryId] AS INT) AS factory_id,
-    -- CAST([ProductId] AS INT) AS product_id,
-    -- CAST([AsOfDateTime] AS DATETIME2) AS as_of_datetime,
-    -- CAST([OnHandQty] AS DECIMAL(18, 3)) AS on_hand_qty
-    CAST([factory_id] AS INT) AS factory_id,                    -- TODO: Update to actual source column
-    CAST([product_id] AS INT) AS product_id,                    -- TODO: Update to actual source column
-    CAST([as_of_datetime] AS DATETIME2) AS as_of_datetime,      -- TODO: Update to actual source column
-    CAST([on_hand_qty] AS DECIMAL(18, 3)) AS on_hand_qty        -- TODO: Update to actual source column
-FROM 
-    [DWOrchid].[dbo].[FactFactoryInventory];
+  -- Validate @batch_id
+  IF @batch_id IS NULL
+    THROW 50000, '@batch_id cannot be NULL. Provide a valid batch identifier.', 1;
 
--- Return the number of rows inserted for this batch
-SELECT @@ROWCOUNT AS inserted_rows;
+  -- Rerun-safe: delete any existing staging rows for this batch_id
+  DELETE FROM stg.FactoryInventory WHERE batch_id = @batch_id;
+
+  -- Insert from source table into staging
+  INSERT INTO stg.FactoryInventory (batch_id, factory_id, product_id, as_of_datetime, on_hand_qty)
+  SELECT
+    @batch_id,
+    CAST([factory_id] AS INT)      AS factory_id,
+    CAST([product_id] AS INT)      AS product_id,
+    CAST([as_of_datetime] AS DATETIME2) AS as_of_datetime,
+    CAST([on_hand_qty] AS DECIMAL(18,3)) AS on_hand_qty
+  FROM [DWOrchid].[dbo].[FactFactoryInventory];
+
+  SELECT @@ROWCOUNT AS inserted_rows;
+END
 
