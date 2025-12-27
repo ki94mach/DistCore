@@ -23,6 +23,10 @@ USING (
     SELECT N'FI_EMPTY_LOAD', N'stg.FactoryInventory', N'HARD', 
            N'Validates that at least one row was loaded for the batch. Prevents empty data loads that may indicate ETL pipeline failures.', 
            1
+    UNION ALL
+    SELECT N'FI_NULL_QTY', N'stg.FactoryInventory', N'HARD', 
+           N'Validates that on_hand_qty is not NULL for any row in the batch. Prevents curated NOT NULL violations.', 
+           1
 ) AS source
 ON target.rule_name = source.rule_name
 WHEN MATCHED THEN
@@ -45,7 +49,7 @@ SELECT
     is_enabled,
     created_at
 FROM dq.RuleCatalog
-WHERE rule_name IN (N'FI_NULL_KEYS', N'FI_NEGATIVE_QTY', N'FI_DUP_KEYS', N'FI_EMPTY_LOAD')
+WHERE rule_name IN (N'FI_NULL_KEYS', N'FI_NEGATIVE_QTY', N'FI_DUP_KEYS', N'FI_EMPTY_LOAD', N'FI_NULL_QTY')
 ORDER BY rule_name;
 
 /*
