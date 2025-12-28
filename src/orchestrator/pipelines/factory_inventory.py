@@ -1,31 +1,27 @@
-import abc
+from base_pipeline import BaseETLPipeline
 
-class BaseETLPipeline(abc.ABC):
+class FactoryInventoryPipeline(BaseETLPipeline):
     """
-    Base class for all ETL pipelines.
+    Pipeline for the factory inventory.
     """
-    @abc.abstractmethod
     def load_stage(self):
         """
         Load the data into the stage.
         """
         pass
     
-    @abc.abstractmethod
     def validate(self):
         """
         Validate the data in the stage.
         """
         pass
     
-    @abc.abstractmethod
     def publish(self):
         """
         Publish the data to the target.
         """
         pass
     
-    @abc.abstractmethod
     def run(self):
         """
         Run the ETL pipeline.
