@@ -4,7 +4,7 @@ graph LR
   subgraph Sources["Data sources"]
     direction TB
     HDI["Historical Distrubutor Inventory<br> [DWOrchid].[dbo].[FactInventoryHistorical]"]
-    CFI["Current Factory Inventory<br> [DWOrchid].[dbo].[FactFactoryInventory]"]
+    CFI["Current Factory Inventory<br> [DWOrchid].[dbo].[FactInventory]"]
     CMS["Current Month Sales<br>[DWOrchid].[dbo].[Flat_Fact_Sale]"]
     SH6M["Sales History (Last 6 Months) <br> [DWOrchid].[dbo].[Flat_Fact_Sale]"]
     DT["Distributor Target<br> [Iris_DW].[import].[Data0_Main_SC_Distributors_Target_Template]"]

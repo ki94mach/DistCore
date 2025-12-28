@@ -17,7 +17,7 @@ BEGIN
         as_of_datetime DATE NULL,
         on_hand_qty BIGINT NULL,
         source_system NVARCHAR(50) NULL CONSTRAINT DF_FactoryInventory_source_system DEFAULT N'DWOrchid',
-        source_table NVARCHAR(128) NULL CONSTRAINT DF_FactoryInventory_source_table DEFAULT N'dbo.FactFactoryInventory',
+        source_table NVARCHAR(128) NULL CONSTRAINT DF_FactoryInventory_source_table DEFAULT N'dbo.FactInventory',
         row_hash VARBINARY(32) NULL
     );
 END;
