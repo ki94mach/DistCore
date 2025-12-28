@@ -16,7 +16,8 @@ BEGIN
         from_factory_id INT NULL,
         to_distributor_id INT NULL,
         product_id INT NOT NULL,
-        qty DECIMAL(18, 3) NOT NULL,
+        product_batch_no NVARCHAR(200) NULL,
+        qty BIGINT NOT NULL,
         created_at DATETIME2 NOT NULL CONSTRAINT DF_OptimizationDecision_created_at DEFAULT SYSUTCDATETIME()
         
         -- TODO: Add foreign key constraint to [Data].[opt_RunRegistry] once table relationship is confirmed
@@ -35,16 +36,16 @@ BEGIN
 END;
 GO
 
--- Composite index on (run_id, product_id) for efficient lookups by run and product
+-- Composite index on (run_id, product_id, product_batch_no) for efficient lookups by run and product
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
     WHERE i.object_id = OBJECT_ID(N'[Data].[opt_OptimizationDecision]', 'U')
-      AND i.name = N'IX_OptimizationDecision_RunId_ProductId'
+      AND i.name = N'IX_OptimizationDecision_RunId_ProductId_ProductBatchNo'
 )
 BEGIN
-    CREATE NONCLUSTERED INDEX IX_OptimizationDecision_RunId_ProductId
-        ON [Data].[opt_OptimizationDecision] (run_id, product_id);
+    CREATE NONCLUSTERED INDEX IX_OptimizationDecision_RunId_ProductId_ProductBatchNo
+        ON [Data].[opt_OptimizationDecision] (run_id, product_id, product_batch_no);
 END;
 GO
 
@@ -59,10 +60,11 @@ Example Usage:
 
 -- Example 1: Insert optimization decisions for a run
 -- Note: In practice, this would typically be done via bulk insert or from the solver output
-INSERT INTO [Data].[opt_OptimizationDecision] (run_id, decision_type, from_factory_id, to_distributor_id, product_id, qty)
+INSERT INTO [Data].[opt_OptimizationDecision] (run_id, decision_type, from_factory_id, to_distributor_id, product_id, product_batch_no, qty)
 VALUES 
     (1, N'ALLOCATE', 101, 201, 1001, 500.000),
     (1, N'ALLOCATE', 101, 202, 1001, 300.000),
+    (1, N'ALLOCATE', 101, 202, 1001, N'BATCH1', 300.000),
     (1, N'TRANSFER', 102, NULL, 1002, 200.000);
 
 -- Example 2: Query decisions for a specific run
@@ -73,23 +75,25 @@ SELECT
     from_factory_id,
     to_distributor_id,
     product_id,
+    product_batch_no,
     qty,
     created_at
 FROM [Data].[opt_OptimizationDecision]
 WHERE run_id = 1
-ORDER BY product_id, decision_type;
+ORDER BY product_id, product_batch_no, decision_type;
 
 -- Example 3: Aggregate decisions by product for a run
 SELECT 
     run_id,
     product_id,
+    product_batch_no,
     decision_type,
     SUM(qty) AS total_qty,
     COUNT(*) AS decision_count
 FROM [Data].[opt_OptimizationDecision]
 WHERE run_id = 1
-GROUP BY run_id, product_id, decision_type
-ORDER BY product_id, decision_type;
+GROUP BY run_id, product_id, product_batch_no, decision_type
+ORDER BY product_id, product_batch_no, decision_type;
 
 -- Example 4: Join with RunRegistry to get run context
 SELECT 
@@ -99,12 +103,11 @@ SELECT
     r.status AS run_status,
     d.decision_type,
     d.product_id,
+    d.product_batch_no,
     d.qty,
     d.created_at
 FROM [Data].[opt_OptimizationDecision] AS d
 INNER JOIN [Data].[opt_RunRegistry] AS r
     ON d.run_id = r.run_id
 WHERE r.snapshot_date = '2024-01-15'
-ORDER BY d.product_id, d.decision_type;
-*/
-
+ORDER BY d.decision_type, d.product_id, d.product_batch_no;

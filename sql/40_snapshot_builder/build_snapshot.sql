@@ -22,6 +22,7 @@ SELECT
     inv.snapshot_date,
     inv.factory_id,
     inv.product_id,
+    inv.product_batch_no,
     inv.on_hand_qty,
     inv.batch_id,
     inv.created_at

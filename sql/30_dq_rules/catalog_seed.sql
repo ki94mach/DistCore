@@ -9,7 +9,7 @@ How to run: Execute in SSMS or via sqlcmd against the target database. Should be
 MERGE [Data].[dq_RuleCatalog] AS target
 USING (
     SELECT N'FI_NULL_KEYS' AS rule_name, N'Data.stg_FactoryInventory' AS target_object, N'HARD' AS severity, 
-           N'Validates that factory_id and product_id are not NULL. Ensures key columns are populated for referential integrity and data completeness.' AS description, 
+           N'Validates that factory_id, product_id, and product_batch_no are not NULL. Ensures key columns are populated for referential integrity and data completeness.' AS description, 
            1 AS is_enabled
     UNION ALL
     SELECT N'FI_NEGATIVE_QTY', N'Data.stg_FactoryInventory', N'HARD', 
@@ -17,7 +17,7 @@ USING (
            1
     UNION ALL
     SELECT N'FI_DUP_KEYS', N'Data.stg_FactoryInventory', N'HARD', 
-           N'Validates that there are no duplicate (factory_id, product_id) combinations within a batch. Ensures data uniqueness for snapshot creation.', 
+           N'Validates that there are no duplicate (factory_id, product_id, product_batch_no) combinations within a batch. Ensures data uniqueness for snapshot creation.', 
            1
     UNION ALL
     SELECT N'FI_EMPTY_LOAD', N'Data.stg_FactoryInventory', N'HARD', 

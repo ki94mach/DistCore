@@ -13,8 +13,9 @@ BEGIN
         ingested_at DATETIME2 NOT NULL CONSTRAINT DF_FactoryInventory_ingested_at DEFAULT SYSUTCDATETIME(),
         factory_id INT NULL,
         product_id INT NULL,
-        as_of_datetime DATETIME2 NULL,
-        on_hand_qty DECIMAL(18, 3) NULL,
+        product_batch_no NVARCHAR(200) NULL,
+        as_of_datetime DATE NULL,
+        on_hand_qty BIGINT NULL,
         source_system NVARCHAR(50) NULL CONSTRAINT DF_FactoryInventory_source_system DEFAULT N'DWOrchid',
         source_table NVARCHAR(128) NULL CONSTRAINT DF_FactoryInventory_source_table DEFAULT N'dbo.FactFactoryInventory',
         row_hash VARBINARY(32) NULL

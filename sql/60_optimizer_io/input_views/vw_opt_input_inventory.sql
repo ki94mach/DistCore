@@ -12,6 +12,7 @@ SELECT
     snapshot_date,
     factory_id,
     product_id,
+    product_batch_no,
     on_hand_qty
     
     -- TODO: Future columns to be added as source tables become available:
@@ -39,6 +40,7 @@ SELECT
     snapshot_date,
     factory_id,
     product_id,
+    product_batch_no,
     on_hand_qty
 FROM [Data].[opt_vw_opt_input_inventory]
 WHERE snapshot_date = '2024-01-15'

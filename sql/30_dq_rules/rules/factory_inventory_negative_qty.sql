@@ -28,13 +28,14 @@ SELECT TOP 50
     batch_id,
     factory_id,
     product_id,
+    product_batch_no,
     as_of_datetime,
     on_hand_qty,
     ingested_at
 FROM [Data].[stg_FactoryInventory]
 WHERE batch_id = @batch_id
   AND on_hand_qty < 0
-ORDER BY factory_id, product_id;
+ORDER BY factory_id, product_id, product_batch_no;
 
 /*
 Example Execution:
@@ -48,6 +49,7 @@ SELECT
     batch_id,
     factory_id,
     product_id,
+    product_batch_no,
     on_hand_qty,
     CASE 
         WHEN on_hand_qty < 0 THEN 'NEGATIVE'
@@ -56,5 +58,5 @@ SELECT
     END AS qty_status
 FROM [Data].[stg_FactoryInventory]
 WHERE batch_id = 123
-ORDER BY on_hand_qty, factory_id, product_id;
+ORDER BY on_hand_qty, factory_id, product_id, product_batch_no;
 */

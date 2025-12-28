@@ -271,6 +271,7 @@ BEGIN
                 reason,
                 factory_id,
                 product_id,
+                product_batch_no,
                 as_of_datetime,
                 on_hand_qty,
                 ingested_at
@@ -280,6 +281,7 @@ BEGIN
                 N'FI_NEGATIVE_QTY',
                 factory_id,
                 product_id,
+                product_batch_no,
                 as_of_datetime,
                 on_hand_qty,
                 ingested_at
@@ -302,6 +304,7 @@ BEGIN
                 reason,
                 factory_id,
                 product_id,
+                product_batch_no,
                 as_of_datetime,
                 on_hand_qty,
                 ingested_at
@@ -311,19 +314,21 @@ BEGIN
                 N'FI_DUP_KEYS',
                 stg.factory_id,
                 stg.product_id,
+                stg.product_batch_no,
                 stg.as_of_datetime,
                 stg.on_hand_qty,
                 stg.ingested_at
             FROM [Data].[stg_FactoryInventory] stg
             INNER JOIN (
-                SELECT factory_id, product_id
+                SELECT factory_id, product_id, product_batch_no
                 FROM [Data].[stg_FactoryInventory]
                 WHERE batch_id = @batch_id
-                GROUP BY factory_id, product_id
+                GROUP BY factory_id, product_id, product_batch_no
                 HAVING COUNT(*) > 1
             ) AS duplicates
                 ON stg.factory_id = duplicates.factory_id
                AND stg.product_id = duplicates.product_id
+               AND stg.product_batch_no = duplicates.product_batch_no
             WHERE stg.batch_id = @batch_id;
         END;
         

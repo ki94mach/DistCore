@@ -13,10 +13,11 @@ BEGIN
         snapshot_date DATE NOT NULL,
         factory_id INT NOT NULL,
         product_id INT NOT NULL,
-        on_hand_qty DECIMAL(18, 3) NOT NULL,
+        product_batch_no NVARCHAR(200) NULL,
+        on_hand_qty BIGINT NULL,
         batch_id BIGINT NOT NULL,
         created_at DATETIME2 NOT NULL CONSTRAINT DF_FactoryInventorySnapshot_created_at DEFAULT SYSUTCDATETIME(),
-        CONSTRAINT PK_FactoryInventorySnapshot PRIMARY KEY (snapshot_date, factory_id, product_id)
+        CONSTRAINT PK_FactoryInventorySnapshot PRIMARY KEY (snapshot_date, factory_id, product_id, product_batch_no)
     );
 END;
 GO

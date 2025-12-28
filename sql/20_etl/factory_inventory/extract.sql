@@ -10,30 +10,17 @@ How to run: Execute in SSMS or via sqlcmd. Can be used as part of an ETL pipelin
 
 DECLARE @since DATETIME2 = NULL;  -- Set to a specific datetime for incremental extraction, or NULL for full load
 
--- TODO: Verify and adapt column names to match the actual source table structure
---       If column names differ from the aliases below, update the SELECT clause accordingly.
---       Common variations might include:
---       - FactoryId vs FactoryID vs factory_id
---       - ProductId vs ProductID vs product_id
---       - AsOfDateTime vs AsOfDate vs as_of_datetime
---       - OnHandQty vs OnHandQuantity vs on_hand_qty
+
 
 SELECT 
-    -- TODO: Replace placeholder_column_name with actual source column name
-    -- Example: FactoryId AS factory_id,
-    --          ProductId AS product_id,
-    --          AsOfDateTime AS as_of_datetime,
-    --          OnHandQty AS on_hand_qty
-    [factory_id] AS factory_id,          -- TODO: Update to actual source column (e.g., FactoryId)
-    [product_id] AS product_id,          -- TODO: Update to actual source column (e.g., ProductId)
-    [as_of_datetime] AS as_of_datetime,  -- TODO: Update to actual source column (e.g., AsOfDateTime)
-    [on_hand_qty] AS on_hand_qty         -- TODO: Update to actual source column (e.g., OnHandQty)
-FROM 
-    [DWOrchid].[dbo].[FactFactoryInventory]
-WHERE 
-    -- Optional incremental filter: uncomment and adapt based on actual source table structure
-    -- TODO: Replace ModifiedAt with the actual column name that tracks record changes (e.g., ModifiedDate, UpdatedAt, LastModified)
-    -- (@since IS NULL OR ModifiedAt >= @since)
-    1=1  -- Placeholder: remove this and uncomment the incremental filter above when ready
-;
 
+    [FkVendor] AS factory_id,
+    [FKProduct] AS product_id,
+    [BatchNo] AS product_batch_no,
+    [FKDate] AS as_of_datetime,
+    [DQty] AS on_hand_qty
+FROM 
+    [DWOrchid].[dbo].[FactInventory]
+WHERE 
+    (@since IS NULL OR [FKDate] >= @since)
+    AND [FKDate] IS NOT NULL;

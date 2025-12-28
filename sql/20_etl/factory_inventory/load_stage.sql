@@ -20,16 +20,12 @@ How to run: Execute via EXEC [Data].[etl_usp_load_stage_factory_inventory] @batc
 --
 -- Mapping:
 --   batch_id              -> @batch_id (parameter, applied to all rows)
---   [SourceColumn]        -> factory_id (INT)
---   [SourceColumn]        -> product_id (INT)
---   [SourceColumn]        -> as_of_datetime (DATETIME2)
---   [SourceColumn]        -> on_hand_qty (DECIMAL(18, 3))
+--   [FKVendor]        -> factory_id (INT)
+--   [FKProduct]        -> product_id (INT)
+--   [BatchNo]        -> product_batch_no (NVARCHAR(200))
+--   [FKDate]        -> as_of_datetime (DATE)
+--   [DQty]        -> on_hand_qty (BIGINT)
 --
--- Common source column name variations to check:
---   Factory ID: FactoryId, FactoryID, factory_id, Factory_Id
---   Product ID: ProductId, ProductID, product_id, Product_Id
---   As Of DateTime: AsOfDateTime, AsOfDate, as_of_datetime, As_Of_DateTime, SnapshotDate
---   On Hand Qty: OnHandQty, OnHandQuantity, on_hand_qty, On_Hand_Qty, Quantity, Qty
 -- =============================================
 
 CREATE OR ALTER PROCEDURE [Data].[etl_usp_load_stage_factory_inventory]
@@ -48,17 +44,17 @@ BEGIN
     DELETE FROM [Data].[stg_FactoryInventory] WHERE batch_id = @batch_id;
     
     -- Insert from source table into staging
-    -- TODO: Replace placeholder column names with actual source table column names
-    --       Verify the actual column names in [DWOrchid].[dbo].[FactFactoryInventory]
-    --       Common variations: FactoryId, FactoryID, ProductId, ProductID, AsOfDateTime, OnHandQty, etc.
-    INSERT INTO [Data].[stg_FactoryInventory] (batch_id, factory_id, product_id, as_of_datetime, on_hand_qty)
+
+    INSERT INTO [Data].[stg_FactoryInventory] (batch_id, factory_id, product_id, product_batch_no, as_of_datetime, on_hand_qty)
     SELECT
         @batch_id,
-        CAST([factory_id] AS INT)      AS factory_id,          -- TODO: Replace [factory_id] with actual source column name
-        CAST([product_id] AS INT)      AS product_id,          -- TODO: Replace [product_id] with actual source column name
-        CAST([as_of_datetime] AS DATETIME2) AS as_of_datetime, -- TODO: Replace [as_of_datetime] with actual source column name
-        CAST([on_hand_qty] AS DECIMAL(18,3)) AS on_hand_qty    -- TODO: Replace [on_hand_qty] with actual source column name
-    FROM [DWOrchid].[dbo].[FactFactoryInventory];
+        CAST([FKVendor] AS INT)      AS factory_id,         
+        CAST([FKProduct] AS INT)      AS product_id,         
+        CAST([BatchNo] AS NVARCHAR(200)) AS product_batch_no,
+        CAST([FKDate] AS DATE) AS as_of_datetime,
+        CAST([DQty] AS BIGINT) AS on_hand_qty    
+    FROM [DWOrchid].[dbo].[FactInventory]
+    WHERE [FKDate] IS NOT NULL;
     
     -- Return result set with inserted row count
     SELECT @@ROWCOUNT AS inserted_rows;
