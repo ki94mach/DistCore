@@ -21,3 +21,4 @@
 *.err
 *.out
 *.env
+*.pyc

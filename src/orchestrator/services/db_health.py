@@ -1,12 +1,14 @@
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 from .db import DBConnectionFactory
+from .db.health import ConnectionHealthChecker
 
 
 class DatabaseHealthChecker:
     """
-    Health checker for database connections.
-    Provides methods to verify database connectivity and performance.
+    High-level health checker for database connections.
+    Provides comprehensive health monitoring with timeouts, summaries, and performance metrics.
+    Uses ConnectionHealthChecker internally for connection validation.
     """
     
     def __init__(self, factory: Optional[DBConnectionFactory] = None):
@@ -17,6 +19,7 @@ class DatabaseHealthChecker:
             factory: Optional DBConnectionFactory instance. If None, creates a new one.
         """
         self.factory = factory or DBConnectionFactory()
+        self._connection_health_checker = ConnectionHealthChecker()
     
     def check_health(self, database_type: str = 'source', timeout: float = 5.0) -> Dict[str, any]:
         """
@@ -44,25 +47,24 @@ class DatabaseHealthChecker:
         }
         
         try:
-            # Attempt to get a connection
-            connection = self.factory.get_connection(database_type)
-            
-            # Perform a simple query to verify the connection works
-            cursor = connection.cursor()
-            cursor.execute("SELECT 1")
-            cursor.fetchone()
-            cursor.close()
-            connection.close()
-            
-            # Calculate response time
-            elapsed_time = time.time() - start_time
-            result['response_time_ms'] = round(elapsed_time * 1000, 2)
-            
-            # Check if within timeout
-            if elapsed_time <= timeout:
-                result['status'] = 'healthy'
-            else:
-                result['error'] = f"Health check exceeded timeout of {timeout}s"
+            # Use context manager to ensure connection is returned to pool
+            with self.factory.connection(database_type) as connection:
+                # Use ConnectionHealthChecker to validate connection
+                is_alive = self._connection_health_checker.is_connection_alive(connection)
+                
+                if not is_alive:
+                    result['error'] = "Connection is not alive"
+                    return result
+                
+                # Calculate response time
+                elapsed_time = time.time() - start_time
+                result['response_time_ms'] = round(elapsed_time * 1000, 2)
+                
+                # Check if within timeout
+                if elapsed_time <= timeout:
+                    result['status'] = 'healthy'
+                else:
+                    result['error'] = f"Health check exceeded timeout of {timeout}s"
             
         except Exception as e:
             elapsed_time = time.time() - start_time
@@ -86,10 +88,11 @@ class DatabaseHealthChecker:
             return {}
         
         results = {}
-        # Get all database types (excluding driver, username, password)
+        # Get all database types (excluding config keys that are not database types)
+        config_keys_to_exclude = {'driver', 'username', 'password', 'use_windows_auth'}
         db_types = [
             key for key in config['databases'].keys() 
-            if key not in ['driver', 'username', 'password']
+            if key not in config_keys_to_exclude
         ]
         
         for db_type in db_types:
