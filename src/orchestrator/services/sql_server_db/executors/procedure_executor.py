@@ -208,7 +208,7 @@ class ProcedureExecutor:
     @staticmethod
     def _create_error(procedure_name: str, original_error: pyodbc.Error) -> pyodbc.Error:
         """Create a descriptive error message."""
-        return pyodbc.Error(
-            f"Failed to execute procedure {procedure_name}: {str(original_error)}"
-        ) from original_error
-
+        error_msg = f"Failed to execute procedure {procedure_name}: {str(original_error)}"
+        new_error = pyodbc.Error(error_msg)
+        new_error.__cause__ = original_error
+        return new_error
