@@ -4,12 +4,26 @@ import sys
 from pathlib import Path
 from datetime import date
 
-# Add src/orchestrator to path
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root / 'src' / 'orchestrator'))
-sys.path.insert(0, str(project_root / 'src'))
+# Add project root to Python path so 'src' module can be found
+# Get the absolute path of this script
+_current_file = Path(__file__).resolve()
+# This script is in scripts/, so parent.parent gets us to project root
+_project_root = _current_file.parent.parent
 
-from pipelines.factory_inventory import FactoryInventoryPipeline
+# Add to sys.path if not already there
+_project_root_str = str(_project_root)
+if _project_root_str not in sys.path:
+    sys.path.insert(0, _project_root_str)
+
+# Verify we can find src directory
+_src_dir = _project_root / 'src'
+if not _src_dir.exists():
+    raise RuntimeError(
+        f"Cannot find 'src' directory at {_src_dir}. "
+        f"Project root resolved to: {_project_root}"
+    )
+
+from src.orchestrator.pipelines.factory_inventory import FactoryInventoryPipeline
 
 
 def main():

@@ -1,7 +1,14 @@
 """Integration tests for FactoryInventoryPipeline (requires database)."""
 
 import unittest
+import sys
+from pathlib import Path
 from datetime import date
+
+# Add project root to Python path
+_project_root = Path(__file__).resolve().parent.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
 from src.orchestrator.pipelines.factory_inventory import FactoryInventoryPipeline
 from src.orchestrator.services.sql_server_db.factory import DBConnectionFactory
