@@ -13,7 +13,7 @@ BEGIN
         snapshot_date DATE NOT NULL,
         factory_id INT NOT NULL,
         product_id INT NOT NULL,
-        product_batch_no NVARCHAR(200) NULL,
+        product_batch_no NVARCHAR(200) NOT NULL,
         on_hand_qty BIGINT NULL,
         batch_id BIGINT NOT NULL,
         created_at DATETIME2 NOT NULL CONSTRAINT DF_FactoryInventorySnapshot_created_at DEFAULT SYSUTCDATETIME(),

@@ -87,6 +87,7 @@ END;
 GO
 
 -- Optional FK from [Data].[dq_ValidationResult].rule_name to [Data].[dq_RuleCatalog].rule_name
+-- Wrapped in TRY-CATCH to handle permission errors gracefully
 IF OBJECT_ID(N'[Data].[dq_RuleCatalog]', 'U') IS NOT NULL
 AND OBJECT_ID(N'[Data].[dq_ValidationResult]', 'U') IS NOT NULL
 AND NOT EXISTS (
@@ -96,9 +97,16 @@ AND NOT EXISTS (
       AND fk.name = N'FK_ValidationResult_RuleCatalog'
 )
 BEGIN
-    ALTER TABLE [Data].[dq_ValidationResult]
-        ADD CONSTRAINT FK_ValidationResult_RuleCatalog
-        FOREIGN KEY (rule_name) REFERENCES [Data].[dq_RuleCatalog] (rule_name);
+    BEGIN TRY
+        ALTER TABLE [Data].[dq_ValidationResult]
+            ADD CONSTRAINT FK_ValidationResult_RuleCatalog
+            FOREIGN KEY (rule_name) REFERENCES [Data].[dq_RuleCatalog] (rule_name);
+    END TRY
+    BEGIN CATCH
+        -- Silently skip if permission denied or other constraint creation errors
+        -- This is an optional constraint, so failure is acceptable
+        PRINT 'Warning: Could not create FK_ValidationResult_RuleCatalog constraint (permissions or other issue). Skipping.';
+    END CATCH
 END;
 GO
 

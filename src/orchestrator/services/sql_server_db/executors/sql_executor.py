@@ -101,7 +101,7 @@ class SQLExecutor:
     def execute_sql_file(
         self,
         sql_file_path: Union[str, Path],
-        database_type: str = 'source',
+        database_type: str,
         parameters: Optional[Dict[str, str]] = None
     ) -> Optional[List[Dict[str, Any]]]:
         """
