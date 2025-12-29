@@ -1,4 +1,4 @@
-from db import DBConnectionFactory
+from sql_server_db import DBConnectionFactory
 
 factory = DBConnectionFactory()
 

@@ -1,7 +1,7 @@
 import time
 from typing import Dict, Optional
-from .db import DBConnectionFactory
-from .db.health import ConnectionHealthChecker
+from .sql_server_db import DBConnectionFactory
+from .sql_server_db.health import ConnectionHealthChecker
 
 
 class DatabaseHealthChecker:
