@@ -1,4 +1,4 @@
-from base_pipeline import BaseETLPipeline
+from src.orchestrator.pipelines.base_pipeline import BaseETLPipeline
 
 class FactoryInventoryPipeline(BaseETLPipeline):
     """
