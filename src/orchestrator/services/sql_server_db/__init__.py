@@ -35,6 +35,7 @@ Usage Examples:
 
 from .factory import DBConnectionFactory
 from .context import ConnectionContextManager
+from .executors.sql_executor import SQLExecutor
 
-__all__ = ['DBConnectionFactory', 'ConnectionContextManager']
+__all__ = ['DBConnectionFactory', 'ConnectionContextManager', 'SQLExecutor']
 
