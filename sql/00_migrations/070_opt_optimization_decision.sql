@@ -111,3 +111,5 @@ INNER JOIN [Data].[opt_RunRegistry] AS r
     ON d.run_id = r.run_id
 WHERE r.snapshot_date = '2024-01-15'
 ORDER BY d.decision_type, d.product_id, d.product_batch_no;
+*/
+

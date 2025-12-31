@@ -82,3 +82,4 @@ ORDER BY severity, rule_name;
 -- Example 3: Re-run seed (idempotent - safe to execute multiple times)
 -- Execute the entire script again - will update if metadata changed, no-op if unchanged
 */
+

@@ -4,14 +4,14 @@ This repository organizes T-SQL assets by execution phase and purpose. Follow th
 
 ## Folder purpose (top-level)
 
-- `00_migrations`: schema changes and reference data seeds; files prefixed with ordered numbers (e.g., `001_create_tables.sql`).
-- `10_routines`: stored procedures, functions, and views that depend on schema being in place.
-- `20_etl`: batch and snapshot load scripts; orchestrated after routines exist.
-- `30_dq_rules`: data-quality checks (profiling, constraints, exception logging).
-- `40_snapshot_builder`: logic to assemble curated snapshots from staged data.
+- `00_migrations`: schema changes (tables, indexes) and reference data seeds; files prefixed with ordered numbers (e.g., `001_create_tables.sql`). All table creation scripts belong here.
+- `10_routines`: stored procedures, functions, and views that depend on schema being in place. **All stored procedures go in `10_routines/procedures/`, regardless of their purpose (ETL, reporting, optimization, etc.).**
+- `20_etl`: batch and snapshot load scripts (queries, templates); orchestrated after routines exist. Contains extraction queries and ETL templates used by pipelines.
+- `30_dq_rules`: data-quality check queries and rule definitions (profiling, constraints, exception logging). Rule catalog seeds go in `00_migrations`.
+- `40_snapshot_builder`: logic to assemble curated snapshots from staged data. If implemented as stored procedures, place them in `10_routines/procedures/`.
 - `50_policy`: policy- or rules-engine artifacts that drive downstream logic.
-- `60_optimizer_io`: performance helpers (indexes, stats refresh, IO tuning).
-- `90_reporting`: reporting/serving layer objects.
+- `60_optimizer_io`: performance helpers (indexes, stats refresh, IO tuning) and optimizer input/output views. Table creation scripts go in `00_migrations`.
+- `90_reporting`: reporting/serving layer views and queries. Stored procedures go in `10_routines/procedures/`.
 - `_archive`: retired or historical scripts; not executed automatically.
 
 ## Execution order

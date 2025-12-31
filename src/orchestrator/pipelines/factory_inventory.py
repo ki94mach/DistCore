@@ -1,3 +1,5 @@
+import signal
+import sys
 from typing import Optional
 from datetime import date, timedelta
 from src.orchestrator.pipelines.base_pipeline import BaseETLPipeline
@@ -35,6 +37,12 @@ class FactoryInventoryPipeline(BaseETLPipeline):
         self._database_type = database_type
         self._batch_created = False
         self._snapshot_date_detected = False
+        self._interrupted = False
+        
+        # Register signal handler for graceful shutdown
+        signal.signal(signal.SIGINT, self._signal_handler)
+        if sys.platform != 'win32':
+            signal.signal(signal.SIGTERM, self._signal_handler)
         
         # If snapshot_date is None, we'll use today's date, but need a placeholder for BaseETLPipeline
         # Use today's date as placeholder - will be set properly when needed
@@ -83,6 +91,22 @@ class FactoryInventoryPipeline(BaseETLPipeline):
             object.__setattr__(self, 'batch_id', self._batch_id)
             self._batch_created = True
     
+    def _signal_handler(self, signum, frame):
+        """Handle interrupt signals (Ctrl+C) gracefully."""
+        print("\n\n⚠️  Interrupt signal received. Cleaning up...")
+        self._interrupted = True
+        
+        # Mark batch as FAILED if it was created
+        if self._batch_created and self._batch_id:
+            try:
+                self.finish_batch(self._batch_id, 'FAILED', 'Process interrupted by user (Ctrl+C)')
+                print(f"✓ Batch {self._batch_id} marked as FAILED in database.")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not update batch status: {str(e)}")
+        
+        # Re-raise KeyboardInterrupt to exit
+        raise KeyboardInterrupt("Process interrupted by user")
+    
     def load_stage(self, batch_size: int = 10000, incremental: bool = True):
         """
         Load the data into the stage using batch processing for better performance.
@@ -120,7 +144,16 @@ class FactoryInventoryPipeline(BaseETLPipeline):
             read_sql_file
         )
         
-        sql_folder = Path(__file__).parent.parent.parent.parent.parent / 'sql'
+        # Calculate sql folder path: from factory_inventory.py go up to project root
+        # factory_inventory.py -> pipelines -> orchestrator -> src -> project root
+        current_file = Path(__file__)
+        project_root = current_file.parent.parent.parent.parent  # 4 levels up
+        sql_folder = project_root / 'sql'
+        
+        # Fallback if sql folder not found (try one more level up)
+        if not sql_folder.exists():
+            sql_folder = project_root.parent / 'sql'
+        
         sql_path = resolve_sql_file_path('20_etl/factory_inventory/extract.sql', sql_folder)
         extract_query = read_sql_file(sql_path)
         
@@ -167,52 +200,71 @@ class FactoryInventoryPipeline(BaseETLPipeline):
         total_rows = 0
         batch_count = 0
         
-        with self._connection_factory.connection('source') as source_conn:
-            source_cursor = source_conn.cursor()
-            source_cursor.execute(extract_query)
+        try:
+            with self._connection_factory.connection('source') as source_conn:
+                source_cursor = source_conn.cursor()
+                source_cursor.execute(extract_query)
+                
+                # Process data in batches
+                while True:
+                    # Check for interruption
+                    if self._interrupted:
+                        raise KeyboardInterrupt("Process interrupted by user")
+                    
+                    # Fetch a batch of rows
+                    rows = source_cursor.fetchmany(batch_size)
+                    if not rows:
+                        break
+                    
+                    # Get column names from cursor description
+                    columns = [column[0] for column in source_cursor.description]
+                    
+                    # Prepare batch data for insertion
+                    batch_data = []
+                    for row in rows:
+                        row_dict = dict(zip(columns, row))
+                        batch_data.append((
+                            self.batch_id,
+                            row_dict.get('factory_id'),
+                            row_dict.get('product_id'),
+                            row_dict.get('product_batch_no'),
+                            row_dict.get('as_of_datetime'),
+                            row_dict.get('on_hand_qty')
+                        ))
+                    
+                    # Insert batch into test server
+                    with self._connection_factory.connection('test') as test_conn:
+                        test_cursor = test_conn.cursor()
+                        try:
+                            test_cursor.executemany(insert_query, batch_data)
+                            test_conn.commit()
+                            
+                            total_rows += len(batch_data)
+                            batch_count += 1
+                            
+                            # Progress feedback
+                            if batch_count % 10 == 0 or len(batch_data) < batch_size:
+                                print(f"Loaded {total_rows:,} rows in {batch_count} batches...")
+                                
+                        except Exception as e:
+                            test_conn.rollback()
+                            raise Exception(f"Failed to load batch {batch_count + 1} into staging: {str(e)}") from e
             
-            # Process data in batches
-            while True:
-                # Fetch a batch of rows
-                rows = source_cursor.fetchmany(batch_size)
-                if not rows:
-                    break
-                
-                # Get column names from cursor description
-                columns = [column[0] for column in source_cursor.description]
-                
-                # Prepare batch data for insertion
-                batch_data = []
-                for row in rows:
-                    row_dict = dict(zip(columns, row))
-                    batch_data.append((
-                        self.batch_id,
-                        row_dict.get('factory_id'),
-                        row_dict.get('product_id'),
-                        row_dict.get('product_batch_no'),
-                        row_dict.get('as_of_datetime'),
-                        row_dict.get('on_hand_qty')
-                    ))
-                
-                # Insert batch into test server
+            print(f"Completed loading {total_rows:,} rows into staging.")
+            
+        except KeyboardInterrupt:
+            print(f"\n⚠️  Loading interrupted. Loaded {total_rows:,} rows in {batch_count} batches before interruption.")
+            # Clean up: delete partial staging data for this batch
+            try:
                 with self._connection_factory.connection('test') as test_conn:
                     test_cursor = test_conn.cursor()
-                    try:
-                        test_cursor.executemany(insert_query, batch_data)
-                        test_conn.commit()
-                        
-                        total_rows += len(batch_data)
-                        batch_count += 1
-                        
-                        # Progress feedback
-                        if batch_count % 10 == 0 or len(batch_data) < batch_size:
-                            print(f"Loaded {total_rows:,} rows in {batch_count} batches...")
-                            
-                    except Exception as e:
-                        test_conn.rollback()
-                        raise Exception(f"Failed to load batch {batch_count + 1} into staging: {str(e)}") from e
-        
-        print(f"Completed loading {total_rows:,} rows into staging.")
+                    test_cursor.execute(delete_query, (self.batch_id,))
+                    test_conn.commit()
+                    print(f"✓ Cleaned up partial staging data for batch {self.batch_id}.")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not clean up staging data: {str(e)}")
+            # Re-raise to trigger batch status update
+            raise
     
     def validate(self):
         """
@@ -269,6 +321,8 @@ class FactoryInventoryPipeline(BaseETLPipeline):
         If batch_id was None during initialization, a new batch will be created automatically.
         If snapshot_date was None during initialization, today's date will be used.
         
+        Handles KeyboardInterrupt (Ctrl+C) gracefully by marking batch as FAILED.
+        
         Alternatively, you can use the SQL stored procedure that orchestrates everything:
         
         # Option: Use the all-in-one stored procedure
@@ -282,8 +336,20 @@ class FactoryInventoryPipeline(BaseETLPipeline):
         )
         # If using the stored procedure, you don't need to call super().run()
         """
-        # Ensure snapshot_date and batch are created before running
-        self._ensure_snapshot_date()
-        self._ensure_batch_created()
-        # Use the base class implementation which calls load_stage, validate, publish
-        super().run()
+        try:
+            # Ensure snapshot_date and batch are created before running
+            self._ensure_snapshot_date()
+            self._ensure_batch_created()
+            # Use the base class implementation which calls load_stage, validate, publish
+            super().run()
+        except KeyboardInterrupt:
+            # Handle user interruption
+            print("\n⚠️  Pipeline interrupted by user (Ctrl+C)")
+            if self._batch_created and self._batch_id:
+                try:
+                    self.finish_batch(self._batch_id, 'FAILED', 'Process interrupted by user (Ctrl+C)')
+                    print(f"✓ Batch {self._batch_id} marked as FAILED in database.")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not update batch status: {str(e)}")
+            # Re-raise to exit
+            raise
