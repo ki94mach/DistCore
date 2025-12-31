@@ -14,7 +14,7 @@ from src.orchestrator.services.sql_server_db.executors.sql_executor import SQLEx
 def check_migrations_run(factory: DBConnectionFactory, database_type: str) -> Tuple[bool, List[str]]:
     """Check if required tables exist (indicating migrations have been run)."""
     missing_tables = []
-    required_tables = ['ctl_BatchRun', 'ctl_ProcedureCatalog']
+    required_tables = ['ctl_BatchRun', 'ctl_ProcedureCatalog', 'ctl_ProcedureParameter']
     
     try:
         with factory.connection(database_type) as conn:
@@ -51,7 +51,7 @@ def main():
     print("Checking if migrations have been run...")
     migrations_ok, missing_tables = check_migrations_run(factory, database_type)
     if not migrations_ok:
-        print("\n⚠️  WARNING: Required tables are missing!")
+        print("\nWARNING: Required tables are missing!")
         if missing_tables:
             print(f"   Missing tables: {', '.join(missing_tables)}")
         print(f"   Please run migrations on the '{database_type}' database first:")
@@ -63,15 +63,16 @@ def main():
             print("Deployment cancelled.")
             sys.exit(0)
     else:
-        print("✓ All required tables exist.\n")
+        print("OK: All required tables exist.\n")
 
     # Get project root for path resolution
     project_root = Path(__file__).resolve().parent.parent
-    procedures_dir = project_root / 'sql' / '10_routines' / 'procedures'
     
-    # Get all SQL files, sorted for consistent execution order
-    # Exclude README files
-    procedure_files = sorted([f for f in procedures_dir.glob('*.sql') if not f.name.startswith('README')])
+    # Get procedures from routines directory only (stored procedures are now all in 10_routines/procedures)
+    routines_dir = project_root / 'sql' / '10_routines' / 'procedures'
+    
+    # Get all SQL files from routines directory (exclude README files)
+    procedure_files = sorted([f for f in routines_dir.glob('*.sql') if not f.name.startswith('README')])
     
     if not procedure_files:
         print("No procedure files found in sql/10_routines/procedures/")
@@ -92,9 +93,9 @@ def main():
         try:
             # Execute the procedure file
             executor.execute_sql_file(str(relative_path), database_type=database_type)
-            print(f"  ✓ Successfully deployed: {relative_path}\n")
+            print(f"  OK: Successfully deployed: {relative_path}\n")
         except Exception as e:
-            print(f"  ✗ Failed to deploy: {relative_path}")
+            print(f"  ERROR: Failed to deploy: {relative_path}")
             print(f"    Error: {e}\n")
             # Continue with other procedures even if one fails
             continue

@@ -35,7 +35,8 @@ BEGIN
           AND on_hand_qty IS NULL
     )
     BEGIN
-        THROW 50000, N'FI_NULL_QTY violated: on_hand_qty IS NULL found in staging for batch_id ' + CAST(@batch_id AS NVARCHAR(20)) + N'.', 1;
+        DECLARE @error_msg NVARCHAR(MAX) = N'FI_NULL_QTY violated: on_hand_qty IS NULL found in staging for batch_id ' + CAST(@batch_id AS NVARCHAR(20)) + N'.';
+        THROW 50000, @error_msg, 1;
     END;
     
     -- Table variable to capture MERGE results
@@ -90,58 +91,3 @@ BEGIN
 END;
 GO
 
-/*
-Example Execution:
-
--- Example 1: Publish batch 123 for snapshot date 2024-01-15
-EXEC [Data].[etl_usp_publish_factory_inventory_snapshot] @batch_id = 123, @snapshot_date = '2024-01-15';
-
--- Example 2: Verify published data
-SELECT 
-    snapshot_date,
-    factory_id,
-    product_id,
-    on_hand_qty,
-    batch_id,
-    created_at
-FROM [Data].[cur_FactoryInventorySnapshot]
-WHERE snapshot_date = '2024-01-15'
-ORDER BY factory_id, product_id;
-
--- Example 3: Check for discrepancies between staging and curated
-SELECT 
-    'Missing in curated' AS issue_type,
-    stg.factory_id,
-    stg.product_id
-FROM (
-    SELECT DISTINCT factory_id, product_id
-    FROM [Data].[stg_FactoryInventory]
-    WHERE batch_id = 123
-) AS stg
-LEFT JOIN [Data].[cur_FactoryInventorySnapshot] AS cur
-    ON cur.snapshot_date = '2024-01-15'
-   AND cur.factory_id = stg.factory_id
-   AND cur.product_id = stg.product_id
-WHERE cur.factory_id IS NULL
-
-UNION ALL
-
-SELECT 
-    'Extra in curated' AS issue_type,
-    cur.factory_id,
-    cur.product_id
-FROM [Data].[cur_FactoryInventorySnapshot] AS cur
-LEFT JOIN (
-    SELECT DISTINCT factory_id, product_id
-    FROM [Data].[stg_FactoryInventory]
-    WHERE batch_id = 123
-) AS stg
-    ON stg.factory_id = cur.factory_id
-   AND stg.product_id = cur.product_id
-WHERE cur.snapshot_date = '2024-01-15'
-  AND stg.factory_id IS NULL;
-
--- Example 4: Rerun publish (idempotent - will update if data changed, no-op if unchanged)
-EXEC [Data].[etl_usp_publish_factory_inventory_snapshot] @batch_id = 123, @snapshot_date = '2024-01-15';
--- Safe to rerun - will update existing records or leave unchanged if data is identical
-*/

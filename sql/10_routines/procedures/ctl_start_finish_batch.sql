@@ -80,7 +80,8 @@ BEGIN
         -- Validate that batch exists
         IF NOT EXISTS (SELECT 1 FROM [Data].[ctl_BatchRun] WHERE batch_id = @batch_id)
         BEGIN
-            THROW 50000, CONCAT(N'Batch ID ', CAST(@batch_id AS NVARCHAR(20)), N' does not exist in [Data].[ctl_BatchRun]'), 1;
+            DECLARE @error_msg1 NVARCHAR(4000) = N'Batch ID ' + CAST(@batch_id AS NVARCHAR(20)) + N' does not exist in [Data].[ctl_BatchRun]';
+            THROW 50000, @error_msg1, 1;
         END;
         
         -- Update batch run record
@@ -92,7 +93,8 @@ BEGIN
         
         IF @@ROWCOUNT = 0
         BEGIN
-            THROW 50000, CONCAT(N'Failed to update batch ID ', CAST(@batch_id AS NVARCHAR(20)), N'. No rows were affected.'), 1;
+            DECLARE @error_msg2 NVARCHAR(4000) = N'Failed to update batch ID ' + CAST(@batch_id AS NVARCHAR(20)) + N'. No rows were affected.';
+            THROW 50000, @error_msg2, 1;
         END;
         
     END TRY
@@ -112,7 +114,7 @@ EXEC [Data].[ctl_usp_start_batch]
     @triggered_by = N'SCHEDULED_JOB',
     @batch_id = @NewBatchId OUTPUT;
 
-PRINT CONCAT(N'Started batch ID: ', CAST(@NewBatchId AS NVARCHAR(20)));
+PRINT N'Started batch ID: ' + CAST(@NewBatchId AS NVARCHAR(20));
 
 -- ... perform batch operations ...
 

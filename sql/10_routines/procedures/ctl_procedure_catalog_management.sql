@@ -108,7 +108,8 @@ BEGIN
         -- Validate procedure exists
         IF NOT EXISTS (SELECT 1 FROM [Data].[ctl_ProcedureCatalog] WHERE procedure_name = @procedure_name)
         BEGIN
-            THROW 50000, CONCAT(N'Procedure ', @procedure_name, N' does not exist in catalog. Register procedure first.'), 1;
+            DECLARE @error_msg1 NVARCHAR(4000) = N'Procedure ' + @procedure_name + N' does not exist in catalog. Register procedure first.';
+            THROW 50000, @error_msg1, 1;
         END;
         
         -- Upsert parameter
@@ -207,7 +208,8 @@ BEGIN
             
             IF @started_at IS NULL
             BEGIN
-                THROW 50000, CONCAT(N'Execution ID ', CAST(@execution_id AS NVARCHAR(20)), N' does not exist'), 1;
+                DECLARE @error_msg2 NVARCHAR(4000) = N'Execution ID ' + CAST(@execution_id AS NVARCHAR(20)) + N' does not exist';
+                THROW 50000, @error_msg2, 1;
             END;
             
             DECLARE @duration_ms INT = DATEDIFF(MILLISECOND, @started_at, SYSUTCDATETIME());
@@ -319,7 +321,7 @@ BEGIN
         LEFT JOIN [Data].[ctl_ProcedureParameter] pp ON pc.procedure_name = pp.procedure_name
         WHERE (@procedure_category IS NULL OR pc.procedure_category = @procedure_category)
           AND (@is_enabled IS NULL OR pc.is_enabled = @is_enabled)
-          AND (@search_term IS NULL OR pc.procedure_name LIKE CONCAT(N'%', @search_term, N'%') OR pc.description LIKE CONCAT(N'%', @search_term, N'%'))
+          AND (@search_term IS NULL OR pc.procedure_name LIKE N'%' + @search_term + N'%' OR pc.description LIKE N'%' + @search_term + N'%')
         GROUP BY pc.procedure_name, pc.schema_name, pc.procedure_category, pc.description, pc.is_enabled, pc.version, pc.created_at, pc.updated_at
         ORDER BY pc.procedure_category, pc.procedure_name;
         

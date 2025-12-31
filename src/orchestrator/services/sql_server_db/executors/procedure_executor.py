@@ -37,7 +37,7 @@ class ProcedureExecutor:
         self,
         procedure_name: str,
         parameters: Optional[Dict[str, Any]] = None,
-        database_type: str = 'source',
+        database_type: str = 'test',
         fetch_results: bool = True
     ) -> Optional[List[Dict[str, Any]]]:
         """
@@ -81,7 +81,7 @@ class ProcedureExecutor:
         procedure_name: str,
         parameters: Optional[Dict[str, Any]] = None,
         output_parameters: Optional[List[str]] = None,
-        database_type: str = 'source'
+        database_type: str = 'test'
     ) -> Dict[str, Any]:
         """
         Execute a stored procedure and capture output parameters.

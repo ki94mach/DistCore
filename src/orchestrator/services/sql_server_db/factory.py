@@ -133,7 +133,7 @@ class DBConnectionFactory:
     
     def get_connection(
         self,
-        database_type: str = 'source',
+        database_type: str = 'test',
         use_pool: bool = True
     ) -> pyodbc.Connection:
         """
@@ -295,7 +295,7 @@ class DBConnectionFactory:
         """Get the loaded configuration (read-only)."""
         return self._config.copy() if self._config else None
     
-    def connection(self, database_type: str = 'source') -> 'ConnectionContextManager':  # type: ignore
+    def connection(self, database_type: str = 'test') -> 'ConnectionContextManager':  # type: ignore
         """
         Context manager for automatic connection management.
         

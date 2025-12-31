@@ -12,7 +12,7 @@ from src.orchestrator.services.sql_server_db.factory import DBConnectionFactory
 from src.orchestrator.services.sql_server_db.executors.sql_executor import SQLExecutor
 
 
-def start_new_batch(triggered_by: str = 'MANUAL_TEST') -> int:
+def start_new_batch(triggered_by: str = 'MANUAL_TEST', database_type: str = 'test') -> int:
     """Start a new batch and return the batch_id."""
     connection_factory = DBConnectionFactory()
     sql_executor = SQLExecutor(connection_factory)
@@ -23,7 +23,8 @@ def start_new_batch(triggered_by: str = 'MANUAL_TEST') -> int:
             'batch_type': 'FACTORY_INVENTORY',
             'triggered_by': triggered_by
         },
-        output_parameters=['batch_id']
+        output_parameters=['batch_id'],
+        database_type=database_type
     )
     
     batch_id = result['batch_id']
@@ -84,7 +85,8 @@ def main():
                     'snapshot_date': snapshot_date,
                     'triggered_by': 'MANUAL_TEST',
                     'allow_negative': 0
-                }
+                },
+                database_type='test'
             )
             
             if results:
@@ -99,7 +101,7 @@ def main():
             # Get or create batch_id
             if choice == "1":
                 print("\n→ Creating new batch...")
-                batch_id = start_new_batch(triggered_by='MANUAL_TEST')
+                batch_id = start_new_batch(triggered_by='MANUAL_TEST', database_type='test')
             elif choice == "2":
                 batch_id = int(input("\nEnter existing batch ID: "))
             else:  # choice == "4"
@@ -121,7 +123,8 @@ def main():
             pipeline = FactoryInventoryPipeline(
                 batch_id=batch_id,
                 snapshot_date=snapshot_date,
-                triggered_by='MANUAL_TEST'
+                triggered_by='MANUAL_TEST',
+                database_type='test'
             )
             
             print("\n1. Testing individual stages...")
@@ -153,7 +156,23 @@ def main():
                 print("   ✓ Full pipeline completed successfully!")
         
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        error_msg = str(e)
+        print(f"\n❌ Error: {error_msg}")
+        
+        # Check if it's a procedure not found error
+        if "Could not find stored procedure" in error_msg or "2812" in error_msg:
+            print("\n" + "=" * 60)
+            print("PROCEDURE NOT FOUND")
+            print("=" * 60)
+            print("The stored procedure has not been deployed to the database yet.")
+            print("\nTo fix this, run the deployment script:")
+            print("  python scripts/deploy_procedures.py")
+            print("\nThis will deploy all stored procedures to the 'test' database.")
+            print("If you need to deploy to a different database, use:")
+            print("  python scripts/deploy_procedures.py <database_type>")
+            print("  (where <database_type> is 'source' or 'test')")
+            print("=" * 60)
+        
         import traceback
         traceback.print_exc()
         sys.exit(1)

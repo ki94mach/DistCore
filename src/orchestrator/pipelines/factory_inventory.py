@@ -15,7 +15,7 @@ class FactoryInventoryPipeline(BaseETLPipeline):
     If snapshot_date is None, today's date will be used as the snapshot date.
     """
     
-    def __init__(self, batch_id: Optional[int], snapshot_date: Optional[date] = None, connection_factory=None, triggered_by: str = 'PYTHON_PIPELINE'):
+    def __init__(self, batch_id: Optional[int], snapshot_date: Optional[date] = None, connection_factory=None, triggered_by: str = 'PYTHON_PIPELINE', database_type: str = 'test'):
         """
         Initialize the pipeline.
         
@@ -25,12 +25,14 @@ class FactoryInventoryPipeline(BaseETLPipeline):
                           If None, today's date will be used.
             connection_factory: Optional DBConnectionFactory instance
             triggered_by: Identifier for who/what triggered this pipeline (used when creating new batch)
+            database_type: Type of database to use ('source' or 'test'). Defaults to 'test'.
         """
         # If batch_id is None, we'll create it in run() method
         # For now, we need to provide a placeholder to satisfy BaseETLPipeline
         self._batch_id = batch_id
         self._snapshot_date = snapshot_date
         self._triggered_by = triggered_by
+        self._database_type = database_type
         self._batch_created = False
         self._snapshot_date_detected = False
         
@@ -72,7 +74,8 @@ class FactoryInventoryPipeline(BaseETLPipeline):
                     'batch_type': 'FACTORY_INVENTORY',
                     'triggered_by': self._triggered_by
                 },
-                output_parameters=['batch_id']
+                output_parameters=['batch_id'],
+                database_type=self._database_type
             )
             
             self._batch_id = result['batch_id']
@@ -83,21 +86,62 @@ class FactoryInventoryPipeline(BaseETLPipeline):
     def load_stage(self):
         """
         Load the data into the stage.
-        Example: Execute a stored procedure to load staging data.
+        Extracts data from source server (op-db1-srv) using sql/20_etl/factory_inventory/extract.sql
+        and loads into staging table on test server (op-hst-db-srv).
         """
         self._ensure_snapshot_date()
         self._ensure_batch_created()
-        # Option 1: Execute a stored procedure
-        self.execute_procedure(
-            '[Data].[etl_usp_load_stage_factory_inventory]',
-            parameters={'batch_id': self.batch_id}
+        
+        # Step 1: Extract data from source server using SQL file
+        extracted_data = self.execute_sql_file(
+            '20_etl/factory_inventory/extract.sql',
+            database_type='source'
         )
         
-        # Option 2: Execute a SQL file
-        # self.execute_sql_file(
-        #     '20_etl/factory_inventory/load_stage.sql',
-        #     parameters={'batch_id': str(self.batch_id)}
-        # )
+        if not extracted_data:
+            # No data to load
+            return
+        
+        # Step 2: Load data into staging table on test server
+        # First, delete any existing staging rows for this batch_id (rerun-safe)
+        delete_query = "DELETE FROM [Data].[stg_FactoryInventory] WHERE batch_id = ?"
+        
+        # Then insert the extracted data
+        insert_query = """
+        INSERT INTO [Data].[stg_FactoryInventory] 
+            (batch_id, factory_id, product_id, product_batch_no, as_of_datetime, on_hand_qty)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """
+        
+        with self._connection_factory.connection('test') as test_conn:
+            test_cursor = test_conn.cursor()
+            
+            try:
+                # Delete existing rows for this batch (rerun-safe)
+                test_cursor.execute(delete_query, (self.batch_id,))
+                
+                # Prepare data for batch insert
+                insert_data = [
+                    (
+                        self.batch_id,
+                        row.get('factory_id'),
+                        row.get('product_id'),
+                        row.get('product_batch_no'),
+                        row.get('as_of_datetime'),
+                        row.get('on_hand_qty')
+                    )
+                    for row in extracted_data
+                ]
+                
+                # Insert extracted data using executemany for better performance
+                if insert_data:
+                    test_cursor.executemany(insert_query, insert_data)
+                
+                test_conn.commit()
+                
+            except Exception as e:
+                test_conn.rollback()
+                raise Exception(f"Failed to load data into staging: {str(e)}") from e
     
     def validate(self):
         """
@@ -108,7 +152,8 @@ class FactoryInventoryPipeline(BaseETLPipeline):
         self._ensure_batch_created()
         self.execute_procedure(
             '[Data].[etl_usp_validate_factory_inventory]',
-            parameters={'batch_id': self.batch_id, 'allow_negative': 0}
+            parameters={'batch_id': self.batch_id, 'allow_negative': 0},
+            database_type=self._database_type
         )
     
     def publish(self):
@@ -123,7 +168,8 @@ class FactoryInventoryPipeline(BaseETLPipeline):
             parameters={
                 'batch_id': self.batch_id,
                 'snapshot_date': self.snapshot_date
-            }
+            },
+            database_type=self._database_type
         )
     
     def finish_batch(self, batch_id: int, status: str, message: str = ''):
@@ -142,6 +188,7 @@ class FactoryInventoryPipeline(BaseETLPipeline):
                 'status': status,
                 'message': message
             },
+            database_type=self._database_type,
             fetch_results=False
         )
     

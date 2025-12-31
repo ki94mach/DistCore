@@ -66,7 +66,7 @@ class BaseETLPipeline(ABC):
         self,
         procedure_name: str,
         parameters: Optional[Dict[str, Any]] = None,
-        database_type: str = 'source',
+        database_type: str = 'test',
         fetch_results: bool = True
     ) -> Optional[List[Dict[str, Any]]]:
         """
@@ -99,7 +99,7 @@ class BaseETLPipeline(ABC):
         procedure_name: str,
         parameters: Optional[Dict[str, Any]] = None,
         output_parameters: Optional[List[str]] = None,
-        database_type: str = 'source'
+        database_type: str = 'test'
     ) -> Dict[str, Any]:
         """
         Execute a stored procedure and capture output parameters.
@@ -131,7 +131,7 @@ class BaseETLPipeline(ABC):
     def execute_sql_file(
         self,
         sql_file_path: Union[str, Path],
-        database_type: str = 'source',
+        database_type: str = 'test',
         parameters: Optional[Dict[str, str]] = None
     ) -> Optional[List[Dict[str, Any]]]:
         """
@@ -147,7 +147,7 @@ class BaseETLPipeline(ABC):
             
         Example:
             results = self.execute_sql_file(
-                '20_etl/factory_inventory/load_stage.sql',
+                '10_routines/procedures/etl_load_stage_factory_inventory.sql',
                 parameters={'batch_id': str(self.batch_id)}
             )
         """

@@ -57,7 +57,7 @@ class SQLFileExecutor:
     def execute(
         self,
         sql_file_path: Union[str, Path],
-        database_type: str = 'source',
+        database_type: str = 'test',
         parameters: Optional[Dict[str, str]] = None
     ) -> Optional[List[Dict[str, Any]]]:
         """

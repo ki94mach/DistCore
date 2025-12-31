@@ -44,6 +44,8 @@ BEGIN
     DELETE FROM [Data].[stg_FactoryInventory] WHERE batch_id = @batch_id;
     
     -- Insert from source table into staging
+    -- This procedure runs on the source database (DWOrchid) to access source tables directly.
+    -- The staging table [Data].[stg_FactoryInventory] must exist in the source database.
 
     INSERT INTO [Data].[stg_FactoryInventory] (batch_id, factory_id, product_id, product_batch_no, as_of_datetime, on_hand_qty)
     SELECT
@@ -86,3 +88,4 @@ FROM [Data].[stg_FactoryInventory]
 WHERE batch_id = 123
 GROUP BY batch_id;
 */
+
