@@ -29,9 +29,11 @@ class BaseETLPipeline(ABC):
             self.load_stage()
             self.validate()
             self.publish()
-            self.finish_batch(self.batch_id, 'SUCCESS', 'OK')
+            if self._has_valid_batch_id():
+                self.finish_batch(self.batch_id, 'SUCCESS', 'OK')
         except Exception as e:
-            self.finish_batch(self.batch_id, 'FAILED', str(e))
+            if self._has_valid_batch_id():
+                self.finish_batch(self.batch_id, 'FAILED', str(e))
             raise e
 
     @abstractmethod
@@ -61,6 +63,9 @@ class BaseETLPipeline(ABC):
         Finish the batch.
         """
         pass
+
+    def _has_valid_batch_id(self) -> bool:
+        return self.batch_id not in (None, 0)
     
     def execute_procedure(
         self,

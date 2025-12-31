@@ -336,10 +336,10 @@ class FactoryInventoryPipeline(BaseETLPipeline):
         )
         # If using the stored procedure, you don't need to call super().run()
         """
+        # Ensure snapshot_date and batch are created before running
+        self._ensure_snapshot_date()
+        self._ensure_batch_created()
         try:
-            # Ensure snapshot_date and batch are created before running
-            self._ensure_snapshot_date()
-            self._ensure_batch_created()
             # Use the base class implementation which calls load_stage, validate, publish
             super().run()
         except KeyboardInterrupt:
