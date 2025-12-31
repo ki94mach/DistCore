@@ -120,6 +120,10 @@ class SQLFileExecutor:
                     # Use setinputsizes to avoid parameter issues
                     try:
                         cursor.execute(statement)
+                        # Commit after each statement to ensure DDL changes are persisted
+                        # This is important for migrations where table creation needs to be
+                        # immediately available for subsequent statements
+                        conn.commit()
                         # Try to fetch results, but don't fail if there are none
                         try:
                             results = format_result_set(cursor)
@@ -134,7 +138,6 @@ class SQLFileExecutor:
                         )
                         raise pyodbc.Error(error_msg) from stmt_error
                 
-                conn.commit()
                 return results
                 
             except pyodbc.Error as e:

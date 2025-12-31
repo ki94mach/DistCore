@@ -24,7 +24,7 @@ def main():
             executor.execute_sql_file(str(relative_path), database_type='test')
             print(f"Migration executed successfully: {relative_path}")
         except Exception as e:
-            print(f"❌ Migration failed: {relative_path}")
+            print(f"X Migration failed: {relative_path}")
             print(f"   Error: {e}")
             import traceback
             traceback.print_exc()
