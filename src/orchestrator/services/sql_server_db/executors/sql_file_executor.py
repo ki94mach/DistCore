@@ -112,12 +112,27 @@ class SQLFileExecutor:
             results = None
             
             try:
-                for statement in statements:
-                    if not statement:
+                for idx, statement in enumerate(statements, 1):
+                    if not statement or not statement.strip():
                         continue
                     
-                    cursor.execute(statement)
-                    results = format_result_set(cursor)
+                    # Execute each statement separately
+                    # Use setinputsizes to avoid parameter issues
+                    try:
+                        cursor.execute(statement)
+                        # Try to fetch results, but don't fail if there are none
+                        try:
+                            results = format_result_set(cursor)
+                        except:
+                            results = None
+                    except pyodbc.Error as stmt_error:
+                        # Provide more context about which statement failed
+                        error_msg = (
+                            f"Failed to execute statement {idx} of {len(statements)} "
+                            f"in {sql_path.name}:\n{str(stmt_error)}\n"
+                            f"Statement: {statement[:200]}..."
+                        )
+                        raise pyodbc.Error(error_msg) from stmt_error
                 
                 conn.commit()
                 return results

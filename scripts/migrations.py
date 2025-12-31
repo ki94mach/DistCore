@@ -20,8 +20,16 @@ def main():
         # Get relative path from sql folder
         relative_path = migration_file.relative_to(project_root / 'sql')
         print(f"Executing migration: {relative_path}")
-        executor.execute_sql_file(str(relative_path), database_type='test')
-        print(f"Migration executed successfully: {relative_path}")
+        try:
+            executor.execute_sql_file(str(relative_path), database_type='test')
+            print(f"Migration executed successfully: {relative_path}")
+        except Exception as e:
+            print(f"❌ Migration failed: {relative_path}")
+            print(f"   Error: {e}")
+            import traceback
+            traceback.print_exc()
+            # Continue with other migrations
+            continue
 
 if __name__ == "__main__":
     main()
