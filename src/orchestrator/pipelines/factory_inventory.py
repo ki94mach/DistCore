@@ -116,184 +116,196 @@ class FactoryInventoryPipeline(BaseETLPipeline):
         Args:
             batch_size: Number of rows to process in each batch (default: 10000)
             incremental: If True, only loads data after the latest date in staging table (default: True)
+        
+        Note: If called through run(), errors are handled by the base class.
+        If called directly, errors are handled by the context manager.
         """
-        self._ensure_snapshot_date()
-        self._ensure_batch_created()
-        
-        # Get the latest date from staging table for incremental loading
-        since_date = None
-        if incremental:
-            with self._connection_factory.connection('test') as test_conn:
-                test_cursor = test_conn.cursor()
-                test_cursor.execute("""
-                    SELECT MAX(as_of_datetime) AS latest_date
-                    FROM [Data].[stg_FactoryInventory]
-                """)
-                result = test_cursor.fetchone()
-                if result and result[0] is not None:
-                    # Add 1 day to get only dates AFTER the latest date (not including it)
-                    since_date = result[0] + timedelta(days=1)
-                    print(f"Incremental load: Getting data after {result[0]} (starting from {since_date})")
-                else:
-                    print("No existing data in staging. Performing full load.")
-        
-        # Read the SQL file content
-        from pathlib import Path
-        from src.orchestrator.services.sql_server_db.executors.sql_utils import (
-            resolve_sql_file_path,
-            read_sql_file
-        )
-        
-        # Calculate sql folder path: from factory_inventory.py go up to project root
-        # factory_inventory.py -> pipelines -> orchestrator -> src -> project root
-        current_file = Path(__file__)
-        project_root = current_file.parent.parent.parent.parent  # 4 levels up
-        sql_folder = project_root / 'sql'
-        
-        # Fallback if sql folder not found (try one more level up)
-        if not sql_folder.exists():
-            sql_folder = project_root.parent / 'sql'
-        
-        sql_path = resolve_sql_file_path('20_etl/factory_inventory/extract.sql', sql_folder)
-        extract_query = read_sql_file(sql_path)
-        
-        # Extract just the SELECT statement, replacing @since with the actual date or NULL
-        # This handles the DECLARE and parameter in the SQL file
-        lines = extract_query.split('\n')
-        select_lines = []
-        in_select = False
-        for line in lines:
-            stripped = line.strip().upper()
-            # Skip DECLARE and comments
-            if stripped.startswith('DECLARE') or stripped.startswith('--') or stripped.startswith('/*'):
-                continue
-            if stripped.startswith('SELECT'):
-                in_select = True
-            if in_select:
-                # Replace @since parameter with the actual date or NULL
-                if since_date:
-                    # Format date for SQL Server: 'YYYY-MM-DD'
-                    date_str = since_date.strftime("'%Y-%m-%d'")
-                    line = line.replace('@since', date_str)
-                else:
-                    line = line.replace('@since', 'NULL')
-                select_lines.append(line)
-        extract_query = '\n'.join(select_lines)
-        
-        # Step 1: Delete existing staging rows for this batch_id (rerun-safe)
-        delete_query = "DELETE FROM [Data].[stg_FactoryInventory] WHERE batch_id = ?"
-        
-        # Step 2: Insert query
-        insert_query = """
-        INSERT INTO [Data].[stg_FactoryInventory] 
-            (batch_id, factory_id, product_id, product_batch_no, as_of_datetime, on_hand_qty)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """
-        
-        # Open test connection first to delete existing rows
-        with self._connection_factory.connection('test') as test_conn:
-            test_cursor = test_conn.cursor()
-            test_cursor.execute(delete_query, (self.batch_id,))
-            test_conn.commit()
-        
-        # Step 3: Extract and load in batches from source to test
-        total_rows = 0
-        batch_count = 0
-        
-        try:
-            with self._connection_factory.connection('source') as source_conn:
-                source_cursor = source_conn.cursor()
-                source_cursor.execute(extract_query)
-                
-                # Process data in batches
-                while True:
-                    # Check for interruption
-                    if self._interrupted:
-                        raise KeyboardInterrupt("Process interrupted by user")
-                    
-                    # Fetch a batch of rows
-                    rows = source_cursor.fetchmany(batch_size)
-                    if not rows:
-                        break
-                    
-                    # Get column names from cursor description
-                    columns = [column[0] for column in source_cursor.description]
-                    
-                    # Prepare batch data for insertion
-                    batch_data = []
-                    for row in rows:
-                        row_dict = dict(zip(columns, row))
-                        batch_data.append((
-                            self.batch_id,
-                            row_dict.get('factory_id'),
-                            row_dict.get('product_id'),
-                            row_dict.get('product_batch_no'),
-                            row_dict.get('as_of_datetime'),
-                            row_dict.get('on_hand_qty')
-                        ))
-                    
-                    # Insert batch into test server
-                    with self._connection_factory.connection('test') as test_conn:
-                        test_cursor = test_conn.cursor()
-                        try:
-                            test_cursor.executemany(insert_query, batch_data)
-                            test_conn.commit()
-                            
-                            total_rows += len(batch_data)
-                            batch_count += 1
-                            
-                            # Progress feedback
-                            if batch_count % 10 == 0 or len(batch_data) < batch_size:
-                                print(f"Loaded {total_rows:,} rows in {batch_count} batches...")
-                                
-                        except Exception as e:
-                            test_conn.rollback()
-                            raise Exception(f"Failed to load batch {batch_count + 1} into staging: {str(e)}") from e
+        with self._handle_batch_failure("Load stage failed: "):
+            self._ensure_snapshot_date()
+            self._ensure_batch_created()
             
-            print(f"Completed loading {total_rows:,} rows into staging.")
-            
-        except KeyboardInterrupt:
-            print(f"\n⚠️  Loading interrupted. Loaded {total_rows:,} rows in {batch_count} batches before interruption.")
-            # Clean up: delete partial staging data for this batch
-            try:
+            # Get the latest date from staging table for incremental loading
+            since_date = None
+            if incremental:
                 with self._connection_factory.connection('test') as test_conn:
                     test_cursor = test_conn.cursor()
-                    test_cursor.execute(delete_query, (self.batch_id,))
-                    test_conn.commit()
-                    print(f"✓ Cleaned up partial staging data for batch {self.batch_id}.")
-            except Exception as e:
-                print(f"⚠️  Warning: Could not clean up staging data: {str(e)}")
-            # Re-raise to trigger batch status update
-            raise
+                    test_cursor.execute("""
+                        SELECT MAX(as_of_datetime) AS latest_date
+                        FROM [Data].[stg_FactoryInventory]
+                    """)
+                    result = test_cursor.fetchone()
+                    if result and result[0] is not None:
+                        # Add 1 day to get only dates AFTER the latest date (not including it)
+                        since_date = result[0] + timedelta(days=1)
+                        print(f"Incremental load: Getting data after {result[0]} (starting from {since_date})")
+                    else:
+                        print("No existing data in staging. Performing full load.")
+            
+            # Read the SQL file content
+            from pathlib import Path
+            from src.orchestrator.services.sql_server_db.executors.sql_utils import (
+                resolve_sql_file_path,
+                read_sql_file
+            )
+            
+            # Calculate sql folder path: from factory_inventory.py go up to project root
+            # factory_inventory.py -> pipelines -> orchestrator -> src -> project root
+            current_file = Path(__file__)
+            project_root = current_file.parent.parent.parent.parent  # 4 levels up
+            sql_folder = project_root / 'sql'
+            
+            # Fallback if sql folder not found (try one more level up)
+            if not sql_folder.exists():
+                sql_folder = project_root.parent / 'sql'
+            
+            sql_path = resolve_sql_file_path('20_etl/factory_inventory/extract.sql', sql_folder)
+            extract_query = read_sql_file(sql_path)
+            
+            # Extract just the SELECT statement, replacing @since with the actual date or NULL
+            # This handles the DECLARE and parameter in the SQL file
+            lines = extract_query.split('\n')
+            select_lines = []
+            in_select = False
+            for line in lines:
+                stripped = line.strip().upper()
+                # Skip DECLARE and comments
+                if stripped.startswith('DECLARE') or stripped.startswith('--') or stripped.startswith('/*'):
+                    continue
+                if stripped.startswith('SELECT'):
+                    in_select = True
+                if in_select:
+                    # Replace @since parameter with the actual date or NULL
+                    if since_date:
+                        # Format date for SQL Server: 'YYYY-MM-DD'
+                        date_str = since_date.strftime("'%Y-%m-%d'")
+                        line = line.replace('@since', date_str)
+                    else:
+                        line = line.replace('@since', 'NULL')
+                    select_lines.append(line)
+            extract_query = '\n'.join(select_lines)
+            
+            # Step 1: Delete existing staging rows for this batch_id (rerun-safe)
+            delete_query = "DELETE FROM [Data].[stg_FactoryInventory] WHERE batch_id = ?"
+            
+            # Step 2: Insert query
+            insert_query = """
+            INSERT INTO [Data].[stg_FactoryInventory] 
+                (batch_id, factory_id, product_id, product_batch_no, as_of_datetime, on_hand_qty)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """
+            
+            # Open test connection first to delete existing rows
+            with self._connection_factory.connection('test') as test_conn:
+                test_cursor = test_conn.cursor()
+                test_cursor.execute(delete_query, (self.batch_id,))
+                test_conn.commit()
+            
+            # Step 3: Extract and load in batches from source to test
+            total_rows = 0
+            batch_count = 0
+            
+            try:
+                with self._connection_factory.connection('source') as source_conn:
+                    source_cursor = source_conn.cursor()
+                    source_cursor.execute(extract_query)
+                    
+                    # Process data in batches
+                    while True:
+                        # Check for interruption
+                        if self._interrupted:
+                            raise KeyboardInterrupt("Process interrupted by user")
+                        
+                        # Fetch a batch of rows
+                        rows = source_cursor.fetchmany(batch_size)
+                        if not rows:
+                            break
+                        
+                        # Get column names from cursor description
+                        columns = [column[0] for column in source_cursor.description]
+                        
+                        # Prepare batch data for insertion
+                        batch_data = []
+                        for row in rows:
+                            row_dict = dict(zip(columns, row))
+                            batch_data.append((
+                                self.batch_id,
+                                row_dict.get('factory_id'),
+                                row_dict.get('product_id'),
+                                row_dict.get('product_batch_no'),
+                                row_dict.get('as_of_datetime'),
+                                row_dict.get('on_hand_qty')
+                            ))
+                        
+                        # Insert batch into test server
+                        with self._connection_factory.connection('test') as test_conn:
+                            test_cursor = test_conn.cursor()
+                            try:
+                                test_cursor.executemany(insert_query, batch_data)
+                                test_conn.commit()
+                                
+                                total_rows += len(batch_data)
+                                batch_count += 1
+                                
+                                # Progress feedback
+                                if batch_count % 10 == 0 or len(batch_data) < batch_size:
+                                    print(f"Loaded {total_rows:,} rows in {batch_count} batches...")
+                                    
+                            except Exception as e:
+                                test_conn.rollback()
+                                raise Exception(f"Failed to load batch {batch_count + 1} into staging: {str(e)}") from e
+                
+                print(f"Completed loading {total_rows:,} rows into staging.")
+                
+            except KeyboardInterrupt:
+                print(f"\n⚠️  Loading interrupted. Loaded {total_rows:,} rows in {batch_count} batches before interruption.")
+                # Clean up: delete partial staging data for this batch
+                try:
+                    with self._connection_factory.connection('test') as test_conn:
+                        test_cursor = test_conn.cursor()
+                        test_cursor.execute(delete_query, (self.batch_id,))
+                        test_conn.commit()
+                        print(f"✓ Cleaned up partial staging data for batch {self.batch_id}.")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not clean up staging data: {str(e)}")
+                # Re-raise to trigger batch status update
+                raise
     
     def validate(self):
         """
         Validate the data in the stage.
         Example: Execute validation stored procedure.
+        
+        Note: If called through run(), errors are handled by the base class.
+        If called directly, errors are handled by the context manager.
         """
-        self._ensure_snapshot_date()
-        self._ensure_batch_created()
-        self.execute_procedure(
-            '[Data].[etl_usp_validate_factory_inventory]',
-            parameters={'batch_id': self.batch_id, 'allow_negative': 0},
-            database_type=self._database_type
-        )
+        with self._handle_batch_failure("Validation failed: "):
+            self._ensure_snapshot_date()
+            self._ensure_batch_created()
+            self.execute_procedure(
+                '[Data].[etl_usp_validate_factory_inventory]',
+                parameters={'batch_id': self.batch_id, 'allow_negative': 0},
+                database_type=self._database_type
+            )
     
     def publish(self):
         """
         Publish the data to the target.
         Example: Execute publication stored procedure.
+        
+        Note: If called through run(), errors are handled by the base class.
+        If called directly, errors are handled by the context manager.
         """
-        self._ensure_snapshot_date()
-        self._ensure_batch_created()
-        self.execute_procedure(
-            '[Data].[etl_usp_publish_factory_inventory_snapshot]',
-            parameters={
-                'batch_id': self.batch_id,
-                'snapshot_date': self.snapshot_date
-            },
-            database_type=self._database_type
-        )
+        with self._handle_batch_failure("Publish failed: "):
+            self._ensure_snapshot_date()
+            self._ensure_batch_created()
+            self.execute_procedure(
+                '[Data].[etl_usp_publish_factory_inventory_snapshot]',
+                parameters={
+                    'batch_id': self.batch_id,
+                    'snapshot_date': self.snapshot_date
+                },
+                database_type=self._database_type
+            )
     
     def finish_batch(self, batch_id: int, status: str, message: str = ''):
         """

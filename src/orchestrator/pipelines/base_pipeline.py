@@ -1,6 +1,7 @@
 # src/orchestrator/pipelines/base_pipeline.py
 
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Union
@@ -19,12 +20,14 @@ class BaseETLPipeline(ABC):
         self.snapshot_date = snapshot_date
         self._connection_factory = connection_factory or DBConnectionFactory()
         self._sql_executor = SQLExecutor(self._connection_factory)
+        self._in_run_method = False  # Track if we're executing within run() to avoid duplicate error handling
     
     @abstractmethod
     def run(self):
         """
         Run the ETL pipeline.
         """
+        self._in_run_method = True
         try:
             self.load_stage()
             self.validate()
@@ -35,6 +38,8 @@ class BaseETLPipeline(ABC):
             if self._has_valid_batch_id():
                 self.finish_batch(self.batch_id, 'FAILED', str(e))
             raise e
+        finally:
+            self._in_run_method = False
 
     @abstractmethod
     def load_stage(self):
@@ -66,6 +71,43 @@ class BaseETLPipeline(ABC):
 
     def _has_valid_batch_id(self) -> bool:
         return self.batch_id not in (None, 0)
+    
+    @contextmanager
+    def _handle_batch_failure(self, error_message_prefix: str = ""):
+        """
+        Context manager to automatically mark batch as FAILED if an exception occurs.
+        
+        This should be used in ETL step methods (load_stage, validate, publish) 
+        when they might be called directly (not through run()).
+        
+        If the method is called through run(), the base class will handle errors,
+        so this context manager will skip calling finish_batch to avoid duplicate calls.
+        
+        Args:
+            error_message_prefix: Optional prefix to add to error messages
+            
+        Example:
+            def validate(self):
+                with self._handle_batch_failure("Validation failed: "):
+                    # validation code here
+                    self.execute_procedure(...)
+        """
+        try:
+            yield
+        except Exception as e:
+            # Only mark as failed if:
+            # 1. We have a valid batch_id
+            # 2. We're NOT in the run() method (to avoid duplicate calls)
+            #    (If we're in run(), the base class will handle the error)
+            if self._has_valid_batch_id() and not self._in_run_method:
+                try:
+                    error_msg = f"{error_message_prefix}{str(e)}" if error_message_prefix else str(e)
+                    self.finish_batch(self.batch_id, 'FAILED', error_msg)
+                except Exception as finish_error:
+                    # If finish_batch itself fails, log but don't mask the original error
+                    print(f"⚠️  Warning: Could not mark batch as FAILED: {str(finish_error)}")
+            # Re-raise the original exception
+            raise
     
     def execute_procedure(
         self,
