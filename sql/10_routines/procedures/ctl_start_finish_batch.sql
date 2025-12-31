@@ -64,8 +64,22 @@ CREATE OR ALTER PROCEDURE [Data].[ctl_usp_finish_batch]
 AS
 BEGIN
     SET NOCOUNT ON;
+    DECLARE @started_transaction BIT = 0;
     
     BEGIN TRY
+        IF XACT_STATE() = -1
+        BEGIN
+            THROW 50000, N'Cannot finish batch while transaction is uncommittable (XACT_STATE() = -1). Roll back the transaction and retry outside of it.', 1;
+        END;
+
+        IF XACT_STATE() = 1
+        BEGIN
+            THROW 50000, N'Cannot finish batch inside an active transaction. Commit or roll back the transaction first, then retry outside of it.', 1;
+        END;
+
+        BEGIN TRANSACTION;
+        SET @started_transaction = 1;
+
         -- Validate required parameters
         IF @batch_id IS NULL
         BEGIN
@@ -96,9 +110,16 @@ BEGIN
             DECLARE @error_msg2 NVARCHAR(4000) = N'Failed to update batch ID ' + CAST(@batch_id AS NVARCHAR(20)) + N'. No rows were affected.';
             THROW 50000, @error_msg2, 1;
         END;
-        
+
+        COMMIT TRANSACTION;
+        SET @started_transaction = 0;
     END TRY
     BEGIN CATCH
+        IF @started_transaction = 1 AND XACT_STATE() <> 0
+        BEGIN
+            ROLLBACK TRANSACTION;
+        END;
+
         THROW;
     END CATCH;
 END;
@@ -130,4 +151,3 @@ EXEC [Data].[ctl_usp_finish_batch]
     @status = N'FAILED',
     @message = N'Batch failed: Connection timeout after 30 seconds.';
 */
-
