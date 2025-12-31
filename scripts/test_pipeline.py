@@ -48,14 +48,14 @@ def main():
     
     # Get snapshot date
     print("\nSnapshot Date:")
-    print("  - Press Enter to use latest date from snapshot table (recommended)")
+    print("  - Press Enter to use today's date (recommended for new ETL runs)")
     print("  - Enter a date (YYYY-MM-DD) to use a specific date")
-    snapshot_date_str = input("Enter snapshot date (YYYY-MM-DD) or press Enter for latest: ").strip()
+    snapshot_date_str = input("Enter snapshot date (YYYY-MM-DD) or press Enter for today: ").strip()
     if snapshot_date_str:
         year, month, day = map(int, snapshot_date_str.split('-'))
         snapshot_date = date(year, month, day)
     else:
-        snapshot_date = None  # Will be auto-detected from table
+        snapshot_date = None  # Will default to today's date
     
     try:
         if choice == "3":
@@ -69,22 +69,11 @@ def main():
                 print("  Snapshot Date: Will use latest from table")
             print("-" * 60)
             
-            # If snapshot_date is None, we need to get it first for the stored procedure
+            # If snapshot_date is None, use today's date for the stored procedure
             if snapshot_date is None:
-                print("\n→ Detecting latest snapshot date...")
-                connection_factory = DBConnectionFactory()
-                with connection_factory.connection('source') as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT MAX(snapshot_date) FROM [Data].[cur_FactoryInventorySnapshot]")
-                    row = cursor.fetchone()
-                    conn.commit()
-                    if not row or row[0] is None:
-                        print("❌ Error: No snapshot dates found in table. Please provide a snapshot_date.")
-                        sys.exit(1)
-                    snapshot_date = row[0]
-                    if hasattr(snapshot_date, 'date'):
-                        snapshot_date = snapshot_date.date()
-                    print(f"   ✓ Using latest snapshot date: {snapshot_date}")
+                from datetime import date as dt_date
+                snapshot_date = dt_date.today()
+                print(f"\n→ Using today's date as snapshot date: {snapshot_date}")
             
             connection_factory = DBConnectionFactory()
             sql_executor = SQLExecutor(connection_factory)
@@ -125,7 +114,7 @@ def main():
             if snapshot_date:
                 print(f"  Snapshot Date: {snapshot_date}")
             else:
-                print(f"  Snapshot Date: Will use latest from table")
+                print(f"  Snapshot Date: Will use today's date")
             print("-" * 60)
             
             # Create pipeline

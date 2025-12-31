@@ -12,7 +12,7 @@ class FactoryInventoryPipeline(BaseETLPipeline):
     - execute_sql_file: Execute SQL files from the sql folder
     
     If batch_id is None, a new batch will be automatically created when run() is called.
-    If snapshot_date is None, the latest snapshot_date from cur_FactoryInventorySnapshot will be used.
+    If snapshot_date is None, today's date will be used as the snapshot date.
     """
     
     def __init__(self, batch_id: Optional[int], snapshot_date: Optional[date] = None, connection_factory=None, triggered_by: str = 'PYTHON_PIPELINE'):
@@ -21,7 +21,8 @@ class FactoryInventoryPipeline(BaseETLPipeline):
         
         Args:
             batch_id: Batch ID to use. If None, a new batch will be created automatically.
-            snapshot_date: Date for the snapshot. If None, the latest date from cur_FactoryInventorySnapshot will be used.
+            snapshot_date: Date for the snapshot (as-of date for inventory levels). 
+                          If None, today's date will be used.
             connection_factory: Optional DBConnectionFactory instance
             triggered_by: Identifier for who/what triggered this pipeline (used when creating new batch)
         """
@@ -33,8 +34,8 @@ class FactoryInventoryPipeline(BaseETLPipeline):
         self._batch_created = False
         self._snapshot_date_detected = False
         
-        # If snapshot_date is None, we'll detect it later, but need a placeholder for BaseETLPipeline
-        # Use today's date as placeholder - will be replaced when detected
+        # If snapshot_date is None, we'll use today's date, but need a placeholder for BaseETLPipeline
+        # Use today's date as placeholder - will be set properly when needed
         placeholder_date = snapshot_date if snapshot_date is not None else date.today()
         
         # BaseETLPipeline requires batch_id, so we use a placeholder if None
@@ -44,49 +45,17 @@ class FactoryInventoryPipeline(BaseETLPipeline):
             connection_factory=connection_factory
         )
     
-    def _get_latest_snapshot_date(self) -> date:
-        """Get the latest snapshot_date from cur_FactoryInventorySnapshot table."""
-        query = """
-            SELECT MAX(snapshot_date) AS latest_snapshot_date
-            FROM [Data].[cur_FactoryInventorySnapshot]
-        """
-        
-        # Use connection factory to execute raw query
-        with self._connection_factory.connection('source') as conn:
-            cursor = conn.cursor()
-            cursor.execute(query)
-            
-            # Fetch result
-            row = cursor.fetchone()
-            conn.commit()
-            
-            if not row or row[0] is None:
-                raise ValueError(
-                    "No snapshot dates found in [Data].[cur_FactoryInventorySnapshot]. "
-                    "The table is empty. Please provide a snapshot_date explicitly or run the ETL first."
-                )
-            
-            latest_date = row[0]
-            # Handle both date objects and string dates
-            if isinstance(latest_date, str):
-                from datetime import datetime
-                latest_date = datetime.strptime(latest_date, '%Y-%m-%d').date()
-            elif hasattr(latest_date, 'date'):  # datetime object
-                latest_date = latest_date.date()
-            # If it's already a date object, use it as is
-        
-        return latest_date
-    
     def _ensure_snapshot_date(self):
-        """Ensure snapshot_date is set, detecting from table if needed."""
+        """Ensure snapshot_date is set, using today's date if not provided."""
         if self._snapshot_date_detected:
             return
         
         if self._snapshot_date is None:
-            latest_date = self._get_latest_snapshot_date()
-            self._snapshot_date = latest_date
+            # Use today's date as the snapshot date (as-of date for inventory)
+            today = date.today()
+            self._snapshot_date = today
             # Update the base class's snapshot_date attribute
-            object.__setattr__(self, 'snapshot_date', latest_date)
+            object.__setattr__(self, 'snapshot_date', today)
             self._snapshot_date_detected = True
     
     def _ensure_batch_created(self):
@@ -180,7 +149,7 @@ class FactoryInventoryPipeline(BaseETLPipeline):
         """
         Run the ETL pipeline using the base class implementation.
         If batch_id was None during initialization, a new batch will be created automatically.
-        If snapshot_date was None during initialization, the latest date from cur_FactoryInventorySnapshot will be used.
+        If snapshot_date was None during initialization, today's date will be used.
         
         Alternatively, you can use the SQL stored procedure that orchestrates everything:
         
