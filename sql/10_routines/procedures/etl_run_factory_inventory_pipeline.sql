@@ -31,6 +31,9 @@ BEGIN
       @triggered_by = @triggered_by,
       @batch_id = @batch_id OUTPUT;
 
+    IF @batch_id IS NULL
+      THROW 51000, N'Batch start failed: no batch id was returned.', 1;
+
     -- Load staging
     EXEC [Data].[etl_usp_load_stage_factory_inventory] @batch_id = @batch_id;
 
@@ -49,8 +52,10 @@ BEGIN
   END TRY
   BEGIN CATCH
     DECLARE @msg NVARCHAR(4000) = ERROR_MESSAGE();
-    IF @batch_id IS NOT NULL
-      EXEC [Data].[ctl_usp_finish_batch] @batch_id = @batch_id, @status = N'FAILED', @message = @msg;
+    IF @batch_id IS NULL
+      THROW 51000, CONCAT(N'Batch failed before batch id assignment: ', @msg), 1;
+
+    EXEC [Data].[ctl_usp_finish_batch] @batch_id = @batch_id, @status = N'FAILED', @message = @msg;
     THROW;
   END CATCH
 END;
@@ -111,4 +116,3 @@ FROM [Data].[cur_FactoryInventorySnapshot]
 WHERE snapshot_date = '2024-01-15'
 ORDER BY factory_id, product_id;
 */
-
