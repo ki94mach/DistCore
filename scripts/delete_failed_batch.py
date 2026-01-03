@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.orchestrator.pipelines.factory_inventory import FactoryInventoryPipeline
 YOUR_BATCH_ID = [1, 2, 3, 4]
-for batch_id in YOUR_BATCH_ID:
+for batch_id in range(17):
     pipeline = FactoryInventoryPipeline(batch_id=batch_id)
     # Finish the batch as FAILED
     pipeline.finish_batch(batch_id, 'FAILED', 'Process interrupted by user')
