@@ -22,11 +22,11 @@ USING (
            N'Requires [Data].[ctl_BatchRun] table. Updates existing batch record with status and completion time.'
     UNION ALL
     -- ETL procedures
-    SELECT N'[Data].[etl_usp_run_factory_inventory_pipeline]', N'Data', N'ETL',
-           N'Orchestrate the complete factory inventory ETL pipeline from staging load through validation to curated snapshot publication',
-           N'Main entry point for running the factory inventory ETL pipeline. Coordinates all steps: batch tracking, staging load, validation, and snapshot publication. Errors bubble up via THROW for Python callers to handle.',
+    SELECT N'[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]', N'Data', N'ETL',
+           N'Orchestrate the complete factory inventory ETL pipeline from staging load through snapshot publication',
+           N'Main entry point for running the factory inventory ETL pipeline. Coordinates all steps: batch tracking, staging load, and snapshot publication. Errors bubble up via THROW for Python callers to handle.',
            1, N'1.0.0', N'SYSTEM',
-           N'Depends on: ctl_usp_start_batch, ctl_usp_finish_batch, etl_usp_load_stage_factory_inventory, etl_usp_validate_factory_inventory, etl_usp_publish_factory_inventory_snapshot'
+           N'Depends on: ctl_usp_start_batch, ctl_usp_finish_batch, etl_usp_load_stage_factory_inventory, etl_usp_build_factory_inventory_snapshot'
 ) AS source
 ON target.procedure_name = source.procedure_name
 WHEN MATCHED THEN
@@ -99,18 +99,15 @@ WHEN NOT MATCHED BY TARGET THEN
     VALUES (source.procedure_name, source.parameter_name, source.parameter_type, source.sql_data_type, source.is_required, source.default_value, source.description, source.ordinal_position);
 GO
 
--- Seed procedure parameters for etl_usp_run_factory_inventory_pipeline
+-- Seed procedure parameters for etl_usp_run_factory_inventory_snapshot_pipeline
 MERGE [Data].[ctl_ProcedureParameter] AS target
 USING (
-    SELECT N'[Data].[etl_usp_run_factory_inventory_pipeline]' AS procedure_name, N'snapshot_date' AS parameter_name, N'INPUT' AS parameter_type,
+    SELECT N'[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]' AS procedure_name, N'snapshot_date' AS parameter_name, N'INPUT' AS parameter_type,
            N'DATE' AS sql_data_type, 1 AS is_required, NULL AS default_value,
-           N'The snapshot date to assign to published records in [Data].[cur_FactoryInventorySnapshot]' AS description, 1 AS ordinal_position
+           N'The snapshot date to assign to published records in [Data].[snp_FactoryInventorySnapshot]' AS description, 1 AS ordinal_position
     UNION ALL
-    SELECT N'[Data].[etl_usp_run_factory_inventory_pipeline]', N'triggered_by', N'INPUT', N'NVARCHAR(100)', 0, NULL,
+    SELECT N'[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]', N'triggered_by', N'INPUT', N'NVARCHAR(100)', 0, NULL,
            N'Optional identifier for who/what triggered this pipeline run (e.g., SCHEDULED_JOB, MANUAL, API)', 2
-    UNION ALL
-    SELECT N'[Data].[etl_usp_run_factory_inventory_pipeline]', N'allow_negative', N'INPUT', N'BIT', 0, N'0',
-           N'If 1, allows negative on_hand_qty values during validation. If 0, treats negative quantities as validation failures.' AS description, 3
 ) AS source
 ON target.procedure_name = source.procedure_name AND target.parameter_name = source.parameter_name
 WHEN MATCHED THEN
@@ -168,7 +165,7 @@ SELECT
     pp.ordinal_position
 FROM [Data].[ctl_ProcedureCatalog] pc
 LEFT JOIN [Data].[ctl_ProcedureParameter] pp ON pc.procedure_name = pp.procedure_name
-WHERE pc.procedure_name = N'[Data].[etl_usp_run_factory_inventory_pipeline]'
+WHERE pc.procedure_name = N'[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]'
 ORDER BY pp.ordinal_position;
 
 -- Example 3: Find procedures by category
@@ -190,7 +187,6 @@ SELECT
     pe.status,
     pe.triggered_by
 FROM [Data].[ctl_ProcedureExecution] pe
-WHERE pe.procedure_name = N'[Data].[etl_usp_run_factory_inventory_pipeline]'
+WHERE pe.procedure_name = N'[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]'
 ORDER BY pe.started_at DESC;
 */
-

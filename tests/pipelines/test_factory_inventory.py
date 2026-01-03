@@ -48,18 +48,6 @@ class TestFactoryInventoryPipeline(unittest.TestCase):
         )
     
     @patch.object(FactoryInventoryPipeline, 'execute_procedure')
-    def test_validate(self, mock_execute):
-        """Test validate method."""
-        # Execute
-        self.pipeline.validate()
-        
-        # Verify
-        mock_execute.assert_called_once_with(
-            '[Data].[etl_usp_validate_factory_inventory]',
-            parameters={'batch_id': self.batch_id, 'allow_negative': 0}
-        )
-    
-    @patch.object(FactoryInventoryPipeline, 'execute_procedure')
     def test_publish(self, mock_execute):
         """Test publish method."""
         # Execute
@@ -67,7 +55,7 @@ class TestFactoryInventoryPipeline(unittest.TestCase):
         
         # Verify
         mock_execute.assert_called_once_with(
-            '[Data].[etl_usp_publish_factory_inventory_snapshot]',
+            '[Data].[etl_usp_build_factory_inventory_snapshot]',
             parameters={
                 'batch_id': self.batch_id,
                 'snapshot_date': self.snapshot_date
@@ -96,17 +84,15 @@ class TestFactoryInventoryPipeline(unittest.TestCase):
         )
     
     @patch.object(FactoryInventoryPipeline, 'load_stage')
-    @patch.object(FactoryInventoryPipeline, 'validate')
     @patch.object(FactoryInventoryPipeline, 'publish')
     @patch.object(FactoryInventoryPipeline, 'finish_batch')
-    def test_run_success(self, mock_finish, mock_publish, mock_validate, mock_load):
+    def test_run_success(self, mock_finish, mock_publish, mock_load):
         """Test run method with successful execution."""
         # Execute
         self.pipeline.run()
         
         # Verify methods called in order
         mock_load.assert_called_once()
-        mock_validate.assert_called_once()
         mock_publish.assert_called_once()
         mock_finish.assert_called_once_with(
             self.batch_id,
@@ -115,26 +101,25 @@ class TestFactoryInventoryPipeline(unittest.TestCase):
         )
     
     @patch.object(FactoryInventoryPipeline, 'load_stage')
-    @patch.object(FactoryInventoryPipeline, 'validate')
     @patch.object(FactoryInventoryPipeline, 'publish')
     @patch.object(FactoryInventoryPipeline, 'finish_batch')
-    def test_run_failure(self, mock_finish, mock_publish, mock_validate, mock_load):
+    def test_run_failure(self, mock_finish, mock_publish, mock_load):
         """Test run method with failure."""
-        # Setup - simulate failure in validate
-        test_error = Exception("Validation failed")
-        mock_validate.side_effect = test_error
+        # Setup - simulate failure in publish
+        test_error = Exception("Publish failed")
+        mock_publish.side_effect = test_error
         
         # Execute and verify exception is raised
         with self.assertRaises(Exception) as context:
             self.pipeline.run()
         
-        self.assertEqual(str(context.exception), "Validation failed")
+        self.assertEqual(str(context.exception), "Publish failed")
         
         # Verify error handling
         mock_finish.assert_called_once_with(
             self.batch_id,
             'FAILED',
-            'Validation failed'
+            'Publish failed'
         )
 
 
@@ -165,4 +150,3 @@ class TestFactoryInventoryPipelineIntegration(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-

@@ -2,7 +2,7 @@
 Purpose: Create staging landing table for weekly factory inventory loads.
 Assumptions: T-SQL on SQL Server; [Data] schema already exists; requires permissions to create tables and indexes.
 How to run: Execute in SSMS or via sqlcmd against the target database; script is idempotent.
-Note: Staging accepts imperfect rows (nullable keys) to enable data quality validation before curated layer. Curated tables enforce constraints.
+Note: Staging accepts imperfect rows (nullable keys) to enable snapshot transformation before the snapshot layer. Snapshot tables enforce constraints.
 */
 
 -- Create [Data].[stg_FactoryInventory] if missing
@@ -24,7 +24,7 @@ END;
 GO
 
 -- Alter existing table to make factory_id and product_id nullable (idempotent)
--- Staging accepts imperfect rows; curated enforces constraints
+-- Staging accepts imperfect rows; snapshot layer enforces constraints
 IF EXISTS (
     SELECT 1
     FROM sys.columns c
@@ -75,4 +75,3 @@ BEGIN
         INCLUDE (on_hand_qty, as_of_datetime, batch_id);
 END;
 GO
-
