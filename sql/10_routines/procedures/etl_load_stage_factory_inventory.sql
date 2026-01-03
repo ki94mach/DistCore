@@ -5,7 +5,7 @@ Usage: This stored procedure is typically called as part of an ETL pipeline afte
 Parameters:
     @batch_id BIGINT - The batch identifier from [Data].[ctl_BatchRun] to tag all inserted rows.
 Returns: A resultset with columns: inserted_rows (count of rows inserted).
-How to run: Execute via EXEC [Data].[etl_usp_load_stage_factory_inventory] @batch_id = 123. Should be called after starting a batch and before running validation/transformation steps.
+How to run: Execute via EXEC [Data].[etl_usp_load_stage_factory_inventory] @batch_id = 123. Should be called after starting a batch and before running snapshot transformation steps.
 */
 
 -- =============================================
@@ -79,7 +79,7 @@ FROM [Data].[stg_FactoryInventory]
 WHERE batch_id = 123
 GROUP BY batch_id;
 
--- Example 3: Check for NULL keys (should be caught by validation)
+-- Example 3: Check for NULL keys (review before snapshot build)
 SELECT 
     batch_id,
     COUNT(*) AS total_rows,
@@ -88,4 +88,3 @@ FROM [Data].[stg_FactoryInventory]
 WHERE batch_id = 123
 GROUP BY batch_id;
 */
-

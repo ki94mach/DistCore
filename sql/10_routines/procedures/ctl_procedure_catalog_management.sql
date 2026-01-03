@@ -359,7 +359,7 @@ EXEC [Data].[ctl_usp_register_procedure_parameter]
 -- Example 3: Log procedure execution start
 DECLARE @ExecId BIGINT;
 EXEC [Data].[ctl_usp_log_procedure_execution]
-    @procedure_name = N'[Data].[etl_usp_run_factory_inventory_pipeline]',
+    @procedure_name = N'[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]',
     @execution_id = @ExecId OUTPUT,
     @batch_id = 123,
     @status = N'RUNNING',
@@ -367,14 +367,14 @@ EXEC [Data].[ctl_usp_log_procedure_execution]
 
 -- Example 4: Log procedure execution finish
 EXEC [Data].[ctl_usp_log_procedure_execution]
-    @procedure_name = N'[Data].[etl_usp_run_factory_inventory_pipeline]',
+    @procedure_name = N'[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]',
     @execution_id = @ExecId, -- Use the execution_id from step 3
     @status = N'SUCCESS',
     @result_count = 1500;
 
 -- Example 5: Get procedure information
 EXEC [Data].[ctl_usp_get_procedure_info]
-    @procedure_name = N'[Data].[etl_usp_run_factory_inventory_pipeline]';
+    @procedure_name = N'[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]';
 
 -- Example 6: List all ETL procedures
 EXEC [Data].[ctl_usp_list_procedures]
@@ -385,4 +385,3 @@ EXEC [Data].[ctl_usp_list_procedures]
 EXEC [Data].[ctl_usp_list_procedures]
     @search_term = N'factory_inventory';
 */
-

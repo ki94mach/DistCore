@@ -80,11 +80,10 @@ def main():
             sql_executor = SQLExecutor(connection_factory)
             
             results = sql_executor.execute_procedure(
-                procedure_name='[Data].[etl_usp_run_factory_inventory_pipeline]',
+                procedure_name='[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]',
                 parameters={
                     'snapshot_date': snapshot_date,
-                    'triggered_by': 'MANUAL_TEST',
-                    'allow_negative': 0
+                    'triggered_by': 'MANUAL_TEST'
                 },
                 database_type='test'
             )
@@ -134,11 +133,6 @@ def main():
             pipeline.load_stage()
             print("   ✓ Load stage completed")
             
-            # Test validate
-            print("\n   → Validating...")
-            pipeline.validate()
-            print("   ✓ Validation completed")
-            
             # Test publish
             print("\n   → Publishing...")
             pipeline.publish()
@@ -180,4 +174,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

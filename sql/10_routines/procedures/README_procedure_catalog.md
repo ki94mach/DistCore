@@ -2,14 +2,14 @@
 
 ## Overview
 
-The Procedure Catalog system provides a centralized way to store, manage, and track stored procedures in the database. It follows the same catalog pattern used for Data Quality rules (`dq_RuleCatalog`) and provides comprehensive metadata management for all stored procedures.
+The Procedure Catalog system provides a centralized way to store, manage, and track stored procedures in the database and provides comprehensive metadata management for all stored procedures.
 
 ## Architecture
 
 ### Tables
 
 1. **`[Data].[ctl_ProcedureCatalog]`** - Main catalog table storing procedure metadata
-   - `procedure_name` (PK) - Full procedure name (e.g., `[Data].[etl_usp_run_factory_inventory_pipeline]`)
+   - `procedure_name` (PK) - Full procedure name (e.g., `[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]`)
    - `schema_name` - Schema where procedure resides
    - `procedure_category` - Category (CTL, ETL, DQ, OPT, etc.)
    - `description` - Short description
@@ -111,7 +111,7 @@ EXEC [Data].[ctl_usp_register_procedure_parameter]
 -- Start execution
 DECLARE @ExecId BIGINT;
 EXEC [Data].[ctl_usp_log_procedure_execution]
-    @procedure_name = N'[Data].[etl_usp_run_factory_inventory_pipeline]',
+    @procedure_name = N'[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]',
     @execution_id = @ExecId OUTPUT,
     @batch_id = 123,
     @status = N'RUNNING',
@@ -121,7 +121,7 @@ EXEC [Data].[ctl_usp_log_procedure_execution]
 
 -- Finish execution
 EXEC [Data].[ctl_usp_log_procedure_execution]
-    @procedure_name = N'[Data].[etl_usp_run_factory_inventory_pipeline]',
+    @procedure_name = N'[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]',
     @execution_id = @ExecId,
     @status = N'SUCCESS',
     @result_count = 1500;
@@ -137,7 +137,7 @@ EXEC [Data].[ctl_usp_list_procedures]
 
 -- Get detailed procedure information
 EXEC [Data].[ctl_usp_get_procedure_info]
-    @procedure_name = N'[Data].[etl_usp_run_factory_inventory_pipeline]';
+    @procedure_name = N'[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]';
 
 -- Search procedures
 EXEC [Data].[ctl_usp_list_procedures]
@@ -158,7 +158,7 @@ results = self.execute_procedure(
 # Example: Get procedure details before execution
 procedure_info = self.execute_procedure(
     '[Data].[ctl_usp_get_procedure_info]',
-    parameters={'procedure_name': '[Data].[etl_usp_run_factory_inventory_pipeline]'}
+    parameters={'procedure_name': '[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]'}
 )
 ```
 
@@ -184,9 +184,7 @@ procedure_info = self.execute_procedure(
 
 - **CTL** - Control procedures (batch management, watermarks, etc.)
 - **ETL** - ETL pipeline procedures (extract, load, transform)
-- **DQ** - Data quality validation procedures
 - **OPT** - Optimization procedures
 - **RPT** - Reporting procedures
 
 Add new categories as needed, but maintain consistency across the system.
-

@@ -1,15 +1,15 @@
 /*
-Purpose: Create curated snapshot table for factory inventory used by optimization logic.
+Purpose: Create snapshot table for factory inventory used by optimization logic.
 Grain: One row per (snapshot_date, factory_id, product_id) combination.
 Assumptions: T-SQL on SQL Server; [Data] schema already exists; requires permissions to create tables and indexes.
-Usage: This table stores trusted point-in-time snapshots of factory inventory levels, typically refreshed weekly from staging data. The snapshot_date represents the as-of date for the inventory levels. Used by downstream optimization processes that require consistent, validated inventory data.
+Usage: This table stores point-in-time snapshots of factory inventory levels, typically refreshed weekly from staging data. The snapshot_date represents the as-of date for the inventory levels. Used by downstream optimization processes that require consistent snapshot inputs.
 How to run: Execute in SSMS or via sqlcmd against the target database; script is idempotent.
 */
 
--- Create [Data].[cur_FactoryInventorySnapshot] if missing
-IF OBJECT_ID(N'[Data].[cur_FactoryInventorySnapshot]', 'U') IS NULL
+-- Create [Data].[snp_FactoryInventorySnapshot] if missing
+IF OBJECT_ID(N'[Data].[snp_FactoryInventorySnapshot]', 'U') IS NULL
 BEGIN
-    CREATE TABLE [Data].[cur_FactoryInventorySnapshot] (
+    CREATE TABLE [Data].[snp_FactoryInventorySnapshot] (
         snapshot_date DATE NOT NULL,
         factory_id INT NOT NULL,
         product_id INT NOT NULL,
@@ -26,12 +26,11 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[cur_FactoryInventorySnapshot]', 'U')
+    WHERE i.object_id = OBJECT_ID(N'[Data].[snp_FactoryInventorySnapshot]', 'U')
       AND i.name = N'IX_FactoryInventorySnapshot_SnapshotDate'
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_FactoryInventorySnapshot_SnapshotDate
-        ON [Data].[cur_FactoryInventorySnapshot] (snapshot_date DESC);
+        ON [Data].[snp_FactoryInventorySnapshot] (snapshot_date DESC);
 END;
 GO
-

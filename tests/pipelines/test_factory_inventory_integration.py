@@ -89,11 +89,10 @@ class TestFactoryInventoryPipelineIntegration(unittest.TestCase):
         )
         
         results = pipeline.execute_procedure(
-            '[Data].[etl_usp_run_factory_inventory_pipeline]',
+            '[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]',
             parameters={
                 'snapshot_date': self.snapshot_date,
-                'triggered_by': 'PYTHON_TEST',
-                'allow_negative': 0
+                'triggered_by': 'PYTHON_TEST'
             }
         )
         
@@ -105,4 +104,3 @@ class TestFactoryInventoryPipelineIntegration(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-

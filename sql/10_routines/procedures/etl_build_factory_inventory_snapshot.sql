@@ -1,15 +1,15 @@
 /*
-Purpose: Publish validated factory inventory data from staging ([Data].[stg_FactoryInventory]) into curated snapshot table ([Data].[cur_FactoryInventorySnapshot]) for a given snapshot date.
-Assumptions: T-SQL on SQL Server; staging table [Data].[stg_FactoryInventory] exists (see 020_stg_factory_inventory.sql); curated table [Data].[cur_FactoryInventorySnapshot] exists (see 030_cur_factory_inventory_snapshot.sql); data has been validated (via validate.sql) before publishing.
-Usage: This stored procedure is typically called as part of an ETL pipeline after validation (via validate.sql). It aggregates staging data by (factory_id, product_id) and merges into the curated snapshot table. The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will update existing records if staging data has changed, or leave them unchanged if data is identical. This allows safe reruns of the ETL pipeline without creating duplicate snapshots.
+Purpose: Build factory inventory snapshots from staging ([Data].[stg_FactoryInventory]) into the snapshot table ([Data].[snp_FactoryInventorySnapshot]) for a given snapshot date.
+Assumptions: T-SQL on SQL Server; staging table [Data].[stg_FactoryInventory] exists (see 020_stg_factory_inventory.sql); snapshot table [Data].[snp_FactoryInventorySnapshot] exists (see 030_snap_factory_inventory_snapshot.sql).
+Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. It aggregates staging data by (factory_id, product_id) and merges into the snapshot table. The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will update existing records if staging data has changed, or leave them unchanged if data is identical. This allows safe reruns of the ETL pipeline without creating duplicate snapshots.
 Parameters:
     @batch_id BIGINT - The batch identifier for the staging data to publish (must exist in [Data].[stg_FactoryInventory]).
     @snapshot_date DATE - The snapshot date to assign to published records. Typically corresponds to the as-of date for inventory levels (e.g., end-of-week date).
 Returns: A resultset with columns: inserted_count, updated_count, total_count (one row summary).
-How to run: Execute via EXEC [Data].[etl_usp_publish_factory_inventory_snapshot] @batch_id = 123, @snapshot_date = '2024-01-15'. Should be called after validate.sql succeeds.
+How to run: Execute via EXEC [Data].[etl_usp_build_factory_inventory_snapshot] @batch_id = 123, @snapshot_date = '2024-01-15'.
 */
 
-CREATE OR ALTER PROCEDURE [Data].[etl_usp_publish_factory_inventory_snapshot]
+CREATE OR ALTER PROCEDURE [Data].[etl_usp_build_factory_inventory_snapshot]
     @batch_id BIGINT,
     @snapshot_date DATE
 AS
@@ -27,18 +27,6 @@ BEGIN
         THROW 50000, N'@snapshot_date cannot be NULL. Provide a valid snapshot date.', 1;
     END;
     
-    -- Defensive guard: Check for FI_NULL_QTY violation (even though validate should catch it)
-    IF EXISTS (
-        SELECT 1
-        FROM [Data].[stg_FactoryInventory]
-        WHERE batch_id = @batch_id
-          AND on_hand_qty IS NULL
-    )
-    BEGIN
-        DECLARE @error_msg NVARCHAR(MAX) = N'FI_NULL_QTY violated: on_hand_qty IS NULL found in staging for batch_id ' + CAST(@batch_id AS NVARCHAR(20)) + N'.';
-        THROW 50000, @error_msg, 1;
-    END;
-    
     -- Table variable to capture MERGE results
     DECLARE @MergeResults TABLE (
         ActionType NVARCHAR(10),
@@ -49,7 +37,7 @@ BEGIN
     
     -- Build source dataset: aggregate staging data by (factory_id, product_id)
     -- Aggregation rule: MAX(on_hand_qty) - assumes we want the peak/maximum inventory level for the snapshot.
-    -- Filter out NULL keys (defensive; FI_NULL_KEYS validation should catch NULL keys before this procedure runs).
+    -- Filter out NULL keys to ensure snapshot grain integrity.
     WITH AggregatedStaging AS (
         SELECT 
             factory_id,
@@ -61,8 +49,8 @@ BEGIN
           AND product_id IS NOT NULL
         GROUP BY factory_id, product_id
     )
-    -- MERGE into curated snapshot table
-    MERGE [Data].[cur_FactoryInventorySnapshot] AS target
+    -- MERGE into snapshot table
+    MERGE [Data].[snp_FactoryInventorySnapshot] AS target
     USING AggregatedStaging AS source
         ON target.snapshot_date = @snapshot_date
        AND target.factory_id = source.factory_id
@@ -90,4 +78,3 @@ BEGIN
     FROM @MergeResults;
 END;
 GO
-

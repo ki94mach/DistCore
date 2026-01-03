@@ -44,7 +44,7 @@ class SQLExecutor:
         Execute a stored procedure by name.
         
         Args:
-            procedure_name: Full procedure name (e.g., '[Data].[etl_usp_run_factory_inventory_pipeline]')
+            procedure_name: Full procedure name (e.g., '[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]')
             parameters: Dictionary of parameter names (without @) to values
                        Example: {'snapshot_date': '2024-01-15', 'triggered_by': 'SCHEDULED_JOB'}
             database_type: Type of database to execute against ('source' or 'test')
@@ -126,4 +126,3 @@ class SQLExecutor:
             database_type=database_type,
             parameters=parameters
         )
-

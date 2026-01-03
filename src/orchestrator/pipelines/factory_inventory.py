@@ -270,27 +270,10 @@ class FactoryInventoryPipeline(BaseETLPipeline):
                 # Re-raise to trigger batch status update
                 raise
     
-    def validate(self):
-        """
-        Validate the data in the stage.
-        Example: Execute validation stored procedure.
-        
-        Note: If called through run(), errors are handled by the base class.
-        If called directly, errors are handled by the context manager.
-        """
-        with self._handle_batch_failure("Validation failed: "):
-            self._ensure_snapshot_date()
-            self._ensure_batch_created()
-            self.execute_procedure(
-                '[Data].[etl_usp_validate_factory_inventory]',
-                parameters={'batch_id': self.batch_id, 'allow_negative': 0},
-                database_type=self._database_type
-            )
-    
     def publish(self):
         """
         Publish the data to the target.
-        Example: Execute publication stored procedure.
+        Example: Execute snapshot build stored procedure.
         
         Note: If called through run(), errors are handled by the base class.
         If called directly, errors are handled by the context manager.
@@ -299,7 +282,7 @@ class FactoryInventoryPipeline(BaseETLPipeline):
             self._ensure_snapshot_date()
             self._ensure_batch_created()
             self.execute_procedure(
-                '[Data].[etl_usp_publish_factory_inventory_snapshot]',
+                '[Data].[etl_usp_build_factory_inventory_snapshot]',
                 parameters={
                     'batch_id': self.batch_id,
                     'snapshot_date': self.snapshot_date
@@ -339,11 +322,10 @@ class FactoryInventoryPipeline(BaseETLPipeline):
         
         # Option: Use the all-in-one stored procedure
         results = self.execute_procedure(
-            '[Data].[etl_usp_run_factory_inventory_pipeline]',
+            '[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]',
             parameters={
                 'snapshot_date': self.snapshot_date,
-                'triggered_by': self._triggered_by,
-                'allow_negative': 0
+                'triggered_by': self._triggered_by
             }
         )
         # If using the stored procedure, you don't need to call super().run()
@@ -352,7 +334,7 @@ class FactoryInventoryPipeline(BaseETLPipeline):
         self._ensure_snapshot_date()
         self._ensure_batch_created()
         try:
-            # Use the base class implementation which calls load_stage, validate, publish
+            # Use the base class implementation which calls load_stage, publish
             super().run()
         except KeyboardInterrupt:
             # Handle user interruption

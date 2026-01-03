@@ -30,7 +30,6 @@ class BaseETLPipeline(ABC):
         self._in_run_method = True
         try:
             self.load_stage()
-            self.validate()
             self.publish()
             if self._has_valid_batch_id():
                 self.finish_batch(self.batch_id, 'SUCCESS', 'OK')
@@ -45,13 +44,6 @@ class BaseETLPipeline(ABC):
     def load_stage(self):
         """
         Load the data into the stage.
-        """
-        pass
-    
-    @abstractmethod
-    def validate(self):
-        """
-        Validate the data in the stage.
         """
         pass
     
@@ -77,7 +69,7 @@ class BaseETLPipeline(ABC):
         """
         Context manager to automatically mark batch as FAILED if an exception occurs.
         
-        This should be used in ETL step methods (load_stage, validate, publish) 
+        This should be used in ETL step methods (load_stage, publish) 
         when they might be called directly (not through run()).
         
         If the method is called through run(), the base class will handle errors,
@@ -87,9 +79,9 @@ class BaseETLPipeline(ABC):
             error_message_prefix: Optional prefix to add to error messages
             
         Example:
-            def validate(self):
-                with self._handle_batch_failure("Validation failed: "):
-                    # validation code here
+            def publish(self):
+                with self._handle_batch_failure("Publish failed: "):
+                    # publish code here
                     self.execute_procedure(...)
         """
         try:
@@ -120,7 +112,7 @@ class BaseETLPipeline(ABC):
         Execute a stored procedure.
         
         Args:
-            procedure_name: Full procedure name (e.g., '[Data].[etl_usp_run_factory_inventory_pipeline]')
+            procedure_name: Full procedure name (e.g., '[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]')
             parameters: Dictionary of parameter names (without @) to values
             database_type: Type of database ('source' or 'test')
             fetch_results: If True, fetch and return result sets
@@ -130,7 +122,7 @@ class BaseETLPipeline(ABC):
             
         Example:
             results = self.execute_procedure(
-                '[Data].[etl_usp_run_factory_inventory_pipeline]',
+                '[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]',
                 parameters={'snapshot_date': self.snapshot_date, 'triggered_by': 'SCHEDULED_JOB'}
             )
         """
