@@ -21,6 +21,8 @@ SELECT
     [DQty] AS on_hand_qty
 FROM 
     [DWOrchid].[dbo].[FactInventory]
-WHERE 
+WHERE
+    [FKVendor] IS NOT NULL
+    AND [FKProduct] IS NOT NULL
     (@since IS NULL OR [FKDate] >= @since)
     AND [FKDate] IS NOT NULL;

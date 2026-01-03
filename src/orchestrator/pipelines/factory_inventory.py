@@ -239,11 +239,9 @@ class FactoryInventoryPipeline(BaseETLPipeline):
                     print(f"  Query filter: {'since_date >= ' + str(since_date) if since_date else 'FULL LOAD (no date filter)'}")
                 with self._connection_factory.connection('source') as source_conn:
                     source_cursor = source_conn.cursor()
-                    # Set query timeout to prevent indefinite hangs (5 minutes)
-                    source_cursor.timeout = 300
                     # Set arraysize for better performance with fetchmany (number of rows to fetch per network round trip)
                     source_cursor.arraysize = batch_size
-                    print("  Starting query execution (timeout: 5 minutes)...")
+                    print("  Starting query execution...")
                     execute_start = time.time()
                     source_cursor.execute(extract_query)
                     execute_elapsed = time.time() - execute_start
