@@ -1,5 +1,7 @@
 import signal
 import sys
+import time
+import re
 from typing import Optional
 from datetime import date, timedelta
 from src.orchestrator.pipelines.base_pipeline import BaseETLPipeline
@@ -107,7 +109,7 @@ class FactoryInventoryPipeline(BaseETLPipeline):
         # Re-raise KeyboardInterrupt to exit
         raise KeyboardInterrupt("Process interrupted by user")
     
-    def load_stage(self, batch_size: int = 10000, incremental: bool = True):
+    def load_stage(self, batch_size: int = 10000, incremental: bool = True, single_date_only: bool = False):
         """
         Load the data into the stage using batch processing for better performance.
         Extracts data from source server (op-db1-srv) using sql/20_etl/factory_inventory/extract.sql
@@ -115,7 +117,10 @@ class FactoryInventoryPipeline(BaseETLPipeline):
         
         Args:
             batch_size: Number of rows to process in each batch (default: 10000)
-            incremental: If True, only loads data after the latest date in staging table (default: True)
+            incremental: If True, only loads data after the latest date in staging table (default: True).
+                        Ignored if single_date_only is True.
+            single_date_only: If True, loads only records for the snapshot_date (default: False).
+                            When True, uses equality filter (FKDate = snapshot_date) instead of range filter.
         
         Note: If called through run(), errors are handled by the base class.
         If called directly, errors are handled by the context manager.
@@ -124,9 +129,17 @@ class FactoryInventoryPipeline(BaseETLPipeline):
             self._ensure_snapshot_date()
             self._ensure_batch_created()
             
-            # Get the latest date from staging table for incremental loading
+            # Determine the date filter to use
             since_date = None
-            if incremental:
+            use_equality_filter = False
+            
+            if single_date_only:
+                # Load only records for the snapshot_date (equality filter)
+                since_date = self.snapshot_date
+                use_equality_filter = True
+                print(f"Single date load: Getting data for date {since_date} only")
+            elif incremental:
+                # Get the latest date from staging table for incremental loading
                 with self._connection_factory.connection('test') as test_conn:
                     test_cursor = test_conn.cursor()
                     test_cursor.execute("""
@@ -178,11 +191,25 @@ class FactoryInventoryPipeline(BaseETLPipeline):
                     if since_date:
                         # Format date for SQL Server: 'YYYY-MM-DD'
                         date_str = since_date.strftime("'%Y-%m-%d'")
+                        # For both modes, replace @since with the date string first
                         line = line.replace('@since', date_str)
                     else:
                         line = line.replace('@since', 'NULL')
                     select_lines.append(line)
+            
             extract_query = '\n'.join(select_lines)
+            
+            # For single date only mode, replace the WHERE condition from >= to =
+            if use_equality_filter and since_date:
+                date_str = since_date.strftime("'%Y-%m-%d'")
+                # Replace the pattern: (date_str IS NULL OR [FKDate] >= date_str)
+                # with: [FKDate] = date_str
+                # Match the pattern with various whitespace possibilities
+                pattern = r'\(\s*' + re.escape(date_str) + r'\s+IS\s+NULL\s+OR\s+\[FKDate\]\s+>=\s+' + re.escape(date_str) + r'\s*\)'
+                extract_query = re.sub(pattern, f"[FKDate] = {date_str}", extract_query, flags=re.IGNORECASE)
+            
+            # Debug: Print the query being executed (first 500 chars to avoid huge output)
+            print(f"  Query preview: {extract_query[:500]}..." if len(extract_query) > 500 else f"  Query: {extract_query}")
             
             # Step 1: Delete existing staging rows for this batch_id (rerun-safe)
             delete_query = "DELETE FROM [Data].[stg_FactoryInventory] WHERE batch_id = ?"
@@ -205,9 +232,28 @@ class FactoryInventoryPipeline(BaseETLPipeline):
             batch_count = 0
             
             try:
+                print("Executing extract query on source database...")
+                if use_equality_filter:
+                    print(f"  Query filter: Single date only - [FKDate] = {since_date}")
+                else:
+                    print(f"  Query filter: {'since_date >= ' + str(since_date) if since_date else 'FULL LOAD (no date filter)'}")
                 with self._connection_factory.connection('source') as source_conn:
                     source_cursor = source_conn.cursor()
+                    # Set query timeout to prevent indefinite hangs (5 minutes)
+                    source_cursor.timeout = 300
+                    # Set arraysize for better performance with fetchmany (number of rows to fetch per network round trip)
+                    source_cursor.arraysize = batch_size
+                    print("  Starting query execution (timeout: 5 minutes)...")
+                    execute_start = time.time()
                     source_cursor.execute(extract_query)
+                    execute_elapsed = time.time() - execute_start
+                    print(f"✓ Query executed successfully in {execute_elapsed:.2f} seconds. Starting to fetch rows...")
+                    
+                    # Get column names from cursor description (done once before batch loop)
+                    desc_start = time.time()
+                    columns = [column[0] for column in source_cursor.description]
+                    desc_elapsed = time.time() - desc_start
+                    print(f"  Column description retrieved in {desc_elapsed:.2f} seconds. Found {len(columns)} columns.")
                     
                     # Process data in batches
                     while True:
@@ -220,8 +266,9 @@ class FactoryInventoryPipeline(BaseETLPipeline):
                         if not rows:
                             break
                         
-                        # Get column names from cursor description
-                        columns = [column[0] for column in source_cursor.description]
+                        # Progress feedback for first batch
+                        if batch_count == 0:
+                            print(f"Fetched first batch of {len(rows)} rows. Starting data load...")
                         
                         # Prepare batch data for insertion
                         batch_data = []
