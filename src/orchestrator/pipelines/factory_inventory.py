@@ -1,6 +1,5 @@
 import signal
 import sys
-import time
 import re
 from typing import Optional
 from datetime import date, timedelta
@@ -95,16 +94,14 @@ class FactoryInventoryPipeline(BaseETLPipeline):
     
     def _signal_handler(self, signum, frame):
         """Handle interrupt signals (Ctrl+C) gracefully."""
-        print("\n\n⚠️  Interrupt signal received. Cleaning up...")
         self._interrupted = True
         
         # Mark batch as FAILED if it was created
         if self._batch_created and self._batch_id:
             try:
                 self.finish_batch(self._batch_id, 'FAILED', 'Process interrupted by user (Ctrl+C)')
-                print(f"✓ Batch {self._batch_id} marked as FAILED in database.")
-            except Exception as e:
-                print(f"⚠️  Warning: Could not update batch status: {str(e)}")
+            except Exception:
+                pass
         
         # Re-raise KeyboardInterrupt to exit
         raise KeyboardInterrupt("Process interrupted by user")
@@ -137,7 +134,6 @@ class FactoryInventoryPipeline(BaseETLPipeline):
                 # Load only records for the snapshot_date (equality filter)
                 since_date = self.snapshot_date
                 use_equality_filter = True
-                print(f"Single date load: Getting data for date {since_date} only")
             elif incremental:
                 # Get the latest date from staging table for incremental loading
                 with self._connection_factory.connection('test') as test_conn:
@@ -150,9 +146,6 @@ class FactoryInventoryPipeline(BaseETLPipeline):
                     if result and result[0] is not None:
                         # Add 1 day to get only dates AFTER the latest date (not including it)
                         since_date = result[0] + timedelta(days=1)
-                        print(f"Incremental load: Getting data after {result[0]} (starting from {since_date})")
-                    else:
-                        print("No existing data in staging. Performing full load.")
             
             # Read the SQL file content
             from pathlib import Path
@@ -208,9 +201,6 @@ class FactoryInventoryPipeline(BaseETLPipeline):
                 pattern = r'\(\s*' + re.escape(date_str) + r'\s+IS\s+NULL\s+OR\s+\[FKDate\]\s+>=\s+' + re.escape(date_str) + r'\s*\)'
                 extract_query = re.sub(pattern, f"AND [FKDate] = {date_str}", extract_query, flags=re.IGNORECASE)
             
-            # Debug: Print the query being executed (first 500 chars to avoid huge output)
-            print(f"  Query preview: {extract_query[:500]}..." if len(extract_query) > 500 else f"  Query: {extract_query}")
-            
             # Step 1: Delete existing staging rows for this batch_id (rerun-safe)
             delete_query = "DELETE FROM [Data].[stg_FactoryInventory] WHERE batch_id = ?"
             
@@ -232,26 +222,14 @@ class FactoryInventoryPipeline(BaseETLPipeline):
             batch_count = 0
             
             try:
-                print("Executing extract query on source database...")
-                if use_equality_filter:
-                    print(f"  Query filter: Single date only - [FKDate] = {since_date}")
-                else:
-                    print(f"  Query filter: {'since_date >= ' + str(since_date) if since_date else 'FULL LOAD (no date filter)'}")
                 with self._connection_factory.connection('source') as source_conn:
                     source_cursor = source_conn.cursor()
                     # Set arraysize for better performance with fetchmany (number of rows to fetch per network round trip)
                     source_cursor.arraysize = batch_size
-                    print("  Starting query execution...")
-                    execute_start = time.time()
                     source_cursor.execute(extract_query)
-                    execute_elapsed = time.time() - execute_start
-                    print(f"✓ Query executed successfully in {execute_elapsed:.2f} seconds. Starting to fetch rows...")
                     
                     # Get column names from cursor description (done once before batch loop)
-                    desc_start = time.time()
                     columns = [column[0] for column in source_cursor.description]
-                    desc_elapsed = time.time() - desc_start
-                    print(f"  Column description retrieved in {desc_elapsed:.2f} seconds. Found {len(columns)} columns.")
                     
                     # Process data in batches
                     while True:
@@ -263,10 +241,6 @@ class FactoryInventoryPipeline(BaseETLPipeline):
                         rows = source_cursor.fetchmany(batch_size)
                         if not rows:
                             break
-                        
-                        # Progress feedback for first batch
-                        if batch_count == 0:
-                            print(f"Fetched first batch of {len(rows)} rows. Starting data load...")
                         
                         # Prepare batch data for insertion
                         batch_data = []
@@ -290,28 +264,20 @@ class FactoryInventoryPipeline(BaseETLPipeline):
                                 
                                 total_rows += len(batch_data)
                                 batch_count += 1
-                                
-                                # Progress feedback
-                                if batch_count % 10 == 0 or len(batch_data) < batch_size:
-                                    print(f"Loaded {total_rows:,} rows in {batch_count} batches...")
                                     
                             except Exception as e:
                                 test_conn.rollback()
                                 raise Exception(f"Failed to load batch {batch_count + 1} into staging: {str(e)}") from e
                 
-                print(f"Completed loading {total_rows:,} rows into staging.")
-                
             except KeyboardInterrupt:
-                print(f"\n⚠️  Loading interrupted. Loaded {total_rows:,} rows in {batch_count} batches before interruption.")
                 # Clean up: delete partial staging data for this batch
                 try:
                     with self._connection_factory.connection('test') as test_conn:
                         test_cursor = test_conn.cursor()
                         test_cursor.execute(delete_query, (self.batch_id,))
                         test_conn.commit()
-                        print(f"✓ Cleaned up partial staging data for batch {self.batch_id}.")
-                except Exception as e:
-                    print(f"⚠️  Warning: Could not clean up staging data: {str(e)}")
+                except Exception:
+                    pass
                 # Re-raise to trigger batch status update
                 raise
     
@@ -383,12 +349,10 @@ class FactoryInventoryPipeline(BaseETLPipeline):
             super().run()
         except KeyboardInterrupt:
             # Handle user interruption
-            print("\n⚠️  Pipeline interrupted by user (Ctrl+C)")
             if self._batch_created and self._batch_id:
                 try:
                     self.finish_batch(self._batch_id, 'FAILED', 'Process interrupted by user (Ctrl+C)')
-                    print(f"✓ Batch {self._batch_id} marked as FAILED in database.")
-                except Exception as e:
-                    print(f"⚠️  Warning: Could not update batch status: {str(e)}")
+                except Exception:
+                    pass
             # Re-raise to exit
             raise
