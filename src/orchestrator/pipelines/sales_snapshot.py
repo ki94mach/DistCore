@@ -16,6 +16,30 @@ class SalesSnapshotPipeline(InventoryPipelineBase):
     If snapshot_date is None, today's date will be used as the snapshot date.
     """
 
+    def load_stage(
+        self,
+        batch_size: int = 10000,
+        incremental: bool = False,
+        single_date_only: bool = False,
+    ) -> None:
+        """
+        Load sales staging data.
+
+        Sales snapshots need month-to-date and rolling averages across all staging rows,
+        so this pipeline always performs a full load. Use single_date_only for
+        backfills that intentionally limit the staging window.
+        """
+        if incremental and not single_date_only:
+            raise ValueError(
+                "Sales snapshots require full staging loads; set incremental=False "
+                "or use single_date_only for scoped backfills."
+            )
+        super().load_stage(
+            batch_size=batch_size,
+            incremental=False,
+            single_date_only=single_date_only,
+        )
+
     @property
     def batch_type(self) -> str:
         return 'SALES_SNAPSHOT'
