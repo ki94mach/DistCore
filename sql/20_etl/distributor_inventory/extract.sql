@@ -27,5 +27,5 @@ WHERE
     AND [FkCenter] IS NOT NULL
     AND [FKProduct] IS NOT NULL
     AND (@since IS NULL OR [FKDate] >= @since)
-    AND [DQty] <> 0;
-    AND [Status] = 'موجودي' OR [Status] = 'در راه';
+    AND [DQty] <> 0
+    AND ([Status] = 'موجودي' OR [Status] = 'در راه');
