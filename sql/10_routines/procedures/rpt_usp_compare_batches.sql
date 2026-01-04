@@ -34,7 +34,7 @@ WITH DistinctCombos AS (
         product_batch_no
     FROM [Data].[stg_FactoryInventory]
     WHERE batch_id IN (@batch_a, @batch_b)
-    GROUP BY batch_id, factory_id, product_id
+    GROUP BY batch_id, factory_id, product_id, product_batch_no
 ),
 ComboCounts AS (
     SELECT 

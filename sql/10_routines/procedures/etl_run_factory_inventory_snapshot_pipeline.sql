@@ -47,8 +47,12 @@ BEGIN
   END TRY
   BEGIN CATCH
     DECLARE @msg NVARCHAR(4000) = ERROR_MESSAGE();
+    DECLARE @error_msg NVARCHAR(4000);
     IF @batch_id IS NULL
-      THROW 51000, CONCAT(N'Batch failed before batch id assignment: ', @msg), 1;
+    BEGIN
+      SET @error_msg = N'Batch failed before batch id assignment: ' + @msg;
+      THROW 51000, @error_msg, 1;
+    END
 
     EXEC [Data].[ctl_usp_finish_batch] @batch_id = @batch_id, @status = N'FAILED', @message = @msg;
     THROW;

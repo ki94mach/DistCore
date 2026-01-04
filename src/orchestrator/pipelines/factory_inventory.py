@@ -348,21 +348,37 @@ class FactoryInventoryPipeline(BaseETLPipeline):
         """
         Finish the batch by calling the stored procedure.
         
+        The ctl_usp_finish_batch procedure requires that there be no active transaction.
+        To ensure this, we use a fresh connection with autocommit=True to avoid any
+        transaction state.
+        
         Args:
             batch_id: The batch ID
             status: Batch status ('SUCCESS', 'FAILED', etc.)
             message: Optional status message
         """
-        self.execute_procedure(
-            '[Data].[ctl_usp_finish_batch]',
-            parameters={
-                'batch_id': batch_id,
-                'status': status,
-                'message': message
-            },
-            database_type=self._database_type,
-            fetch_results=False
+        # Use a fresh connection (not from pool) with autocommit=True to ensure no active transaction
+        # The ctl_usp_finish_batch procedure explicitly checks XACT_STATE() and fails
+        # if there's an active transaction. Setting autocommit=True ensures no transaction is started.
+        fresh_conn = self._connection_factory.get_connection(
+            self._database_type,
+            use_pool=False  # Don't use pool to ensure fresh connection with no transaction state
         )
+        try:
+            # Enable autocommit mode to ensure no transaction is active
+            # This is required because ctl_usp_finish_batch checks XACT_STATE() and fails
+            # if there's an active transaction
+            fresh_conn.autocommit = True
+            
+            cursor = fresh_conn.cursor()
+            exec_sql = "EXEC [Data].[ctl_usp_finish_batch] @batch_id = ?, @status = ?, @message = ?"
+            param_values = [batch_id, status, message]
+            
+            cursor.execute(exec_sql, param_values)
+            # No need to commit when autocommit=True, but it's harmless
+        finally:
+            # Always close the fresh connection
+            fresh_conn.close()
     
     def run(self):
         """

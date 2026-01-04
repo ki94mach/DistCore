@@ -1,7 +1,13 @@
 /*
 Purpose: Build factory inventory snapshots from staging ([Data].[stg_FactoryInventory]) into the snapshot table ([Data].[snp_FactoryInventorySnapshot]) for a given snapshot date.
+Aggregation Logic: 
+    - Aggregates by product_id only (one row per product in snapshot)
+    - Sums on_hand_qty across ALL factories for each product
+    - Filters to only today's date (as_of_datetime = CAST(GETDATE() AS DATE))
+    - Result: Total inventory quantity per product across all factories for today's date
+Grain: One row per (snapshot_date, product_id) in the snapshot table. Quantities are summed across all factories.
 Assumptions: T-SQL on SQL Server; staging table [Data].[stg_FactoryInventory] exists (see 020_stg_factory_inventory.sql); snapshot table [Data].[snp_FactoryInventorySnapshot] exists (see 030_snap_factory_inventory_snapshot.sql).
-Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. It aggregates staging data by product_id for today's date only, summing on_hand_qty (DQty) across all factories, and merges into the snapshot table. The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will update existing records if staging data has changed, or leave them unchanged if data is identical. This allows safe reruns of the ETL pipeline without creating duplicate snapshots.
+Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. It aggregates staging data by product_id for today's date only, summing on_hand_qty across all factories, and merges into the snapshot table. The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will update existing records if staging data has changed, or leave them unchanged if data is identical. This allows safe reruns of the ETL pipeline without creating duplicate snapshots.
 Parameters:
     @batch_id BIGINT - The batch identifier for the staging data to publish (must exist in [Data].[stg_FactoryInventory]).
     @snapshot_date DATE - The snapshot date to assign to published records. Only records with as_of_datetime equal to today's date (CAST(GETDATE() AS DATE)) are included in the aggregation.
@@ -34,22 +40,25 @@ BEGIN
         product_id INT
     );
     
-    -- Get today's date for filtering
+    -- Get today's date for filtering staging data
+    -- Only records with as_of_datetime equal to today's date are included in the snapshot
     DECLARE @today_date DATE = CAST(GETDATE() AS DATE);
     
     -- Build source dataset: aggregate staging data by product_id only
-    -- Aggregation rule: SUM(on_hand_qty) - sums DQty across all factories for each product
-    -- Filter to only today's date (as_of_datetime = @today_date)
-    -- Filter out NULL keys to ensure snapshot grain integrity.
+    -- IMPORTANT: This aggregation sums inventory quantities across ALL factories for each product
+    -- Grain: One row per product_id (aggregated across all factories)
+    -- Aggregation rule: SUM(on_hand_qty) - sums on_hand_qty across all factories for each product
+    -- Filter to only today's date (as_of_datetime = @today_date) to capture current inventory levels
+    -- Filter out NULL keys to ensure snapshot grain integrity (snapshot table requires non-null product_id)
     WITH AggregatedStaging AS (
         SELECT 
             product_id,
-            SUM(on_hand_qty) AS on_hand_qty
+            SUM(on_hand_qty) AS on_hand_qty  -- Sum across all factories for this product
         FROM [Data].[stg_FactoryInventory]
         WHERE batch_id = @batch_id
           AND product_id IS NOT NULL
-          AND as_of_datetime = @today_date
-        GROUP BY product_id
+          AND as_of_datetime = @today_date  -- Only include today's inventory data
+        GROUP BY product_id  -- Aggregate by product_id only (no factory_id in snapshot)
     )
     -- MERGE into snapshot table
     MERGE [Data].[snp_FactoryInventorySnapshot] AS target
