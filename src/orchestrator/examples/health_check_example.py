@@ -2,7 +2,7 @@
 Simple examples of using DatabaseHealthChecker
 
 Run this file to see health checking in action:
-    From project root: python -m src.orchestrator.services.health_check_example
+    From project root: python -m src.orchestrator.examples.health_check_example
 """
 
 import sys
@@ -11,7 +11,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from src.orchestrator.services.db_health import DatabaseHealthChecker
+from src.orchestrator.health.db_health import DatabaseHealthChecker
 
 
 def main():

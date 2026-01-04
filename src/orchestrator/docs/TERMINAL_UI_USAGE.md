@@ -14,7 +14,7 @@ The `terminal_ui.py` module provides reusable terminal formatting utilities for 
 ### Option 1: Using Module-Level Functions (Recommended)
 
 ```python
-from src.orchestrator.services.terminal_ui import (
+from src.orchestrator.ui.terminal_ui import (
     Colors,
     print_header,
     print_success,
@@ -50,7 +50,7 @@ print(colored_text)
 ### Option 2: Using the TerminalUI Class
 
 ```python
-from src.orchestrator.services.terminal_ui import TerminalUI, Colors
+from src.orchestrator.ui.terminal_ui import TerminalUI, Colors
 
 # Create an instance (customizable separator width)
 ui = TerminalUI(separator_width=80)
@@ -65,7 +65,7 @@ user_input = ui.print_prompt("Enter value: ")
 ## Available Colors
 
 ```python
-from src.orchestrator.services.terminal_ui import Colors
+from src.orchestrator.ui.terminal_ui import Colors
 
 # Standard colors
 Colors.BLACK, Colors.RED, Colors.GREEN, Colors.YELLOW
@@ -86,7 +86,7 @@ Colors.BOLD, Colors.DIM, Colors.UNDERLINE
 ## Available Symbols
 
 ```python
-from src.orchestrator.services.terminal_ui import Symbols
+from src.orchestrator.ui.terminal_ui import Symbols
 
 Symbols.CHECK      # '[OK]'
 Symbols.CROSS      # '[X]'
@@ -100,7 +100,7 @@ Symbols.SEPARATOR # '='
 ## Example: Complete CLI Application
 
 ```python
-from src.orchestrator.services.terminal_ui import (
+from src.orchestrator.ui.terminal_ui import (
     Colors,
     print_header,
     print_success,
