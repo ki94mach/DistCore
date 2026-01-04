@@ -141,11 +141,11 @@ def configure_staging(pipeline_info):
     elif pipeline_info['name'] == 'Sales Snapshot':
         print_info("\nLoad Mode:")
         print(colorize(
-            "  - Sales snapshots require single-date ingestion to scope staging.",
+            "  - Sales snapshots load a rolling six-month window ending on the snapshot date.",
             Colors.DIM
         ))
         incremental = False
-        single_date_only = True
+        single_date_only = False
     
     return {
         'snapshot_date': snapshot_date,
@@ -247,7 +247,7 @@ def run_staging(pipeline_info, config):
             pipeline.load_stage(
                 batch_size=config['batch_size'],
                 incremental=False,
-                single_date_only=True
+                single_date_only=False
             )
         else:
             pipeline.load_stage()
@@ -318,7 +318,7 @@ def run_full_pipeline(pipeline_info):
             pipeline.load_stage(
                 batch_size=staging_config['batch_size'],
                 incremental=False,
-                single_date_only=True
+                single_date_only=False
             )
         else:
             pipeline.load_stage()
