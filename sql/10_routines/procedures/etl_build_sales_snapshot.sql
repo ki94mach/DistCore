@@ -49,8 +49,7 @@ BEGIN
             DATEFROMPARTS(YEAR(as_of_datetime), MONTH(as_of_datetime), 1) AS snapshot_month,
             SUM(sales_qty) AS monthly_sales
         FROM [Data].[stg_Sales]
-        WHERE batch_id = @batch_id
-          AND product_id IS NOT NULL
+        WHERE product_id IS NOT NULL
           AND distributor_id IS NOT NULL
           AND as_of_datetime IS NOT NULL
         GROUP BY
@@ -92,8 +91,7 @@ BEGIN
             distributor_id,
             SUM(sales_qty) AS sales_mtd
         FROM [Data].[stg_Sales]
-        WHERE batch_id = @batch_id
-          AND product_id IS NOT NULL
+        WHERE product_id IS NOT NULL
           AND distributor_id IS NOT NULL
           AND as_of_datetime >= @snapshot_month
           AND as_of_datetime <= @snapshot_date
