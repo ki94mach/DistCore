@@ -280,10 +280,34 @@ def run_full_pipeline(pipeline_info):
     # Run full pipeline
     print_action("Running full pipeline (load_stage + publish)...")
     try:
-        pipeline.run()
+        # Run load_stage with configured parameters
+        print_action("Loading stage...")
+        if pipeline_info['name'] == 'Factory Inventory':
+            pipeline.load_stage(
+                batch_size=staging_config['batch_size'],
+                incremental=staging_config['incremental'],
+                single_date_only=staging_config['single_date_only']
+            )
+        else:
+            pipeline.load_stage()
+        
+        # Run publish
+        print_action("Publishing...")
+        pipeline.publish()
+        
+        # Finish batch
+        if hasattr(pipeline, 'batch_id') and pipeline.batch_id:
+            pipeline.finish_batch(pipeline.batch_id, 'SUCCESS', 'OK')
+        
         print_success("Full pipeline completed successfully!")
         return pipeline
     except Exception as e:
+        # Handle batch failure
+        if hasattr(pipeline, 'batch_id') and pipeline.batch_id:
+            try:
+                pipeline.finish_batch(pipeline.batch_id, 'FAILED', str(e))
+            except Exception:
+                pass
         print_error(f"Error: {str(e)}")
         raise
 
