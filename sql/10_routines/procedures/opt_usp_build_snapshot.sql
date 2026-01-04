@@ -1,11 +1,11 @@
 /*
 Purpose: Build an optimization-ready "as-of" snapshot by joining snapshot tables. This stored procedure assembles factory inventory data with sales features, targets, and derived metrics for input to the optimization engine.
-Grain: One row per (snapshot_date, factory_id, product_id) combination. This grain matches the optimizer input requirements, providing a consistent point-in-time view of inventory levels along with related features and targets needed for decision-making.
+Grain: One row per (snapshot_date, product_id) combination. This grain matches the optimizer input requirements, providing a consistent point-in-time view of inventory levels (aggregated across all factories) along with related features and targets needed for decision-making.
 Assumptions: T-SQL on SQL Server; snapshot table [Data].[snp_FactoryInventorySnapshot] exists (see 030_snap_factory_inventory_snapshot.sql); additional snapshot tables for sales, targets, and derived metrics will be joined as they become available.
 Usage: This stored procedure returns an optimization-ready dataset for a specific snapshot date. Currently scaffolds the base inventory snapshot; TODO sections indicate where additional joins will be added as related tables become available.
 Parameters:
     @snapshot_date DATE - The snapshot date for which to build the optimization-ready dataset. Must correspond to a snapshot_date that exists in [Data].[snp_FactoryInventorySnapshot].
-Returns: A resultset with columns: snapshot_date, factory_id, product_id, product_batch_no, on_hand_qty, batch_id, created_at, and future columns for sales features, targets, and derived metrics.
+Returns: A resultset with columns: snapshot_date, product_id, on_hand_qty, batch_id, created_at, and future columns for sales features, targets, and derived metrics.
 How to run: Execute via EXEC [Data].[opt_usp_build_snapshot] @snapshot_date = '2024-01-15'. The procedure returns the optimization-ready snapshot data.
 */
 
@@ -24,9 +24,7 @@ BEGIN
     -- Base inventory snapshot
     SELECT 
         inv.snapshot_date,
-        inv.factory_id,
         inv.product_id,
-        inv.product_batch_no,
         inv.on_hand_qty,
         inv.batch_id,
         inv.created_at
@@ -73,7 +71,6 @@ BEGIN
     -- Example (to be implemented):
     -- LEFT JOIN [Data].[snp_SalesFeatures] AS sales
     --     ON sales.snapshot_date = inv.snapshot_date
-    --    AND sales.factory_id = inv.factory_id
     --    AND sales.product_id = inv.product_id
 
     -- TODO: Add LEFT JOIN statements for targets
@@ -82,7 +79,7 @@ BEGIN
     --     ON tgt.product_id = inv.product_id
     --    AND @snapshot_date BETWEEN tgt.target_period_start AND tgt.target_period_end
 
-    ORDER BY inv.factory_id, inv.product_id;
+    ORDER BY inv.product_id;
 END;
 GO
 
@@ -99,8 +96,8 @@ EXEC [Data].[opt_usp_build_snapshot] @snapshot_date = '2024-01-15';
 SELECT 
     snapshot_date,
     COUNT(*) AS row_count,
-    COUNT(DISTINCT factory_id) AS factory_count,
-    COUNT(DISTINCT product_id) AS product_count
+    COUNT(DISTINCT product_id) AS product_count,
+    SUM(on_hand_qty) AS total_on_hand_qty
 FROM [Data].[snp_FactoryInventorySnapshot]
 WHERE snapshot_date = '2024-01-15'
 GROUP BY snapshot_date;
