@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.orchestrator.pipelines.factory_inventory import FactoryInventoryPipeline
 from src.orchestrator.pipelines.distributor_inventory import DistributorInventoryPipeline
+from src.orchestrator.pipelines.sales_snapshot import SalesSnapshotPipeline
 from src.orchestrator.services.sql_server_db.factory import DBConnectionFactory
 from src.orchestrator.services.sql_server_db.executors.sql_executor import SQLExecutor
 from src.orchestrator.services.terminal_ui import (
@@ -36,6 +37,11 @@ PIPELINES = {
         'name': 'Distributor Inventory',
         'class': DistributorInventoryPipeline,
         'batch_type': 'DISTRIBUTOR_INVENTORY'
+    },
+    '3': {
+        'name': 'Sales Snapshot',
+        'class': SalesSnapshotPipeline,
+        'batch_type': 'SALES_SNAPSHOT'
     }
 }
 
@@ -132,6 +138,14 @@ def configure_staging(pipeline_info):
         elif mode_choice == "3":
             incremental = False
             single_date_only = False
+    elif pipeline_info['name'] == 'Sales Snapshot':
+        print_info("\nLoad Mode:")
+        print(colorize(
+            "  - Sales snapshots require single-date ingestion to scope staging.",
+            Colors.DIM
+        ))
+        incremental = False
+        single_date_only = True
     
     return {
         'snapshot_date': snapshot_date,
@@ -229,6 +243,12 @@ def run_staging(pipeline_info, config):
                 incremental=config['incremental'],
                 single_date_only=config['single_date_only']
             )
+        elif pipeline_info['name'] == 'Sales Snapshot':
+            pipeline.load_stage(
+                batch_size=config['batch_size'],
+                incremental=False,
+                single_date_only=True
+            )
         else:
             pipeline.load_stage()
         
@@ -293,6 +313,12 @@ def run_full_pipeline(pipeline_info):
                 batch_size=staging_config['batch_size'],
                 incremental=staging_config['incremental'],
                 single_date_only=staging_config['single_date_only']
+            )
+        elif pipeline_info['name'] == 'Sales Snapshot':
+            pipeline.load_stage(
+                batch_size=staging_config['batch_size'],
+                incremental=False,
+                single_date_only=True
             )
         else:
             pipeline.load_stage()
