@@ -32,8 +32,6 @@ class DistributorInventoryPipeline(BaseETLPipeline):
         self, 
         batch_id: Optional[int],
         snapshot_date: Optional[date] = None,
-        distributor_id: Optional[int] = None,
-        center_id: Optional[int] = None,
         connection_factory=None,
         triggered_by: str = 'PYTHON_PIPELINE',
         database_type: str = 'test'
@@ -45,8 +43,6 @@ class DistributorInventoryPipeline(BaseETLPipeline):
             batch_id: Batch ID to use. If None, a new batch will be created automatically.
             snapshot_date: Date for the snapshot (as-of date for inventory levels). 
                           If None, today's date will be used.
-            distributor_id: Distributor ID to use. If None, all distributors will be used.
-            center_id: Center ID to use. If None, all centers will be used.
             connection_factory: Optional DBConnectionFactory instance
             triggered_by: Identifier for who/what triggered this pipeline (used when creating new batch)
             database_type: Type of database to use ('source' or 'test'). Defaults to 'test'.
@@ -55,8 +51,6 @@ class DistributorInventoryPipeline(BaseETLPipeline):
         # For now, we need to provide a placeholder to satisfy BaseETLPipeline
         self._batch_id = batch_id
         self._snapshot_date = snapshot_date
-        self._distributor_id = distributor_id
-        self._center_id = center_id
         self._triggered_by = triggered_by
         self._database_type = database_type
         self._batch_created = False
@@ -76,8 +70,6 @@ class DistributorInventoryPipeline(BaseETLPipeline):
         super().__init__(
             batch_id=batch_id if batch_id is not None else 0,
             snapshot_date=placeholder_date,
-            distributor_id=distributor_id,
-            center_id=center_id,
             connection_factory=connection_factory
         )
     
@@ -92,8 +84,6 @@ class DistributorInventoryPipeline(BaseETLPipeline):
             self._snapshot_date = today
             # Update the base class's snapshot_date attribute
             object.__setattr__(self, 'snapshot_date', today)
-            object.__setattr__(self, 'distributor_id', self._distributor_id)
-            object.__setattr__(self, 'center_id', self._center_id)
             self._snapshot_date_detected = True
     
     def _ensure_batch_created(self):
@@ -102,18 +92,12 @@ class DistributorInventoryPipeline(BaseETLPipeline):
         if self._batch_created:
             return
         
-        # Check if distributor_id and center_id are provided
-        if self._distributor_id is None or self._center_id is None:
-            raise ValueError("distributor_id and center_id must be provided")
-        
         # Check if we need to create a batch (either _batch_id is None/0 or base class batch_id is 0)
         if (self._batch_id is None or self._batch_id == 0) or (hasattr(self, 'batch_id') and self.batch_id == 0):
             result = self.execute_procedure_with_output(
                 '[Data].[ctl_usp_start_batch]',
                 parameters={
                     'batch_type': 'DISTRIBUTOR_INVENTORY',
-                    'distributor_id': self._distributor_id,
-                    'center_id': self._center_id,
                     'triggered_by': self._triggered_by
                 },
                 output_parameters=['batch_id'],
@@ -123,8 +107,6 @@ class DistributorInventoryPipeline(BaseETLPipeline):
             self._batch_id = result['batch_id']
             # Update the base class's batch_id attribute
             object.__setattr__(self, 'batch_id', self._batch_id)
-            object.__setattr__(self, 'distributor_id', self._distributor_id)
-            object.__setattr__(self, 'center_id', self._center_id)
             self._batch_created = True
     
     def _signal_handler(self, signum, frame):
@@ -255,7 +237,7 @@ class DistributorInventoryPipeline(BaseETLPipeline):
         """
         return """
             INSERT INTO [Data].[stg_DistributorInventory] 
-                (batch_id, distributor_id, center_id, product_id, product_batch_no, as_of_datetime, on_hand_qty)
+                (batch_id, product_id, distributor_id, center_id, product_batch_no, as_of_datetime, on_hand_qty)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """
     
@@ -273,9 +255,9 @@ class DistributorInventoryPipeline(BaseETLPipeline):
         row_dict = dict(zip(columns, row))
         return (
             self.batch_id,
+            row_dict.get('product_id'),
             row_dict.get('distributor_id'),
             row_dict.get('center_id'),
-            row_dict.get('product_id'),
             row_dict.get('product_batch_no'),
             row_dict.get('as_of_datetime'),
             row_dict.get('on_hand_qty')
@@ -397,7 +379,7 @@ class DistributorInventoryPipeline(BaseETLPipeline):
             fresh_conn.autocommit = True
             
             cursor = fresh_conn.cursor()
-            exec_sql = "EXEC [Data].[ctl_usp_finish_batch] @batch_id = ?, @distributor_id = ?, @center_id = ?, @status = ?, @message = ?"
+            exec_sql = "EXEC [Data].[ctl_usp_finish_batch] @batch_id = ?, @status = ?, @message = ?"
             param_values = [batch_id, status, message]
             
             cursor.execute(exec_sql, param_values)

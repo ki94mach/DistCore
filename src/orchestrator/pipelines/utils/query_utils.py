@@ -91,18 +91,33 @@ def apply_date_equality_filter(
     Example:
         >>> query = "SELECT * FROM table WHERE ('2024-01-01' IS NULL OR [FKDate] >= '2024-01-01')"
         >>> apply_date_equality_filter(query, '[FKDate]', date(2024, 1, 1))
-        "SELECT * FROM table WHERE AND [FKDate] = '2024-01-01'"
+        "SELECT * FROM table WHERE [FKDate] = '2024-01-01'"
+        >>> query = "SELECT * FROM table WHERE col1 = 1 AND ('2024-01-01' IS NULL OR [FKDate] >= '2024-01-01')"
+        >>> apply_date_equality_filter(query, '[FKDate]', date(2024, 1, 1))
+        "SELECT * FROM table WHERE col1 = 1 AND [FKDate] = '2024-01-01'"
     """
     date_str = date_value.strftime("'%Y-%m-%d'")
     
     # Pattern matches: (date_str IS NULL OR column >= date_str)
     # with various whitespace possibilities
+    # Also matches optional AND/OR before the parentheses
     pattern = (
+        r'(\s+(?:AND|OR)\s+)?' +  # Optional AND/OR before the pattern (captured in group 1)
         r'\(\s*' + re.escape(date_str) +
         r'\s+IS\s+NULL\s+OR\s+' + re.escape(date_column) +
         r'\s+>=\s+' + re.escape(date_str) + r'\s*\)'
     )
-    replacement = f"AND {date_column} = {date_str}"
     
-    return re.sub(pattern, replacement, query, flags=re.IGNORECASE)
+    # If there was an AND/OR before, keep it; otherwise use AND
+    def replacement_func(match):
+        prefix = match.group(1)
+        if prefix:
+            # Keep the original AND/OR prefix (preserve whitespace)
+            # prefix is like " AND " or " OR ", so we keep it and add the condition
+            return prefix + f"{date_column} = {date_str}"
+        else:
+            # No prefix, add AND (assuming it's in a WHERE clause)
+            return f" AND {date_column} = {date_str}"
+    
+    return re.sub(pattern, replacement_func, query, flags=re.IGNORECASE)
 
