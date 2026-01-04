@@ -1,4 +1,4 @@
-from sql_server_db import DBConnectionFactory
+from src.orchestrator.services.sql_server_db import DBConnectionFactory
 
 factory = DBConnectionFactory()
 

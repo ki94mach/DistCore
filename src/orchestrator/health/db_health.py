@@ -1,7 +1,8 @@
 import time
 from typing import Dict, Optional
-from .sql_server_db import DBConnectionFactory
-from .sql_server_db.health import ConnectionHealthChecker
+
+from ..services.sql_server_db import DBConnectionFactory
+from ..services.sql_server_db.health import ConnectionHealthChecker
 
 
 class DatabaseHealthChecker:
@@ -147,4 +148,3 @@ class DatabaseHealthChecker:
             'total_count': total_count,
             'timestamp': time.time()
         }
-

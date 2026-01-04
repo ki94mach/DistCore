@@ -5,7 +5,7 @@ The `DatabaseHealthChecker` provides high-level health monitoring for your datab
 ## Quick Start
 
 ```python
-from db_health import DatabaseHealthChecker
+from src.orchestrator.health.db_health import DatabaseHealthChecker
 
 # Create a health checker
 health_checker = DatabaseHealthChecker()
@@ -22,7 +22,7 @@ print(f"Database is healthy: {is_healthy}")
 Returns a detailed dictionary with health status, response time, and error information.
 
 ```python
-from db_health import DatabaseHealthChecker
+from src.orchestrator.health.db_health import DatabaseHealthChecker
 
 health_checker = DatabaseHealthChecker()
 
@@ -148,7 +148,7 @@ else:
 ### Example 1: Basic Health Check
 
 ```python
-from db_health import DatabaseHealthChecker
+from src.orchestrator.health.db_health import DatabaseHealthChecker
 
 health_checker = DatabaseHealthChecker()
 result = health_checker.check_health('source')
@@ -163,7 +163,7 @@ else:
 
 ```python
 import time
-from db_health import DatabaseHealthChecker
+from src.orchestrator.health.db_health import DatabaseHealthChecker
 
 health_checker = DatabaseHealthChecker()
 
@@ -186,7 +186,7 @@ while True:
 
 ```python
 from flask import Flask, jsonify
-from db_health import DatabaseHealthChecker
+from src.orchestrator.health.db_health import DatabaseHealthChecker
 
 app = Flask(__name__)
 health_checker = DatabaseHealthChecker()
@@ -211,7 +211,7 @@ def database_health(database_type):
 ### Example 4: Pre-flight Check Before Operations
 
 ```python
-from db_health import DatabaseHealthChecker
+from src.orchestrator.health.db_health import DatabaseHealthChecker
 
 health_checker = DatabaseHealthChecker()
 
@@ -229,8 +229,8 @@ def perform_critical_operation():
 ### Example 5: Custom Factory
 
 ```python
-from db_health import DatabaseHealthChecker
-from sql_server_db import DBConnectionFactory
+from src.orchestrator.health.db_health import DatabaseHealthChecker
+from src.orchestrator.services.sql_server_db import DBConnectionFactory
 from pathlib import Path
 
 # Create factory with custom config
