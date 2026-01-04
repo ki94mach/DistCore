@@ -21,14 +21,25 @@ BEGIN
 END;
 GO
 
--- Migration: Update existing table structure if it has old schema
-IF EXISTS (
+-- Migration: Update existing table structure if it doesn't have distributor_id
+IF NOT EXISTS (
     SELECT 1
     FROM sys.columns c
     WHERE c.object_id = OBJECT_ID(N'[Data].[snp_DistributorInventorySnapshot]', 'U')
       AND c.name = N'distributor_id'
 )
 BEGIN
+    -- Table exists but doesn't have distributor_id - need to add it
+    -- First, save existing data
+    SELECT 
+        snapshot_date,
+        product_id,
+        on_hand_qty,
+        batch_id,
+        created_at
+    INTO #TempExistingSnapshot
+    FROM [Data].[snp_DistributorInventorySnapshot];
+    
     -- Drop old primary key if it exists
     IF EXISTS (
         SELECT 1
@@ -41,7 +52,7 @@ BEGIN
             DROP CONSTRAINT PK_DistributorInventorySnapshot;
     END;
     
-    -- Drop old index if it exists
+    -- Drop old index if it exists (will recreate later)
     IF EXISTS (
         SELECT 1
         FROM sys.indexes i
@@ -52,26 +63,7 @@ BEGIN
         DROP INDEX IX_DistributorInventorySnapshot_SnapshotDate ON [Data].[snp_DistributorInventorySnapshot];
     END;
     
-    -- Aggregate existing data by (snapshot_date, product_id) before schema change
-    -- Create temporary table with aggregated data
-    SELECT 
-        snapshot_date,
-        product_id,
-        distributor_id,
-        SUM(on_hand_qty) AS on_hand_qty,
-        MAX(batch_id) AS batch_id,
-        MIN(created_at) AS created_at
-    INTO #TempAggregatedSnapshot
-    FROM [Data].[snp_DistributorInventorySnapshot]
-    GROUP BY snapshot_date, product_id, distributor_id;
-    
-    -- Clear existing table
-    TRUNCATE TABLE [Data].[snp_DistributorInventorySnapshot];
-    
-    -- Drop old columns
-    ALTER TABLE [Data].[snp_DistributorInventorySnapshot]
-        DROP COLUMN distributor_id;
-    
+    -- Drop product_batch_no if it exists (old schema)
     IF EXISTS (
         SELECT 1
         FROM sys.columns c
@@ -83,17 +75,74 @@ BEGIN
             DROP COLUMN product_batch_no;
     END;
     
-    -- Add new primary key
+    -- Clear existing table
+    TRUNCATE TABLE [Data].[snp_DistributorInventorySnapshot];
+    
+    -- Add distributor_id column (default to 0 for existing rows, but we'll handle this differently)
+    -- Since we can't add NOT NULL column to existing table with data, we'll add it as nullable first
+    -- then update and make it NOT NULL
+    ALTER TABLE [Data].[snp_DistributorInventorySnapshot]
+        ADD distributor_id INT NULL;
+    
+    -- Re-insert existing data with a default distributor_id (0 or NULL)
+    -- Note: This assumes existing data should be aggregated by product_id only
+    -- If you have specific distributor_id values, you'll need to update this logic
+    INSERT INTO [Data].[snp_DistributorInventorySnapshot] (snapshot_date, product_id, distributor_id, on_hand_qty, batch_id, created_at)
+    SELECT 
+        snapshot_date,
+        product_id,
+        0 AS distributor_id,  -- Default to 0 for existing rows without distributor context
+        on_hand_qty,
+        batch_id,
+        created_at
+    FROM #TempExistingSnapshot;
+    
+    -- Now make distributor_id NOT NULL
+    ALTER TABLE [Data].[snp_DistributorInventorySnapshot]
+        ALTER COLUMN distributor_id INT NOT NULL;
+    
+    -- Add new primary key with distributor_id
     ALTER TABLE [Data].[snp_DistributorInventorySnapshot]
         ADD CONSTRAINT PK_DistributorInventorySnapshot PRIMARY KEY (snapshot_date, product_id, distributor_id);
     
-    -- Re-insert aggregated data
-    INSERT INTO [Data].[snp_DistributorInventorySnapshot] (snapshot_date, product_id, distributor_id, on_hand_qty, batch_id, created_at)
-    SELECT snapshot_date, product_id, distributor_id, on_hand_qty, batch_id, created_at
-    FROM #TempAggregatedSnapshot;
-    
     -- Drop temporary table
-    DROP TABLE #TempAggregatedSnapshot;
+    DROP TABLE #TempExistingSnapshot;
+END
+ELSE
+BEGIN
+    -- Table exists and has distributor_id - ensure primary key includes it
+    -- Check if primary key exists and includes distributor_id
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.key_constraints kc
+        INNER JOIN sys.index_columns ic ON ic.object_id = kc.parent_object_id AND ic.index_id = kc.unique_index_id
+        INNER JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+        WHERE kc.parent_object_id = OBJECT_ID(N'[Data].[snp_DistributorInventorySnapshot]', 'U')
+          AND kc.name = N'PK_DistributorInventorySnapshot'
+          AND c.name = N'distributor_id'
+    )
+    BEGIN
+        -- Primary key exists but doesn't include distributor_id - need to update it
+        -- Drop old primary key
+        ALTER TABLE [Data].[snp_DistributorInventorySnapshot]
+            DROP CONSTRAINT PK_DistributorInventorySnapshot;
+        
+        -- Add new primary key with distributor_id
+        ALTER TABLE [Data].[snp_DistributorInventorySnapshot]
+            ADD CONSTRAINT PK_DistributorInventorySnapshot PRIMARY KEY (snapshot_date, product_id, distributor_id);
+    END;
+    
+    -- Drop product_batch_no if it exists (old schema)
+    IF EXISTS (
+        SELECT 1
+        FROM sys.columns c
+        WHERE c.object_id = OBJECT_ID(N'[Data].[snp_DistributorInventorySnapshot]', 'U')
+          AND c.name = N'product_batch_no'
+    )
+    BEGIN
+        ALTER TABLE [Data].[snp_DistributorInventorySnapshot]
+            DROP COLUMN product_batch_no;
+    END;
 END;
 GO
 

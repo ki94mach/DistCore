@@ -55,10 +55,11 @@ BEGIN
         SELECT 
             product_id,
             distributor_id,
-            SUM(on_hand_qty) AS on_hand_qty  -- Sum across all distributors for this (product_id, distributor_id) combination
+            SUM(on_hand_qty) AS on_hand_qty  -- Sum across all centers for this (product_id, distributor_id) combination
         FROM [Data].[stg_DistributorInventory]
         WHERE batch_id = @batch_id
           AND product_id IS NOT NULL
+          AND distributor_id IS NOT NULL
           AND as_of_datetime = @today_date  -- Only include today's inventory data
         GROUP BY product_id, distributor_id  -- Aggregate by (product_id, distributor_id) combination
     )
