@@ -8,6 +8,7 @@ from typing import Optional, Dict, Any, List, Union
 
 from ..services.sql_server_db.factory import DBConnectionFactory
 from ..services.sql_server_db.executors.sql_executor import SQLExecutor
+from .utils import has_valid_batch_id
 
 
 class BaseETLPipeline(ABC):
@@ -31,10 +32,10 @@ class BaseETLPipeline(ABC):
         try:
             self.load_stage()
             self.publish()
-            if self._has_valid_batch_id():
+            if has_valid_batch_id(self.batch_id):
                 self.finish_batch(self.batch_id, 'SUCCESS', 'OK')
         except Exception as e:
-            if self._has_valid_batch_id():
+            if has_valid_batch_id(self.batch_id):
                 self.finish_batch(self.batch_id, 'FAILED', str(e))
             raise e
         finally:
@@ -60,9 +61,6 @@ class BaseETLPipeline(ABC):
         Finish the batch.
         """
         pass
-
-    def _has_valid_batch_id(self) -> bool:
-        return self.batch_id not in (None, 0)
     
     @contextmanager
     def _handle_batch_failure(self, error_message_prefix: str = ""):
@@ -91,7 +89,7 @@ class BaseETLPipeline(ABC):
             # 1. We have a valid batch_id
             # 2. We're NOT in the run() method (to avoid duplicate calls)
             #    (If we're in run(), the base class will handle the error)
-            if self._has_valid_batch_id() and not self._in_run_method:
+            if has_valid_batch_id(self.batch_id) and not self._in_run_method:
                 try:
                     error_msg = f"{error_message_prefix}{str(e)}" if error_message_prefix else str(e)
                     self.finish_batch(self.batch_id, 'FAILED', error_msg)
