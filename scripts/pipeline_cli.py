@@ -8,6 +8,7 @@ from datetime import date
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.orchestrator.pipelines.factory_inventory import FactoryInventoryPipeline
+from src.orchestrator.pipelines.distributor_inventory import DistributorInventoryPipeline
 from src.orchestrator.services.sql_server_db.factory import DBConnectionFactory
 from src.orchestrator.services.sql_server_db.executors.sql_executor import SQLExecutor
 from src.orchestrator.services.terminal_ui import (
@@ -30,6 +31,11 @@ PIPELINES = {
         'name': 'Factory Inventory',
         'class': FactoryInventoryPipeline,
         'batch_type': 'FACTORY_INVENTORY'
+    },
+    '2': {
+        'name': 'Distributor Inventory',
+        'class': DistributorInventoryPipeline,
+        'batch_type': 'DISTRIBUTOR_INVENTORY'
     }
 }
 
@@ -104,7 +110,7 @@ def configure_staging(pipeline_info):
     incremental = True
     single_date_only = False
     
-    if pipeline_info['name'] == 'Factory Inventory':
+    if pipeline_info['name'] == 'Factory Inventory' or pipeline_info['name'] == 'Distributor Inventory':
         print_info("\nBatch Size:")
         print(colorize("  - Press Enter for default (10000)", Colors.DIM))
         batch_size_str = print_prompt("Enter batch size (default: 10000): ").strip()
@@ -157,7 +163,7 @@ def configure_publish(pipeline_info):
     # Additional publish parameters can be added here for future pipelines
     publish_params = {}
     
-    if pipeline_info['name'] == 'Factory Inventory':
+    if pipeline_info['name'] == 'Factory Inventory' or pipeline_info['name'] == 'Distributor Inventory':
         # Currently FactoryInventoryPipeline.publish() doesn't take additional parameters
         # But we can add them here for future extensibility
         pass
@@ -217,7 +223,7 @@ def run_staging(pipeline_info, config):
     # Run load_stage with configured parameters
     print_action("Loading stage...")
     try:
-        if pipeline_info['name'] == 'Factory Inventory':
+        if pipeline_info['name'] == 'Factory Inventory' or pipeline_info['name'] == 'Distributor Inventory':
             pipeline.load_stage(
                 batch_size=config['batch_size'],
                 incremental=config['incremental'],
@@ -282,7 +288,7 @@ def run_full_pipeline(pipeline_info):
     try:
         # Run load_stage with configured parameters
         print_action("Loading stage...")
-        if pipeline_info['name'] == 'Factory Inventory':
+        if pipeline_info['name'] == 'Factory Inventory' or pipeline_info['name'] == 'Distributor Inventory':
             pipeline.load_stage(
                 batch_size=staging_config['batch_size'],
                 incremental=staging_config['incremental'],
