@@ -245,9 +245,7 @@ def run_staging(pipeline_info, config):
             )
         elif pipeline_info['name'] == 'Sales Snapshot':
             pipeline.load_stage(
-                batch_size=config['batch_size'],
-                incremental=False,
-                single_date_only=False
+                batch_size=config['batch_size']
             )
         else:
             pipeline.load_stage()
@@ -316,9 +314,7 @@ def run_full_pipeline(pipeline_info):
             )
         elif pipeline_info['name'] == 'Sales Snapshot':
             pipeline.load_stage(
-                batch_size=staging_config['batch_size'],
-                incremental=False,
-                single_date_only=False
+                batch_size=staging_config['batch_size']
             )
         else:
             pipeline.load_stage()
