@@ -203,10 +203,10 @@ class FactoryInventoryPipeline(BaseETLPipeline):
             if use_equality_filter and since_date:
                 date_str = since_date.strftime("'%Y-%m-%d'")
                 # Replace the pattern: (date_str IS NULL OR [FKDate] >= date_str)
-                # with: [FKDate] = date_str
+                # with: AND [FKDate] = date_str
                 # Match the pattern with various whitespace possibilities
                 pattern = r'\(\s*' + re.escape(date_str) + r'\s+IS\s+NULL\s+OR\s+\[FKDate\]\s+>=\s+' + re.escape(date_str) + r'\s*\)'
-                extract_query = re.sub(pattern, f"[FKDate] = {date_str}", extract_query, flags=re.IGNORECASE)
+                extract_query = re.sub(pattern, f"AND [FKDate] = {date_str}", extract_query, flags=re.IGNORECASE)
             
             # Debug: Print the query being executed (first 500 chars to avoid huge output)
             print(f"  Query preview: {extract_query[:500]}..." if len(extract_query) > 500 else f"  Query: {extract_query}")

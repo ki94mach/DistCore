@@ -1,6 +1,6 @@
 /*
-Purpose: Load factory inventory data from source table [DWOrchid].[dbo].[FactFactoryInventory] into staging table [Data].[stg_FactoryInventory] for a given batch.
-Assumptions: T-SQL on SQL Server; source table [DWOrchid].[dbo].[FactFactoryInventory] exists and is accessible; staging table [Data].[stg_FactoryInventory] already exists (see 020_stg_factory_inventory.sql); @batch_id corresponds to a valid batch run in [Data].[ctl_BatchRun].
+Purpose: Load factory inventory data from source table [DWOrchid].[dbo].[FactInventory] into staging table [Data].[stg_FactoryInventory] for a given batch.
+Assumptions: T-SQL on SQL Server; source table [DWOrchid].[dbo].[FactInventory] exists and is accessible; staging table [Data].[stg_FactoryInventory] already exists (see 020_stg_factory_inventory.sql); @batch_id corresponds to a valid batch run in [Data].[ctl_BatchRun].
 Usage: This stored procedure is typically called as part of an ETL pipeline after starting a batch (via [Data].[ctl_usp_start_batch]). It loads factory inventory rows from the source system into staging, tagged with the provided batch_id. Supports incremental loading by default (only loads records after the latest date in staging). This allows multiple batch runs to coexist in staging without affecting each other.
 Parameters:
     @batch_id BIGINT - The batch identifier from [Data].[ctl_BatchRun] to tag all inserted rows.
@@ -16,12 +16,12 @@ How to run: Execute via EXEC [Data].[etl_usp_load_stage_factory_inventory] @batc
 -- IMPORTANT: The source column names in the INSERT...SELECT below are PLACEHOLDERS.
 -- You MUST update them to match the actual source table schema before using this procedure.
 --
--- Source Table: [DWOrchid].[dbo].[FactFactoryInventory]
+-- Source Table: [DWOrchid].[dbo].[FactInventory]
 -- Staging Table: [Data].[stg_FactoryInventory]
 --
 -- Mapping:
 --   batch_id              -> @batch_id (parameter, applied to all rows)
---   [FKVendor]        -> factory_id (INT)
+--   [FkProvider]        -> factory_id (INT)
 --   [FKProduct]        -> product_id (INT)
 --   [BatchNo]        -> product_batch_no (NVARCHAR(200))
 --   [FKDate]        -> as_of_datetime (DATE)
@@ -78,13 +78,14 @@ BEGIN
     INSERT INTO [Data].[stg_FactoryInventory] (batch_id, factory_id, product_id, product_batch_no, as_of_datetime, on_hand_qty)
     SELECT
         @batch_id,
-        CAST([FKVendor] AS INT)      AS factory_id,         
+        CAST([FkProvider] AS INT)      AS factory_id,         
         CAST([FKProduct] AS INT)      AS product_id,         
         CAST([BatchNo] AS NVARCHAR(200)) AS product_batch_no,
         CAST([FKDate] AS DATE) AS as_of_datetime,
         CAST([DQty] AS BIGINT) AS on_hand_qty    
     FROM [DWOrchid].[dbo].[FactInventory]
-    WHERE [FKDate] IS NOT NULL
+    WHERE FkProvider IS NOT NULL
+      AND FKProduct IS NOT NULL
       AND (@since_date IS NULL OR [FKDate] >= @since_date);
     
     -- Return result set with inserted row count, load type, and since_date

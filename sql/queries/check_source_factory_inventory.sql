@@ -25,7 +25,7 @@ WHERE [FKDate] IS NOT NULL
 
 -- Sample records (first 100) that match ingestion logic
 SELECT TOP 100
-    [FKVendor] AS factory_id,
+    [FkProvider] AS factory_id,
     [FKProduct] AS product_id,
     [BatchNo] AS product_batch_no,
     [FKDate] AS as_of_datetime,
