@@ -1,44 +1,22 @@
 from typing import List
 
-from src.orchestrator.pipelines.inventory_base import InventoryPipelineBase
+from src.orchestrator.pipelines.sales_snapshot_base import SalesSnapshotPipelineBase
 
 
-class SalesSnapshotPipeline(InventoryPipelineBase):
+class SalesSnapshotPipeline(SalesSnapshotPipelineBase):
     """
     Pipeline for the sales snapshot.
-    
+
     This pipeline demonstrates how to use SQL execution methods:
     - execute_procedure: Execute stored procedures
     - execute_procedure_with_output: Execute procedures with output parameters
     - execute_sql_file: Execute SQL files from the sql folder
-    
+
     If batch_id is None, a new batch will be automatically created when run() is called.
     If snapshot_date is None, today's date will be used as the snapshot date.
     """
 
-    def load_stage(
-        self,
-        batch_size: int = 10000,
-        incremental: bool = False,
-        single_date_only: bool = False,
-    ) -> None:
-        """
-        Load sales staging data.
 
-        Sales snapshots need month-to-date and rolling averages across all staging rows,
-        so this pipeline always performs a full load. Use single_date_only for
-        backfills that intentionally limit the staging window.
-        """
-        if incremental and not single_date_only:
-            raise ValueError(
-                "Sales snapshots require full staging loads; set incremental=False "
-                "or use single_date_only for scoped backfills."
-            )
-        super().load_stage(
-            batch_size=batch_size,
-            incremental=False,
-            single_date_only=single_date_only,
-        )
 
     @property
     def batch_type(self) -> str:
