@@ -7,18 +7,18 @@ This repository organizes T-SQL assets by execution phase and purpose. Follow th
 - `00_migrations`: schema changes (tables, indexes) and reference data seeds; files prefixed with ordered numbers (e.g., `001_create_tables.sql`). All table creation scripts belong here.
 - `10_routines`: stored procedures, functions, and views that depend on schema being in place. **All stored procedures go in `10_routines/procedures/`, regardless of their purpose (ETL, reporting, optimization, etc.).**
 - `20_etl`: batch and snapshot load scripts (queries, templates); orchestrated after routines exist. Contains extraction queries and ETL templates used by pipelines.
-- `40_snapshot_builder`: logic to assemble snapshot tables from staged data. If implemented as stored procedures, place them in `10_routines/procedures/`.
 - `50_policy`: policy- or rules-engine artifacts that drive downstream logic.
 - `60_optimizer_io`: performance helpers (indexes, stats refresh, IO tuning) and optimizer input/output views. Table creation scripts go in `00_migrations`.
-- `90_reporting`: reporting/serving layer views and queries. Stored procedures go in `10_routines/procedures/`.
+- `90_queries`: diagnostic and ad-hoc query scripts for data validation, inspection, and troubleshooting. These are not part of the automated pipeline execution.
 - `_archive`: retired or historical scripts; not executed automatically.
 
 ## Execution order
 
 1. Run `00_migrations` in numeric order.
 2. Deploy `10_routines`.
-3. Execute pipelines: `20_etl` → `40_snapshot_builder` → `50_policy` → `60_optimizer_io` → `90_reporting`.
-4. `_archive` is excluded from regular runs.
+3. Execute pipelines: `20_etl` → `50_policy` → `60_optimizer_io`.
+4. Use `90_queries` for ad-hoc diagnostics and validation (not part of automated execution).
+5. `_archive` is excluded from regular runs.
 
 ## Naming conventions
 

@@ -14,7 +14,7 @@ from src.orchestrator.services.sql_server_db.executors.sql_executor import SQLEx
 def check_migrations_run(factory: DBConnectionFactory, database_type: str) -> Tuple[bool, List[str]]:
     """Check if required tables exist (indicating migrations have been run)."""
     missing_tables = []
-    required_tables = ['ctl_BatchRun', 'ctl_ProcedureCatalog', 'ctl_ProcedureParameter']
+    required_tables = ['ctl_BatchRun']
     
     try:
         with factory.connection(database_type) as conn:
