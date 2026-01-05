@@ -32,17 +32,3 @@ BEGIN
         ON [Data].[ctl_BatchRun] (started_at DESC, status);
 END;
 GO
-
--- Optional: Create [Data].[ctl_SourceWatermark] if missing
-IF OBJECT_ID(N'[Data].[ctl_SourceWatermark]', 'U') IS NULL
-BEGIN
-    CREATE TABLE [Data].[ctl_SourceWatermark] (
-        source_name NVARCHAR(200) NOT NULL CONSTRAINT PK_SourceWatermark PRIMARY KEY,
-        watermark_column NVARCHAR(128) NULL,
-        last_success_watermark DATETIME2 NULL,
-        last_batch_id BIGINT NULL,
-        updated_at DATETIME2 NOT NULL CONSTRAINT DF_SourceWatermark_updated_at DEFAULT SYSUTCDATETIME()
-    );
-END;
-GO
-

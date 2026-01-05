@@ -1,3 +1,4 @@
+import re
 from datetime import date
 from pathlib import Path
 
@@ -66,4 +67,20 @@ class SalesSnapshotPipelineBase(InventoryPipelineBase):
 
         end_date_str = end_date.strftime("'%Y-%m-%d'")
         trimmed = query.rstrip().rstrip(';')
-        return f"{trimmed}\n  AND [FKDate] <= {end_date_str}"
+        
+        # Insert the end date condition into the WHERE clause, before GROUP BY/ORDER BY
+        # Find the position before GROUP BY or ORDER BY (case-insensitive)
+        group_by_match = re.search(r'\bGROUP\s+BY\b', trimmed, re.IGNORECASE)
+        order_by_match = re.search(r'\bORDER\s+BY\b', trimmed, re.IGNORECASE)
+        
+        if group_by_match:
+            # Insert before GROUP BY
+            insert_pos = group_by_match.start()
+            return f"{trimmed[:insert_pos].rstrip()}\n  AND [FKDate] <= {end_date_str}\n{trimmed[insert_pos:]}"
+        elif order_by_match:
+            # Insert before ORDER BY
+            insert_pos = order_by_match.start()
+            return f"{trimmed[:insert_pos].rstrip()}\n  AND [FKDate] <= {end_date_str}\n{trimmed[insert_pos:]}"
+        else:
+            # No GROUP BY or ORDER BY, append to the end
+            return f"{trimmed}\n  AND [FKDate] <= {end_date_str}"
