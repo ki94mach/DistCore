@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.orchestrator.pipelines.factory_inventory import FactoryInventoryPipeline
 from src.orchestrator.pipelines.distributor_inventory import DistributorInventoryPipeline
 from src.orchestrator.pipelines.sales_snapshot import SalesSnapshotPipeline
+from src.orchestrator.pipelines.target import TargetPipeline
 from src.orchestrator.services.sql_server_db.factory import DBConnectionFactory
 from src.orchestrator.services.sql_server_db.executors.sql_executor import SQLExecutor
 from src.orchestrator.ui.terminal_ui import (
@@ -42,6 +43,11 @@ PIPELINES = {
         'name': 'Sales Snapshot',
         'class': SalesSnapshotPipeline,
         'batch_type': 'SALES_SNAPSHOT'
+    },
+    '4': {
+        'name': 'Target',
+        'class': TargetPipeline,
+        'batch_type': 'TARGET'
     }
 }
 
@@ -149,6 +155,14 @@ def configure_staging(pipeline_info):
         ))
         incremental = False
         single_date_only = False
+    elif pipeline_info['name'] == 'Target':
+        print_info("\nLoad Mode:")
+        print(colorize(
+            "  - Target pipeline loads data for the current Jalali year only.",
+            Colors.DIM
+        ))
+        incremental = False
+        single_date_only = False
     
     return {
         'snapshot_date': snapshot_date,
@@ -251,6 +265,12 @@ def run_staging(pipeline_info, config):
             pipeline.load_stage(
                 batch_size=config['batch_size']
             )
+        elif pipeline_info['name'] == 'Target':
+            pipeline.load_stage(
+                batch_size=config['batch_size'],
+                incremental=config['incremental'],
+                single_date_only=config['single_date_only']
+            )
         else:
             pipeline.load_stage()
         
@@ -319,6 +339,12 @@ def run_full_pipeline(pipeline_info):
         elif pipeline_info['name'] == 'Sales Snapshot':
             pipeline.load_stage(
                 batch_size=staging_config['batch_size']
+            )
+        elif pipeline_info['name'] == 'Target':
+            pipeline.load_stage(
+                batch_size=staging_config['batch_size'],
+                incremental=staging_config['incremental'],
+                single_date_only=staging_config['single_date_only']
             )
         else:
             pipeline.load_stage()

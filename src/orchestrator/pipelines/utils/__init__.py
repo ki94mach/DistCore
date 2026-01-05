@@ -7,12 +7,18 @@ from .query_utils import (
     apply_date_equality_filter
 )
 from .pipeline_utils import has_valid_batch_id
+from .date_utils import (
+    get_jalali_year,
+    substitute_jalali_year_parameter
+)
 
 __all__ = [
     'get_sql_folder_path',
     'parse_select_statement',
     'substitute_date_parameter',
     'apply_date_equality_filter',
-    'has_valid_batch_id'
+    'has_valid_batch_id',
+    'get_jalali_year',
+    'substitute_jalali_year_parameter'
 ]
 
