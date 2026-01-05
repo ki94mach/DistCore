@@ -2,6 +2,7 @@
 
 from src.optimization.builder import ModelBuilder
 from src.optimization.data import OptimizationData, OptimizationSettings
+from src.optimization.loader import SnapshotDataLoader
 from src.optimization.lp import Constraint, LinearExpression, Model, Variable
 
 __all__ = [
@@ -11,5 +12,6 @@ __all__ = [
     "ModelBuilder",
     "OptimizationData",
     "OptimizationSettings",
+    "SnapshotDataLoader",
     "Variable",
 ]
