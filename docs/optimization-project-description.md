@@ -99,7 +99,7 @@ These constraints represent business expectations. Each soft constraint is model
 **SC1 – Distributor–product coverage vs sales**
 
 ```
-(Inv[d,p] + x[d,p]) + s_coverage[d,p] ≥ CoverageRatio × SalesMA_k[d,p]
+(Inv[d,p] + x[d,p]) + s_coverage[d,p] ≥ CoverageRatio × (SalesMA_k[d,p] - SalesMonthToDate[d,p])
 ```
 
 Where **k ∈ {3,6}** (configurable). This constraint encourages each distributor’s on-hand + deliveries to cover a multiple of recent sales.
@@ -107,7 +107,7 @@ Where **k ∈ {3,6}** (configurable). This constraint encourages each distributo
 **SC2 – Total product coverage vs target (units)**
 
 ```
-Σ_d (Inv[d,p] + x[d,p]) + s_units[p] ≥ CoverageRatio × TargetUnits[p]
+Σ_d (Inv[d,p] + x[d,p]) + s_units[p] ≥ CoverageRatio × LeftToMonthlySalesTarget[p]
 ```
 
 **SC3 – Total product coverage vs target (value)**
