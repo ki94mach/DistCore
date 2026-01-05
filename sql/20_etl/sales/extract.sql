@@ -1,6 +1,6 @@
 /*
-Purpose: Extract distributor sales rows from the source table [DWOrchid].[dbo].[FactSales].
-Assumptions: T-SQL on SQL Server; source table [DWOrchid].[dbo].[FactSales] exists and is accessible.
+Purpose: Extract distributor sales rows from the source table [DWOrchid].[dbo].[Flat_Fact_Sale].
+Assumptions: T-SQL on SQL Server; source table [DWOrchid].[dbo].[Flat_Fact_Sale] exists and is accessible.
 Usage: This query extracts sales data with specified column aliases. Can be used with incremental filtering via @since parameter.
 Parameters:
     @since DATETIME2 = NULL - Optional timestamp for incremental extraction (e.g., ModifiedAt >= @since). 
@@ -21,7 +21,7 @@ SELECT
     [FKDate] AS as_of_datetime,
     [SalesQty] AS sales_qty
 FROM 
-    [DWOrchid].[dbo].[FactSales]
+    [DWOrchid].[dbo].[Flat_Fact_Sale]
 WHERE
     [FkDistributor] IS NOT NULL
     AND [FkCenter] IS NOT NULL

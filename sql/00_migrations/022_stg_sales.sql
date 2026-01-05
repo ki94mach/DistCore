@@ -18,7 +18,7 @@ BEGIN
         as_of_datetime DATE NULL,
         sales_qty BIGINT NULL,
         source_system NVARCHAR(50) NULL CONSTRAINT DF_Sales_source_system DEFAULT N'DWOrchid',
-        source_table NVARCHAR(128) NULL CONSTRAINT DF_Sales_source_table DEFAULT N'dbo.FactSales',
+        source_table NVARCHAR(128) NULL CONSTRAINT DF_Sales_source_table DEFAULT N'dbo.Flat_Fact_Sale',
         row_hash VARBINARY(32) NULL
     );
 END;
