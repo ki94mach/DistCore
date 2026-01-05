@@ -12,7 +12,7 @@ from src.orchestrator.pipelines.distributor_inventory import DistributorInventor
 from src.orchestrator.pipelines.sales_snapshot import SalesSnapshotPipeline
 from src.orchestrator.services.sql_server_db.factory import DBConnectionFactory
 from src.orchestrator.services.sql_server_db.executors.sql_executor import SQLExecutor
-from src.orchestrator.services.terminal_ui import (
+from src.orchestrator.ui.terminal_ui import (
     Colors,
     print_header,
     print_success,
@@ -46,7 +46,7 @@ PIPELINES = {
 }
 
 
-def start_new_batch(batch_type: str, triggered_by: str = 'MANUAL_TEST', database_type: str = 'test') -> int:
+def start_new_batch(batch_type: str, triggered_by: str = 'MANUAL_TEST', database_type: str = 'test', pipeline_name: str = None) -> int:
     """Start a new batch and return the batch_id."""
     connection_factory = DBConnectionFactory()
     sql_executor = SQLExecutor(connection_factory)
@@ -62,7 +62,10 @@ def start_new_batch(batch_type: str, triggered_by: str = 'MANUAL_TEST', database
     )
     
     batch_id = result['batch_id']
-    print_success(f"Created new batch ID: {batch_id}")
+    if pipeline_name:
+        print_success(f"[{pipeline_name}] Created new batch ID: {batch_id}")
+    else:
+        print_success(f"Created new batch ID: {batch_id}")
     return batch_id
 
 
@@ -203,7 +206,8 @@ def configure_batch(pipeline_info):
         batch_id = start_new_batch(
             batch_type=pipeline_info['batch_type'],
             triggered_by='MANUAL_TEST',
-            database_type='test'
+            database_type='test',
+            pipeline_name=pipeline_info['name']
         )
     elif choice == "2":
         batch_id_str = print_prompt("\nEnter existing batch ID: ").strip()
@@ -250,7 +254,7 @@ def run_staging(pipeline_info, config):
         else:
             pipeline.load_stage()
         
-        print_success("Load stage completed successfully!")
+        print_success(f"[{pipeline_info['name']}] Load stage completed successfully!")
         return pipeline
     except Exception as e:
         print_error(f"Error: {str(e)}")
@@ -276,7 +280,7 @@ def run_publish(pipeline_info, config):
     print_action("Publishing...")
     try:
         pipeline.publish()
-        print_success("Publish completed successfully!")
+        print_success(f"[{pipeline_info['name']}] Publish completed successfully!")
         return pipeline
     except Exception as e:
         print_error(f"Error: {str(e)}")
@@ -327,7 +331,7 @@ def run_full_pipeline(pipeline_info):
         if hasattr(pipeline, 'batch_id') and pipeline.batch_id:
             pipeline.finish_batch(pipeline.batch_id, 'SUCCESS', 'OK')
         
-        print_success("Full pipeline completed successfully!")
+        print_success(f"[{pipeline_info['name']}] Full pipeline completed successfully!")
         return pipeline
     except Exception as e:
         # Handle batch failure
