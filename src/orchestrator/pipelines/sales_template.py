@@ -2,7 +2,7 @@ import re
 from datetime import date
 from pathlib import Path
 
-from src.orchestrator.pipelines.inventory_base import InventoryPipelineBase
+from src.orchestrator.pipelines.pipeline_template import TemplatePipeline
 from src.orchestrator.pipelines.utils import (
     get_sql_folder_path,
     parse_select_statement,
@@ -14,7 +14,7 @@ from src.orchestrator.services.sql_server_db.executors.sql_utils import (
 )
 
 
-class SalesSnapshotPipelineBase(InventoryPipelineBase):
+class SalesTemplatePipeline(TemplatePipeline):
     """
     Template base for sales snapshot pipelines with rolling window staging logic.
     """

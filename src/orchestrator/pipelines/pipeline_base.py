@@ -11,7 +11,7 @@ from ..services.sql_server_db.executors.sql_executor import SQLExecutor
 from .utils import has_valid_batch_id
 
 
-class BaseETLPipeline(ABC):
+class BasePipeline(ABC):
     """
     Base class for all ETL pipelines.
     Provides SQL execution capabilities for running stored procedures and SQL files.

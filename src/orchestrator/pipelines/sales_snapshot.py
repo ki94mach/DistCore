@@ -1,9 +1,9 @@
 from typing import List
 
-from src.orchestrator.pipelines.sales_snapshot_base import SalesSnapshotPipelineBase
+from src.orchestrator.pipelines.sales_template import SalesTemplatePipeline
 
 
-class SalesSnapshotPipeline(SalesSnapshotPipelineBase):
+class SalesSnapshotPipeline(SalesTemplatePipeline):
     """
     Pipeline for the sales snapshot.
 

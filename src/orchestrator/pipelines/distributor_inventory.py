@@ -1,9 +1,9 @@
 from typing import List
 
-from src.orchestrator.pipelines.inventory_base import InventoryPipelineBase
+from src.orchestrator.pipelines.pipeline_template import TemplatePipeline
 
 
-class DistributorInventoryPipeline(InventoryPipelineBase):
+class DistributorInventoryPipeline(TemplatePipeline):
     """
     Pipeline for the distributor inventory.
     

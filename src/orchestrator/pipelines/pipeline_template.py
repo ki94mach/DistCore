@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from src.orchestrator.pipelines.base_pipeline import BaseETLPipeline
+from src.orchestrator.pipelines.pipeline_base import BasePipeline
 from src.orchestrator.pipelines.utils import (
     apply_date_equality_filter,
     get_sql_folder_path,
@@ -18,7 +18,7 @@ from src.orchestrator.services.sql_server_db.executors.sql_utils import (
 )
 
 
-class InventoryPipelineBase(BaseETLPipeline):
+class TemplatePipeline(BasePipeline):
     """
     Template-method base for inventory pipelines with shared staging logic.
     """
