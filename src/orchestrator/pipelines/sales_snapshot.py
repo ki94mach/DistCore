@@ -39,9 +39,7 @@ class SalesSnapshotPipeline(SalesSnapshotPipelineBase):
         return [
             'batch_id',
             'distributor_id',
-            'center_id',
             'product_id',
-            'product_batch_no',
             'as_of_datetime',
             'sales_qty',
         ]
@@ -51,9 +49,7 @@ class SalesSnapshotPipeline(SalesSnapshotPipelineBase):
         return (
             self.batch_id,
             row_dict.get('distributor_id'),
-            row_dict.get('center_id'),
             row_dict.get('product_id'),
-            row_dict.get('product_batch_no'),
             row_dict.get('as_of_datetime'),
             row_dict.get('sales_qty'),
         )

@@ -15,11 +15,9 @@ DECLARE @since DATETIME2 = NULL;  -- Set to a specific datetime for incremental 
 SELECT 
 
     [FkDistributor] AS distributor_id,
-    [FkCenter] AS center_id,
     [FKProduct] AS product_id,
-    [BatchNo] AS product_batch_no,
-    [FKDate] AS as_of_datetime,
-    [SalesQty] AS sales_qty
+    CAST([FKDate] AS DATE) AS as_of_datetime,
+    SUM([DQty]) AS sales_qty
 FROM 
     [DWOrchid].[dbo].[Flat_Fact_Sale]
 WHERE
@@ -27,4 +25,9 @@ WHERE
     AND [FkCenter] IS NOT NULL
     AND [FKProduct] IS NOT NULL
     AND (@since IS NULL OR [FKDate] >= @since)
-    AND [SalesQty] <> 0;
+    AND [DQty] <> 0
+GROUP BY
+    FkDistributor,
+    FKProduct,
+    FKDate;
+
