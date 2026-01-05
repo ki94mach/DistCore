@@ -1,16 +1,13 @@
 """Optimization model builder for the initial LP formulation."""
 
-from optimization.constraints.base import Constraint
-
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Iterable, List, Tuple
 
-from constraints.base import Constraint, ConstraintResult
-from data import OptimizationData
-from lp import LinearExpression, Model, Variable, linear_sum
+from src.optimization.constraints.base import Constraint
+from src.optimization.data import OptimizationData
+from src.optimization.lp import LinearExpression, Model, Variable, linear_sum
 
 
 @dataclass

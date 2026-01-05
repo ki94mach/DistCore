@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Tuple
 
-from ..data import OptimizationData
-from ..lp import Model, Variable
+from src.optimization.data import OptimizationData
+from src.optimization.lp import Model, Variable
 
 
 @dataclass

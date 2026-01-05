@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from ..data import OptimizationData
-from ..lp import Model, Variable, linear_sum
-from base import Constraint, ConstraintResult
+from src.optimization.data import OptimizationData
+from src.optimization.lp import Model, Variable, linear_sum
+from src.optimization.constraints.base import Constraint, ConstraintResult
 
 
 class ProductTargetUnitsConstraint(Constraint):
