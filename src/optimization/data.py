@@ -52,3 +52,4 @@ class OptimizationData:
 
     def factory_supply(self, product: str) -> float:
         return self.factory_inventory.get(product, 0.0)
+        

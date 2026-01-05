@@ -54,3 +54,4 @@ class ModelBuilder:
 
     def _build_objective(self, objective_terms: List[Tuple[Variable, float]]) -> LinearExpression:
         return linear_sum([(variable, weight) for variable, weight in objective_terms])
+        

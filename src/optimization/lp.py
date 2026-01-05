@@ -67,3 +67,4 @@ def linear_sum(terms: Iterable[Tuple[Variable, float]], constant: float = 0.0) -
     for variable, coefficient in terms:
         expression.add_term(variable, coefficient)
     return expression
+    

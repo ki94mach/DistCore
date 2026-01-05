@@ -38,3 +38,4 @@ class DistributorCoverageConstraint(Constraint):
                 result.slack_variables.append(slack)
                 result.objective_terms.append((slack, data.settings.weight_coverage))
         return result
+        

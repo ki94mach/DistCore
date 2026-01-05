@@ -22,3 +22,4 @@ class FactorySupplyConstraint(Constraint):
                 name=f"factory_supply_{product}",
             )
         return ConstraintResult()
+        

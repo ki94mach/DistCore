@@ -21,3 +21,4 @@ class Constraint:
 
     def apply(self, model: Model, data: OptimizationData, x: dict[tuple[str, str], Variable]) -> ConstraintResult:
         raise NotImplementedError
+        
