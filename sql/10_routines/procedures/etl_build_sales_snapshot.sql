@@ -3,6 +3,7 @@ Purpose: Build sales snapshots from staging ([Data].[stg_Sales]) into the snapsh
 Aggregation Logic:
     - Aggregates by (product_id, distributor_id, snapshot_month) from staging data.
     - Calculates monthly sales totals and moving averages over monthly totals.
+    - Moving averages exclude the current month (MA 3: 3 months ago to 1 month ago, MA 6: 6 months ago to 1 month ago).
     - Calculates month-to-date sales for the snapshot month up to the snapshot date.
 Grain: One row per (snapshot_month, distributor_id, product_id) in the snapshot table.
 Assumptions: T-SQL on SQL Server; staging table [Data].[stg_Sales] exists (see 022_stg_sales.sql); snapshot table [Data].[snp_SalesSnapshot] exists (see 032_snap_sales_snapshot.sql).
@@ -66,12 +67,12 @@ BEGIN
             AVG(CAST(monthly_sales AS DECIMAL(18, 4))) OVER (
                 PARTITION BY product_id, distributor_id
                 ORDER BY snapshot_month
-                ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+                ROWS BETWEEN 3 PRECEDING AND 1 PRECEDING
             ) AS sales_ma_3,
             AVG(CAST(monthly_sales AS DECIMAL(18, 4))) OVER (
                 PARTITION BY product_id, distributor_id
                 ORDER BY snapshot_month
-                ROWS BETWEEN 5 PRECEDING AND CURRENT ROW
+                ROWS BETWEEN 6 PRECEDING AND 1 PRECEDING
             ) AS sales_ma_6
         FROM MonthlyTotals
     ),

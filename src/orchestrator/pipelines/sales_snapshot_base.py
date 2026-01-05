@@ -25,7 +25,8 @@ class SalesSnapshotPipelineBase(InventoryPipelineBase):
         single_date_only: bool = False,
     ) -> None:
         """
-        Load sales staging data for a rolling six-month window ending on snapshot_date.
+        Load sales staging data for a rolling seven-month window ending on snapshot_date.
+        This ensures we have enough historical data to calculate MA 6 (7 months ago to 1 month ago).
         """
         if incremental or single_date_only:
             raise ValueError(
@@ -50,7 +51,7 @@ class SalesSnapshotPipelineBase(InventoryPipelineBase):
     def _six_month_window_start(self, snapshot_date: date) -> date:
         snapshot_month = date(snapshot_date.year, snapshot_date.month, 1)
         month_index = snapshot_month.month - 1
-        start_month_index = month_index - 5
+        start_month_index = month_index - 6  # Go back 7 months to support MA 6 (needs data from 6 months ago)
         start_year = snapshot_month.year + (start_month_index // 12)
         start_month = (start_month_index % 12) + 1
         return date(start_year, start_month, 1)
