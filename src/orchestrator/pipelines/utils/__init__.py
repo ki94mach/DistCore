@@ -11,6 +11,10 @@ from .date_utils import (
     get_jalali_year,
     substitute_jalali_year_parameter
 )
+from .excel_utils import (
+    parse_excel_date,
+    safe_int,
+)
 
 __all__ = [
     'get_sql_folder_path',
@@ -19,6 +23,8 @@ __all__ = [
     'apply_date_equality_filter',
     'has_valid_batch_id',
     'get_jalali_year',
-    'substitute_jalali_year_parameter'
+    'substitute_jalali_year_parameter',
+    'parse_excel_date',
+    'safe_int',
 ]
 

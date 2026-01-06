@@ -11,6 +11,7 @@ from src.orchestrator.pipelines.factory_inventory import FactoryInventoryPipelin
 from src.orchestrator.pipelines.distributor_inventory import DistributorInventoryPipeline
 from src.orchestrator.pipelines.sales_snapshot import SalesSnapshotPipeline
 from src.orchestrator.pipelines.target import TargetPipeline
+from src.orchestrator.pipelines.distributor_deliveries import DistributorDeliveriesPipeline
 from src.orchestrator.services.sql_server_db.factory import DBConnectionFactory
 from src.orchestrator.services.sql_server_db.executors.sql_executor import SQLExecutor
 from src.orchestrator.ui.terminal_ui import (
@@ -48,6 +49,11 @@ PIPELINES = {
         'name': 'Target',
         'class': TargetPipeline,
         'batch_type': 'TARGET'
+    },
+    '5': {
+        'name': 'Distributor Deliveries',
+        'class': DistributorDeliveriesPipeline,
+        'batch_type': 'DISTRIBUTOR_DELIVERIES'
     }
 }
 
@@ -245,12 +251,14 @@ def run_staging(pipeline_info, config):
     batch_id = configure_batch(pipeline_info)
     
     # Create pipeline instance
-    pipeline = pipeline_info['class'](
-        batch_id=batch_id,
-        snapshot_date=config['snapshot_date'],
-        triggered_by='MANUAL_TEST',
-        database_type='test'
-    )
+    pipeline_kwargs = {
+        'batch_id': batch_id,
+        'snapshot_date': config['snapshot_date'],
+        'triggered_by': 'MANUAL_TEST',
+        'database_type': 'test'
+    }
+    
+    pipeline = pipeline_info['class'](**pipeline_kwargs)
     
     # Run load_stage with configured parameters
     print_action("Loading stage...")
@@ -289,12 +297,14 @@ def run_publish(pipeline_info, config):
     batch_id = configure_batch(pipeline_info)
     
     # Create pipeline instance
-    pipeline = pipeline_info['class'](
-        batch_id=batch_id,
-        snapshot_date=config['snapshot_date'],
-        triggered_by='MANUAL_TEST',
-        database_type='test'
-    )
+    pipeline_kwargs = {
+        'batch_id': batch_id,
+        'snapshot_date': config['snapshot_date'],
+        'triggered_by': 'MANUAL_TEST',
+        'database_type': 'test'
+    }
+    
+    pipeline = pipeline_info['class'](**pipeline_kwargs)
     
     # Run publish
     print_action("Publishing...")
@@ -318,12 +328,14 @@ def run_full_pipeline(pipeline_info):
     batch_id = configure_batch(pipeline_info)
     
     # Create pipeline instance
-    pipeline = pipeline_info['class'](
-        batch_id=batch_id,
-        snapshot_date=staging_config['snapshot_date'],
-        triggered_by='MANUAL_TEST',
-        database_type='test'
-    )
+    pipeline_kwargs = {
+        'batch_id': batch_id,
+        'snapshot_date': staging_config['snapshot_date'],
+        'triggered_by': 'MANUAL_TEST',
+        'database_type': 'test'
+    }
+    
+    pipeline = pipeline_info['class'](**pipeline_kwargs)
     
     # Run full pipeline
     print_action("Running full pipeline (load_stage + publish)...")
@@ -345,6 +357,10 @@ def run_full_pipeline(pipeline_info):
                 batch_size=staging_config['batch_size'],
                 incremental=staging_config['incremental'],
                 single_date_only=staging_config['single_date_only']
+            )
+        elif pipeline_info['name'] == 'Distributor Deliveries':
+            pipeline.load_stage(
+                batch_size=staging_config['batch_size']
             )
         else:
             pipeline.load_stage()
