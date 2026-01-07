@@ -1,8 +1,32 @@
 """Pipeline for loading historical distributor deliveries from Dropbox files."""
 
+import sys
+import os
+import warnings
 from datetime import date
 from typing import List, Optional
 import pandas as pd
+
+# Suppress openpyxl warnings BEFORE importing anything that uses it
+warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
+warnings.filterwarnings('ignore', message='.*Data Validation.*')
+warnings.filterwarnings('ignore', message='.*Print area.*')
+
+# Set UTF-8 encoding for Windows terminal to display Farsi characters
+if sys.platform == 'win32':
+    # Set console output encoding to UTF-8
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+    if hasattr(sys.stderr, 'reconfigure'):
+        try:
+            sys.stderr.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+    # Also set environment variable for subprocesses
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 from src.orchestrator.pipelines.pipeline_template import TemplatePipeline
 from src.orchestrator.pipelines.utils import (
@@ -25,6 +49,27 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
     If batch_id is None, a new batch will be automatically created when run() is called.
     If snapshot_date is None, today's date will be used as the snapshot date.
     """
+    
+    # Expected files to check for (extracted from local Dropbox paths)
+    # These are checked for existence, but pattern matching still allows future files
+    EXPECTED_FILES = [
+        'دیتابیس تحویل به پخش ها - اروندفارمد - 1404.xlsx',
+        'دیتابیس تحویل به پخش ها - آریوژن - 1404.xlsx',
+        'دیتابیس تحویل به پخش ها - اسپاد فارمد - 1404.xlsx',
+        'دیتابیس تحویل به پخش ها - آلاشت - 1404.xlsx',
+        'دیتابیس تحویل به پخش ها - اینوکلون - 1404.xlsx',
+        'دیتابیس تحویل به پخش ها - پرسیس ژن- 1404.xlsx',
+        'دیتابیس تحویل به پخش ها - سیناژن - 1404.xlsx',
+        'دیتابیس تحویل به پخش ها - نانوالوند - 1404.xlsx',
+        'دیتابیس تحویل به پخش ها - نوژین فارمد- 1404.xlsx',
+        'دیتابیس تحویل به پخش ها - نویان پژوهان- 1404.xlsx',
+        'دیتابیس تحویل به پخش ها - نیواد فارمد- 1404.xlsx',
+    ]
+    
+    # Files to ignore (files that match pattern but should be skipped)
+    IGNORED_FILES = [
+        'دیتابیس تحویل به پخش ها - 1404.xlsx',  # File without company name
+    ]
     
     # Persian column names from the source files
     PERSIAN_COLUMNS = [
@@ -58,7 +103,7 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
         connection_factory=None,
         triggered_by: str = 'PYTHON_PIPELINE',
         database_type: str = 'test',
-        dropbox_access_token: Optional[str] = None,
+        shared_link: Optional[str] = None,
     ):
         """
         Initialize the distributor deliveries pipeline.
@@ -69,15 +114,17 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
             connection_factory: Optional database connection factory
             triggered_by: Who/what triggered this pipeline
             database_type: Database type ('source' or 'test')
-            dropbox_access_token: Optional Dropbox access token
+            shared_link: Optional Dropbox shared link. If not provided, will be loaded from config.
         
         Note:
-            The Dropbox folder path is read from src/orchestrator/config/dropbox.yml
+            The Dropbox shared link can be provided directly or read from src/orchestrator/config/dropbox.yml
         """
-        # Load folder path from config file
-        self._dropbox_folder_path = DropboxConfigLoader.get_distributor_deliveries_folder()
+        # Load shared link from config file if not provided
+        if shared_link is None:
+            shared_link = DropboxConfigLoader.get_distributor_deliveries_folder()
         
-        self._dropbox_client = DropboxClient(access_token=dropbox_access_token)
+        self._dropbox_shared_link = shared_link
+        self._dropbox_client = DropboxClient(shared_link=shared_link)
         
         super().__init__(
             batch_id=batch_id,
@@ -158,8 +205,15 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
             List of tuples ready for insertion into staging table
         """
         staging_rows = []
+        total_rows = len(df)
         
-        for _, row in df.iterrows():
+        # Show progress every 1000 rows
+        progress_interval = max(1000, total_rows // 10)
+        
+        for idx, (_, row) in enumerate(df.iterrows(), 1):
+            # Show progress
+            if idx % progress_interval == 0 or idx == total_rows:
+                print(f"  Transforming row {idx}/{total_rows} ({idx*100//total_rows}%)...", end='\r', flush=True)
             # Company name is not extracted from filename
             source_file = row.get('source_file', '')
             company_name = None
@@ -218,6 +272,8 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
             
             staging_rows.append(staging_row)
         
+        # Clear progress line
+        print(" " * 60, end='\r', flush=True)
         return staging_rows
     
     def load_stage(self, batch_size: int = 10000, incremental: bool = False, single_date_only: bool = False) -> None:
@@ -240,25 +296,38 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
             
             # Download and concatenate all Excel files from Dropbox
             # Headers are on row 8 (0-indexed: 7), data starts from row 9 (0-indexed: 8)
-            print(f"Downloading files from Dropbox folder: {self._dropbox_folder_path}")
+            print(f"Downloading files from Dropbox shared link: {self._dropbox_shared_link}")
+            print("Checking for expected files...")
             df = self._dropbox_client.concatenate_excel_files(
-                folder_path=self._dropbox_folder_path,
                 file_pattern=file_pattern,
                 header_row=7,  # Row 8 (1-indexed) = index 7 (0-indexed)
                 add_source_file_column=True,
-                sheet_name='تحویل به پخش ها'
+                sheet_name='تحویل به پخش ها',
+                expected_files=self.EXPECTED_FILES,
+                ignored_files=self.IGNORED_FILES
             )
             
-            print(f"Loaded {len(df)} rows from {df['source_file'].nunique()} files")
+            loaded_files = df['source_file'].unique().tolist() if 'source_file' in df.columns else []
+            print(f"\n✓ Successfully loaded {len(df)} rows from {len(loaded_files)} file(s):")
+            for filename in sorted(loaded_files):
+                file_rows = len(df[df['source_file'] == filename])
+                print(f"  - {filename} ({file_rows} rows)")
             
             # Prepare staging table (uses TemplatePipeline method)
+            print("\nPreparing staging table...")
             self._prepare_staging_table()
+            print("✓ Staging table prepared")
             
             # Transform and load in batches
+            print(f"\nTransforming {len(df)} rows to staging format...")
             staging_rows = self._transform_dataframe_to_staging_rows(df)
+            print(f"✓ Transformed {len(staging_rows)} rows")
             
             # Use TemplatePipeline's insert query method
             insert_query = self._get_staging_insert_query()
+            
+            total_batches = (len(staging_rows) + batch_size - 1) // batch_size
+            print(f"\nLoading {len(staging_rows)} rows into staging table in {total_batches} batch(es)...")
             
             try:
                 for i in range(0, len(staging_rows), batch_size):
@@ -267,10 +336,13 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
                     
                     batch = staging_rows[i:i + batch_size]
                     batch_number = (i // batch_size) + 1
+                    print(f"  Loading batch {batch_number}/{total_batches} ({len(batch)} rows)...", end=' ', flush=True)
                     self._load_batch_to_staging(batch, insert_query, batch_number)
-                    print(f"Loaded batch {batch_number} ({len(batch)} rows)")
+                    print(f"✓")
             except KeyboardInterrupt:
                 self._cleanup_partial_staging_data()
                 raise
+            
+            print(f"\n✓ Successfully loaded all {len(staging_rows)} rows into staging table")
     
 

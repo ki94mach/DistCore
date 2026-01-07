@@ -1,20 +1,17 @@
-"""Dropbox client for downloading and reading files."""
+"""Dropbox client for downloading and reading files from shared links."""
 
 import io
 import re
-from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+import warnings
+import zipfile
+from typing import List, Optional, Dict, Any
 import pandas as pd
+import requests
 
-try:
-    import dropbox
-    from dropbox.exceptions import ApiError, AuthError
-except ImportError:
-    raise ImportError(
-        "dropbox package is required. Install it with: pip install dropbox"
-    )
-
-from .config import DropboxConfigLoader
+# Suppress openpyxl warnings about unsupported features - must be before any openpyxl imports
+warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
+warnings.filterwarnings('ignore', message='.*Data Validation.*')
+warnings.filterwarnings('ignore', message='.*Print area.*')
 
 
 def _is_shared_link(path_or_link: str) -> bool:
@@ -30,226 +27,150 @@ def _is_shared_link(path_or_link: str) -> bool:
     return path_or_link.startswith('https://www.dropbox.com/') or path_or_link.startswith('https://dropbox.com/')
 
 
-def _normalize_shared_link(shared_link: str) -> str:
+def _normalize_shared_link_for_download(shared_link: str) -> str:
     """
-    Normalize a Dropbox shared link URL.
-    
-    Removes query parameters like ?dl=0 or ?dl=1 and ensures consistent format.
+    Normalize a Dropbox shared link URL for direct download.
     
     Args:
         shared_link: Dropbox shared link URL
         
     Returns:
-        Normalized shared link URL
+        Normalized shared link URL with dl=1 parameter for direct download
     """
-    # Remove query parameters
-    if '?' in shared_link:
-        shared_link = shared_link.split('?')[0]
-    
-    # Ensure it ends with the proper format
+    # Ensure dl=1 parameter is set for direct download
+    if 'dl=0' in shared_link:
+        return shared_link.replace('dl=0', 'dl=1')
+    elif 'dl=1' not in shared_link:
+        # Add dl=1 if not present
+        separator = '&' if '?' in shared_link else '?'
+        return f"{shared_link}{separator}dl=1"
     return shared_link
 
 
 class DropboxClient:
-    """Client for interacting with Dropbox API."""
+    """
+    Client for downloading files from Dropbox shared links.
     
-    def __init__(self, access_token: Optional[str] = None, config_loader: Optional[DropboxConfigLoader] = None):
+    This client works without authentication by using public shared links
+    and direct HTTP downloads.
+    """
+    
+    def __init__(self, shared_link: Optional[str] = None):
         """
         Initialize the Dropbox client.
         
         Args:
-            access_token: Optional Dropbox access token
-            config_loader: Optional config loader instance
+            shared_link: Optional default Dropbox shared link for the folder.
+                        Can be overridden per method call.
         """
-        if config_loader is None:
-            config_loader = DropboxConfigLoader(access_token=access_token)
-        
-        self._config_loader = config_loader
-        config = config_loader.load_config()
-        self._access_token = config['access_token']
-        self._auth_method = config.get('auth_method', 'access_token')
-        self._dbx = dropbox.Dropbox(self._access_token)
-        
-        # Store refresh info for OAuth refresh method
-        if self._auth_method == 'oauth_refresh':
-            self._refresh_token = config.get('refresh_token')
-            self._app_key = config.get('app_key')
-            self._app_secret = config.get('app_secret')
-        else:
-            self._refresh_token = None
-            self._app_key = None
-            self._app_secret = None
+        self._default_shared_link = shared_link if shared_link else None
     
-    def _refresh_and_retry(self) -> None:
-        """Refresh the access token and update the Dropbox client."""
-        if not all([self._app_key, self._app_secret, self._refresh_token]):
-            raise ValueError("Cannot refresh token: missing app_key, app_secret, or refresh_token")
-        
-        # Use the config loader's refresh method
-        self._access_token = self._config_loader._refresh_access_token(
-            self._app_key, self._app_secret, self._refresh_token
-        )
-        self._dbx = dropbox.Dropbox(self._access_token)
-    
-    def list_files(self, folder_path: str, pattern: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_files(self, shared_link: Optional[str] = None, pattern: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        List files in a Dropbox folder or shared link.
+        List files in a Dropbox shared link folder by downloading and inspecting the ZIP.
         
         Args:
-            folder_path: Path to the folder in Dropbox (e.g., '/Data/Deliveries') 
-                        or a shared link URL (e.g., 'https://www.dropbox.com/s/...')
+            shared_link: Dropbox shared link URL (e.g., 'https://www.dropbox.com/scl/fo/...')
+                        If None, uses the default shared link provided in __init__
             pattern: Optional regex pattern to filter file names
             
         Returns:
             List of dictionaries containing file metadata (name, path, size, etc.)
+            
+        Raises:
+            ValueError: If no shared link is provided
+            Exception: If download or extraction fails
         """
+        # Use provided shared link or default
+        link_to_use = shared_link or self._default_shared_link
+        
+        if not link_to_use:
+            raise ValueError(
+                "No shared link provided. Either pass shared_link parameter or "
+                "set default shared link in __init__"
+            )
+        
+        if not _is_shared_link(link_to_use):
+            raise ValueError(
+                f"Invalid shared link format: {link_to_use}. "
+                "Expected a Dropbox shared link URL like 'https://www.dropbox.com/scl/fo/...'"
+            )
+        
         try:
+            # Download the folder as ZIP
+            download_url = _normalize_shared_link_for_download(link_to_use)
+            response = requests.get(download_url, stream=True)
+            response.raise_for_status()
+            
+            # Extract file list from ZIP
             files = []
-            is_shared_link = _is_shared_link(folder_path)
-            
-            if is_shared_link:
-                # Use shared link - create SharedLink object from URL
-                normalized_link = _normalize_shared_link(folder_path)
-                shared_link_obj = dropbox.files.SharedLink(url=normalized_link)
-                result = self._dbx.files_list_folder('', shared_link=shared_link_obj)
-            else:
-                # Use regular folder path
-                result = self._dbx.files_list_folder(folder_path)
-            
-            while True:
-                for entry in result.entries:
-                    if isinstance(entry, dropbox.files.FileMetadata):
-                        file_name = entry.name
+            with zipfile.ZipFile(io.BytesIO(response.content)) as zip_ref:
+                for file_info in zip_ref.filelist:
+                    if not file_info.is_dir():
+                        file_name = file_info.filename.split('/')[-1]  # Get just the filename
+                        
+                        # Apply pattern filter if provided
                         if pattern is None or re.search(pattern, file_name):
-                            # For shared links, path_display might be relative
-                            # Store both the relative path and the shared link context
-                            file_path = entry.path_display
-                            if is_shared_link:
-                                # Store the shared link for later use when downloading
-                                files.append({
-                                    'name': file_name,
-                                    'path': file_path,
-                                    'size': entry.size,
-                                    'modified': entry.server_modified,
-                                    '_shared_link': normalized_link,
-                                    '_is_shared': True,
-                                })
-                            else:
-                                files.append({
-                                    'name': file_name,
-                                    'path': file_path,
-                                    'size': entry.size,
-                                    'modified': entry.server_modified,
-                                })
-                
-                if not result.has_more:
-                    break
-                result = self._dbx.files_list_folder_continue(result.cursor)
+                            files.append({
+                                'name': file_name,
+                                'path': file_info.filename,
+                                'size': file_info.file_size,
+                                'modified': None,  # Not available from ZIP
+                                '_shared_link': link_to_use,
+                                '_is_shared': True,
+                            })
             
             return files
-        except AuthError as e:
-            # Try to refresh token if using OAuth refresh method
-            if self._auth_method == 'oauth_refresh' and self._refresh_token:
-                try:
-                    self._refresh_and_retry()
-                    # Retry the operation
-                    is_shared_link = _is_shared_link(folder_path)
-                    if is_shared_link:
-                        normalized_link = _normalize_shared_link(folder_path)
-                        shared_link_obj = dropbox.files.SharedLink(url=normalized_link)
-                        result = self._dbx.files_list_folder('', shared_link=shared_link_obj)
-                    else:
-                        result = self._dbx.files_list_folder(folder_path)
-                    
-                    # Process the result
-                    files = []
-                    while True:
-                        for entry in result.entries:
-                            if isinstance(entry, dropbox.files.FileMetadata):
-                                file_name = entry.name
-                                if pattern is None or re.search(pattern, file_name):
-                                    file_path = entry.path_display
-                                    if is_shared_link:
-                                        files.append({
-                                            'name': file_name,
-                                            'path': file_path,
-                                            'size': entry.size,
-                                            'modified': entry.server_modified,
-                                            '_shared_link': normalized_link,
-                                            '_is_shared': True,
-                                        })
-                                    else:
-                                        files.append({
-                                            'name': file_name,
-                                            'path': file_path,
-                                            'size': entry.size,
-                                            'modified': entry.server_modified,
-                                        })
-                        if not result.has_more:
-                            break
-                        result = self._dbx.files_list_folder_continue(result.cursor)
-                    return files
-                except Exception:
-                    pass  # If refresh fails, fall through to error message
-            
-            error_msg = (
-                f"Dropbox authentication failed: {str(e)}\n"
-                "This usually means your access token is invalid or expired.\n"
-            )
-            if self._auth_method == 'oauth_refresh':
-                error_msg += "Token refresh was attempted but failed. Please check your refresh token configuration."
-            else:
-                error_msg += "Please verify your access token or re-authorize the application."
-            raise Exception(error_msg) from e
-        except ApiError as e:
-            raise Exception(f"Failed to list files in Dropbox folder '{folder_path}': {str(e)}")
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"Failed to download from Dropbox shared link: {str(e)}")
+        except zipfile.BadZipFile as e:
+            raise Exception(f"Failed to extract ZIP from Dropbox shared link: {str(e)}")
     
     def download_file(self, file_path: str, shared_link: Optional[str] = None) -> bytes:
         """
-        Download a file from Dropbox.
+        Download a file from Dropbox using a shared link.
         
         Args:
-            file_path: Path to the file in Dropbox (relative path if using shared_link)
-            shared_link: Optional shared link URL if the file is from a shared folder
+            file_path: Path to the file within the ZIP (relative path from the shared folder)
+            shared_link: Shared link URL. If None, uses the default shared link.
             
         Returns:
             File contents as bytes
-        """
-        try:
-            if shared_link:
-                normalized_link = _normalize_shared_link(shared_link)
-                shared_link_obj = dropbox.files.SharedLink(url=normalized_link)
-                _, response = self._dbx.files_download(file_path, shared_link=shared_link_obj)
-            else:
-                _, response = self._dbx.files_download(file_path)
-            return response.content
-        except AuthError as e:
-            # Try to refresh token if using OAuth refresh method
-            if self._auth_method == 'oauth_refresh' and self._refresh_token:
-                try:
-                    self._refresh_and_retry()
-                    # Retry the operation
-                    if shared_link:
-                        normalized_link = _normalize_shared_link(shared_link)
-                        shared_link_obj = dropbox.files.SharedLink(url=normalized_link)
-                        _, response = self._dbx.files_download(file_path, shared_link=shared_link_obj)
-                    else:
-                        _, response = self._dbx.files_download(file_path)
-                    return response.content
-                except Exception:
-                    pass  # If refresh fails, fall through to error message
             
-            error_msg = (
-                f"Dropbox authentication failed: {str(e)}\n"
-                "This usually means your access token is invalid or expired.\n"
+        Raises:
+            ValueError: If no shared link is provided
+            Exception: If download fails
+        """
+        # Use provided shared link or default
+        link_to_use = shared_link or self._default_shared_link
+        
+        if not link_to_use:
+            raise ValueError(
+                "No shared link provided. Either pass shared_link parameter or "
+                "set default shared link in __init__"
             )
-            if self._auth_method == 'oauth_refresh':
-                error_msg += "Token refresh was attempted but failed. Please check your refresh token configuration."
-            else:
-                error_msg += "Please verify your access token or re-authorize the application."
-            raise Exception(error_msg) from e
-        except ApiError as e:
+        
+        try:
+            # Download the folder as ZIP
+            download_url = _normalize_shared_link_for_download(link_to_use)
+            response = requests.get(download_url, stream=True)
+            response.raise_for_status()
+            
+            # Extract the specific file from ZIP
+            with zipfile.ZipFile(io.BytesIO(response.content)) as zip_ref:
+                # Try to find the file (may have a folder prefix)
+                matching_files = [name for name in zip_ref.namelist() if name.endswith(file_path) or name == file_path]
+                
+                if not matching_files:
+                    raise FileNotFoundError(f"File '{file_path}' not found in ZIP archive. Available files: {zip_ref.namelist()[:10]}")
+                
+                # Use the first matching file
+                return zip_ref.read(matching_files[0])
+                
+        except requests.exceptions.RequestException as e:
             raise Exception(f"Failed to download file '{file_path}' from Dropbox: {str(e)}")
+        except zipfile.BadZipFile as e:
+            raise Exception(f"Failed to extract file '{file_path}' from ZIP: {str(e)}")
     
     def read_excel_file(
         self,
@@ -257,13 +178,14 @@ class DropboxClient:
         sheet_name: Optional[str] = None,
         header_row: Optional[int] = None,
         skip_rows: Optional[int] = None,
-        shared_link: Optional[str] = None
+        shared_link: Optional[str] = None,
+        file_name: Optional[str] = None
     ) -> pd.DataFrame:
         """
         Read an Excel file from Dropbox into a pandas DataFrame.
         
         Args:
-            file_path: Path to the Excel file in Dropbox (relative path if using shared_link)
+            file_path: Path to the Excel file in Dropbox (relative path from shared folder)
             sheet_name: Optional sheet name (defaults to first sheet)
             header_row: Optional row number (0-indexed) to use as column headers.
                        If None, uses default pandas behavior (first row).
@@ -272,42 +194,51 @@ class DropboxClient:
                       If header_row is specified, this is ignored.
                       If None and header_row is None, no rows are skipped.
             shared_link: Optional shared link URL if the file is from a shared folder
+            file_name: Optional file name for better error messages
             
         Returns:
             pandas DataFrame containing the file data
         """
         file_content = self.download_file(file_path, shared_link=shared_link)
+        display_name = file_name or file_path
         
-        # First, check if the file has enough rows
-        if header_row is not None:
-            # Read the Excel file to check row count
-            try:
-                import openpyxl
-                workbook = openpyxl.load_workbook(io.BytesIO(file_content), read_only=True)
-                
-                # If sheet_name is specified, check that sheet; otherwise check first sheet
-                if sheet_name:
-                    if sheet_name not in workbook.sheetnames:
-                        raise ValueError(f"Sheet '{sheet_name}' not found in file")
-                    ws = workbook[sheet_name]
-                else:
-                    ws = workbook.active
-                
-                # Check if there are enough rows (header_row + at least 1 data row)
+        # First, check if the file has enough rows and sheet exists
+        try:
+            import openpyxl
+            workbook = openpyxl.load_workbook(io.BytesIO(file_content), read_only=True)
+            
+            # If sheet_name is specified, check that sheet exists
+            if sheet_name:
+                if sheet_name not in workbook.sheetnames:
+                    workbook.close()
+                    raise ValueError(
+                        f"Worksheet named '{sheet_name}' not found in file '{display_name}'. "
+                        f"Available sheets: {', '.join(workbook.sheetnames)}"
+                    )
+                ws = workbook[sheet_name]
+            else:
+                ws = workbook.active
+            
+            # Check if there are enough rows (header_row + at least 1 data row)
+            if header_row is not None:
                 max_row = ws.max_row
                 if max_row <= header_row:
+                    workbook.close()
                     raise ValueError(
-                        f"File has only {max_row} rows, but header_row={header_row} requires at least {header_row + 1} rows. "
+                        f"File '{display_name}' has only {max_row} rows, but header_row={header_row} requires at least {header_row + 1} rows. "
                         f"Sheet: {ws.title if hasattr(ws, 'title') else 'unknown'}"
                     )
-                
-                workbook.close()
-            except ImportError:
-                # openpyxl not available, skip the check
-                pass
-            except Exception as e:
-                # If check fails, still try to read - let pandas handle the error
-                pass
+            
+            workbook.close()
+        except ImportError:
+            # openpyxl not available, skip the check
+            pass
+        except ValueError:
+            # Re-raise ValueError (sheet not found, insufficient rows)
+            raise
+        except Exception:
+            # If check fails, still try to read - let pandas handle the error
+            pass
         
         read_kwargs = {
             'io': io.BytesIO(file_content),
@@ -316,45 +247,75 @@ class DropboxClient:
         }
         
         if header_row is not None:
-            # Use specified row as header (0-indexed)
-            # pandas will automatically skip rows before the header
             read_kwargs['header'] = header_row
         elif skip_rows is not None:
-            # Skip specified number of rows
-            read_kwargs['skiprows'] = range(skip_rows)
+            read_kwargs['skiprows'] = skip_rows
         
-        return pd.read_excel(**read_kwargs)
+        try:
+            df = pd.read_excel(**read_kwargs)
+            
+            # Validate that DataFrame has data
+            if df.empty:
+                raise ValueError(f"File '{display_name}' has no data rows after reading")
+            
+            return df
+        except Exception as e:
+            error_msg = str(e)
+            if "has only" in error_msg and "lines in file" in error_msg:
+                # Enhance the error message
+                raise ValueError(
+                    f"File '{display_name}' has insufficient rows for header_row={header_row}. {error_msg}"
+                )
+            raise
     
-    def read_csv_file(self, file_path: str, encoding: str = 'utf-8', shared_link: Optional[str] = None) -> pd.DataFrame:
+    def check_expected_files(
+        self,
+        expected_files: List[str],
+        file_pattern: Optional[str] = None,
+        shared_link: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
-        Read a CSV file from Dropbox into a pandas DataFrame.
+        Check which expected files are found in the Dropbox shared folder.
         
         Args:
-            file_path: Path to the CSV file in Dropbox (relative path if using shared_link)
-            encoding: File encoding (default: utf-8)
-            shared_link: Optional shared link URL if the file is from a shared folder
+            expected_files: List of expected file names to check for
+            file_pattern: Optional regex pattern to filter files (if None, checks all files)
+            shared_link: Shared link URL. If None, uses the default shared link.
             
         Returns:
-            pandas DataFrame containing the file data
+            Dictionary with:
+            - 'found': List of expected files that were found
+            - 'missing': List of expected files that were not found
+            - 'all_found_files': List of all files found (matching pattern if provided)
         """
-        file_content = self.download_file(file_path, shared_link=shared_link)
-        return pd.read_csv(io.BytesIO(file_content), encoding=encoding)
+        all_files = self.list_files(shared_link=shared_link, pattern=file_pattern)
+        found_file_names = {file_info['name'] for file_info in all_files}
+        
+        found = [f for f in expected_files if f in found_file_names]
+        missing = [f for f in expected_files if f not in found_file_names]
+        all_found_files = [file_info['name'] for file_info in all_files]
+        
+        return {
+            'found': found,
+            'missing': missing,
+            'all_found_files': all_found_files
+        }
     
     def concatenate_excel_files(
         self,
-        folder_path: str,
         file_pattern: Optional[str] = None,
         sheet_name: Optional[str] = None,
         header_row: Optional[int] = None,
         skip_rows: Optional[int] = None,
-        add_source_file_column: bool = True
+        add_source_file_column: bool = True,
+        expected_files: Optional[List[str]] = None,
+        ignored_files: Optional[List[str]] = None,
+        shared_link: Optional[str] = None
     ) -> pd.DataFrame:
         """
-        Download and concatenate multiple Excel files from a Dropbox folder or shared link.
+        Download and concatenate multiple Excel files from a Dropbox shared link folder.
         
         Args:
-            folder_path: Path to the folder containing Excel files (e.g., '/Data/Deliveries')
-                        or a shared link URL (e.g., 'https://www.dropbox.com/s/...')
             file_pattern: Optional regex pattern to filter file names
             sheet_name: Optional sheet name (defaults to first sheet)
             header_row: Optional row number (0-indexed) to use as column headers.
@@ -362,85 +323,124 @@ class DropboxClient:
             skip_rows: Optional number of rows to skip at the start.
                       If header_row is specified, this is ignored.
             add_source_file_column: If True, add a column with the source file name
+            expected_files: Optional list of expected file names to check for (for reporting)
+            ignored_files: Optional list of file names to skip/ignore during processing
+            shared_link: Shared link URL. If None, uses the default shared link.
             
         Returns:
             Concatenated pandas DataFrame
         """
-        files = self.list_files(folder_path, pattern=file_pattern)
+        # Check expected files if provided
+        if expected_files:
+            check_result = self.check_expected_files(expected_files, file_pattern, shared_link)
+            found_count = len(check_result['found'])
+            missing_count = len(check_result['missing'])
+            
+            if found_count > 0:
+                print(f"[OK] Found {found_count} expected file(s):")
+                for filename in check_result['found']:
+                    print(f"  - {filename}")
+            
+            if missing_count > 0:
+                print(f"[WARN] Missing {missing_count} expected file(s):")
+                for filename in check_result['missing']:
+                    print(f"  - {filename}")
+            
+            # Also report any additional files found that match pattern
+            additional_files = [f for f in check_result['all_found_files'] if f not in expected_files]
+            if additional_files:
+                print(f"[INFO] Found {len(additional_files)} additional file(s) matching pattern:")
+                for filename in additional_files:
+                    print(f"  - {filename}")
+        
+        files = self.list_files(shared_link=shared_link, pattern=file_pattern)
         
         if not files:
-            raise ValueError(f"No files found in Dropbox folder '{folder_path}' matching pattern '{file_pattern}'")
+            raise ValueError(f"No files found in Dropbox shared folder matching pattern '{file_pattern}'")
         
         dataframes = []
         skipped_files = []
         
+        # Filter out ignored files if provided
+        ignored_files_list = ignored_files or []
+        
         for file_info in files:
+            file_name = file_info['name']
+            
+            # Skip ignored files
+            if file_name in ignored_files_list:
+                print(f"[INFO] Ignoring file (in ignore list): {file_name}")
+                skipped_files.append(file_name)
+                continue
+            
             try:
-                # Check if this file is from a shared link
-                shared_link = file_info.get('_shared_link') if file_info.get('_is_shared') else None
+                # Get shared link from file info
+                file_shared_link = file_info.get('_shared_link') if file_info.get('_is_shared') else shared_link
                 
                 df = self.read_excel_file(
                     file_info['path'],
                     sheet_name=sheet_name,
                     header_row=header_row,
                     skip_rows=skip_rows,
-                    shared_link=shared_link
+                    shared_link=file_shared_link,
+                    file_name=file_name
                 )
                 
                 # Check if DataFrame is empty or has no data rows
                 if df.empty or len(df) == 0:
-                    print(f"Warning: File '{file_info['name']}' has no data rows. Skipping.")
-                    skipped_files.append(file_info['name'])
+                    print(f"[WARN] File '{file_name}' has no data rows. Skipping.")
+                    skipped_files.append(file_name)
                     continue
                 
                 if add_source_file_column:
-                    df['source_file'] = file_info['name']
+                    df['source_file'] = file_name
                 
                 dataframes.append(df)
+                print(f"[OK] Successfully loaded: {file_name} ({len(df)} rows)")
+                
             except ValueError as e:
-                # Handle specific error about insufficient rows
+                # Handle specific errors
                 error_msg = str(e)
                 if "only" in error_msg and "lines in file" in error_msg:
-                    print(f"Warning: File '{file_info['name']}' has insufficient rows for header_row={header_row}. Skipping.")
+                    print(f"[WARN] File '{file_name}' has insufficient rows for header_row={header_row}. Skipping.")
                     print(f"  Error: {error_msg}")
-                    skipped_files.append(file_info['name'])
+                    skipped_files.append(file_name)
+                    continue
+                elif "not found" in error_msg.lower() and "sheet" in error_msg.lower():
+                    print(f"[ERROR] File '{file_name}' - {error_msg}")
+                    print(f"  Available sheets: (checking...)")
+                    # Try to list available sheets
+                    try:
+                        import openpyxl
+                        file_shared_link = file_info.get('_shared_link') if file_info.get('_is_shared') else shared_link
+                        file_content = self.download_file(file_info['path'], shared_link=file_shared_link)
+                        workbook = openpyxl.load_workbook(io.BytesIO(file_content), read_only=True)
+                        available_sheets = workbook.sheetnames
+                        workbook.close()
+                        print(f"  Available sheets in '{file_name}': {', '.join(available_sheets)}")
+                    except Exception:
+                        pass
+                    skipped_files.append(file_name)
                     continue
                 else:
-                    # Re-raise if it's a different ValueError
-                    raise
+                    print(f"[ERROR] File '{file_name}' - {error_msg}")
+                    skipped_files.append(file_name)
+                    continue
             except Exception as e:
-                # For other errors, log and skip the file
-                print(f"Warning: Failed to read file '{file_info['name']}' from Dropbox: {str(e)}")
-                print(f"  Skipping this file and continuing with others...")
-                skipped_files.append(file_info['name'])
+                print(f"[ERROR] Failed to process file '{file_name}': {str(e)}")
+                skipped_files.append(file_name)
                 continue
         
         if not dataframes:
-            error_msg = f"No valid data could be read from any files in '{folder_path}'"
-            if skipped_files:
-                error_msg += f"\nSkipped files: {', '.join(skipped_files)}"
-            raise ValueError(error_msg)
+            raise ValueError(
+                f"No valid Excel files could be loaded. "
+                f"Total files found: {len(files)}, Skipped: {len(skipped_files)}"
+            )
+        
+        # Concatenate all DataFrames
+        result = pd.concat(dataframes, ignore_index=True)
         
         if skipped_files:
-            print(f"\nNote: Successfully processed {len(dataframes)} file(s), skipped {len(skipped_files)} file(s)")
+            print(f"\n[INFO] Summary: Loaded {len(dataframes)} file(s), Skipped {len(skipped_files)} file(s)")
         
-        return pd.concat(dataframes, ignore_index=True)
-    
-    def test_connection(self) -> bool:
-        """
-        Test the Dropbox connection.
-        
-        Returns:
-            True if connection is successful
-            
-        Raises:
-            Exception: If connection fails
-        """
-        try:
-            self._dbx.users_get_current_account()
-            return True
-        except AuthError as e:
-            raise Exception(f"Dropbox authentication failed: {str(e)}")
-        except Exception as e:
-            raise Exception(f"Dropbox connection test failed: {str(e)}")
-
+        return result

@@ -1,8 +1,45 @@
 """Terminal access tool for ETL pipelines."""
 
 import sys
+import os
 from pathlib import Path
 from datetime import date
+
+# Set UTF-8 encoding for Windows terminal to display Farsi characters
+if sys.platform == 'win32':
+    # Method 1: Try to reconfigure stdout/stderr
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+    if hasattr(sys.stderr, 'reconfigure'):
+        try:
+            sys.stderr.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+    
+    # Method 2: Set environment variables
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
+    os.environ['PYTHONLEGACYWINDOWSSTDIO'] = '0'
+    
+    # Method 3: Try to change console code page to UTF-8 (65001)
+    try:
+        import subprocess
+        # Change console code page to UTF-8
+        subprocess.run(['chcp', '65001'], shell=True, capture_output=True, check=False)
+    except Exception:
+        pass
+    
+    # Method 4: Set locale if available
+    try:
+        import locale
+        locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
+    except Exception:
+        try:
+            locale.setlocale(locale.LC_ALL, '')
+        except Exception:
+            pass
 
 # Add project root to Python path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -243,6 +280,72 @@ def configure_batch(pipeline_info):
     return batch_id
 
 
+def check_loaded_delivery_files(
+    connection_factory: DBConnectionFactory,
+    snapshot_date: date,
+    database_type: str
+) -> None:
+    """
+    Check and display which delivery files were successfully loaded for the snapshot date.
+    
+    Args:
+        connection_factory: Database connection factory
+        snapshot_date: Snapshot date to check
+        database_type: Database type ('source' or 'test')
+    """
+    try:
+        import pyodbc
+        from src.orchestrator.services.sql_server_db.executors.result_formatter import format_result_set
+        
+        # First, try to find batch_id from snapshot table for this date
+        # If snapshot exists, use its batch_id; otherwise, find latest batch before snapshot date
+        query = """
+        SELECT DISTINCT
+            stg.source_file,
+            COUNT(*) as row_count,
+            MAX(stg.ingested_at) as last_loaded
+        FROM [Data].[stg_DistributorDeliveries] stg
+        WHERE stg.batch_id IN (
+            -- Get batch_id from snapshot if it exists for this date
+            SELECT DISTINCT batch_id 
+            FROM [Data].[snp_DistributorDeliveriesSnapshot]
+            WHERE snapshot_date = ?
+            UNION
+            -- Otherwise, get the latest batch_id before or on this date
+            SELECT TOP 1 batch_id
+            FROM [Data].[Batch]
+            WHERE batch_type = 'DISTRIBUTOR_DELIVERIES'
+              AND snapshot_date <= ?
+            ORDER BY snapshot_date DESC, batch_id DESC
+        )
+        GROUP BY stg.source_file
+        ORDER BY stg.source_file
+        """
+        
+        with connection_factory.connection(database_type) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (snapshot_date, snapshot_date))
+            results = format_result_set(cursor)
+            conn.commit()
+        
+        if results:
+            print_info(f"\n✓ Delivery files successfully loaded for snapshot date {snapshot_date}:")
+            total_rows = 0
+            for row in results:
+                source_file = row.get('source_file', 'Unknown')
+                row_count = row.get('row_count', 0)
+                total_rows += row_count
+                if source_file:
+                    print_info(f"  - {colorize(source_file, Colors.BRIGHT_WHITE)} ({row_count} rows)")
+            print_info(f"Total: {len(results)} file(s), {total_rows} row(s)")
+        else:
+            print_warning(f"No delivery files found for snapshot date {snapshot_date}")
+            print_info("  Note: This may indicate that the distributor deliveries pipeline has not been run for this date.")
+    except Exception as e:
+        # Don't fail the pipeline if file checking fails
+        print_warning(f"Could not check loaded delivery files: {e}")
+
+
 def run_staging(pipeline_info, config):
     """Run the staging layer."""
     print_header("Running Staging Layer", Colors.BRIGHT_GREEN)
@@ -283,6 +386,17 @@ def run_staging(pipeline_info, config):
             pipeline.load_stage()
         
         print_success(f"[{pipeline_info['name']}] Load stage completed successfully!")
+        
+        # Check loaded files for Distributor Deliveries pipeline
+        if pipeline_info['name'] == 'Distributor Deliveries' and config.get('snapshot_date'):
+            print_action("Checking loaded delivery files...")
+            connection_factory = DBConnectionFactory()
+            check_loaded_delivery_files(
+                connection_factory=connection_factory,
+                snapshot_date=config['snapshot_date'],
+                database_type='test'
+            )
+        
         return pipeline
     except Exception as e:
         print_error(f"Error: {str(e)}")
@@ -364,6 +478,16 @@ def run_full_pipeline(pipeline_info):
             )
         else:
             pipeline.load_stage()
+        
+        # Check loaded files for Distributor Deliveries pipeline after staging
+        if pipeline_info['name'] == 'Distributor Deliveries' and staging_config.get('snapshot_date'):
+            print_action("Checking loaded delivery files...")
+            connection_factory = DBConnectionFactory()
+            check_loaded_delivery_files(
+                connection_factory=connection_factory,
+                snapshot_date=staging_config['snapshot_date'],
+                database_type='test'
+            )
         
         # Run publish
         print_action("Publishing...")
