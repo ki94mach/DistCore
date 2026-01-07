@@ -20,6 +20,10 @@ from .staging_utils import (
     check_row_hash_exists,
     get_last_successful_ingestion_date,
 )
+from .dropbox_utils import (
+    load_excel_files_from_dropbox,
+    transform_dataframe_to_staging_rows,
+)
 
 __all__ = [
     'get_sql_folder_path',
@@ -34,5 +38,7 @@ __all__ = [
     'calculate_row_hash',
     'check_row_hash_exists',
     'get_last_successful_ingestion_date',
+    'load_excel_files_from_dropbox',
+    'transform_dataframe_to_staging_rows',
 ]
 
