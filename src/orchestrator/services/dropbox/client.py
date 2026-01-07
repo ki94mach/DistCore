@@ -268,6 +268,136 @@ class DropboxClient:
                 )
             raise
     
+    def read_excel_table(
+        self,
+        file_path: str,
+        sheet_name: str,
+        table_name: str,
+        shared_link: Optional[str] = None,
+        file_name: Optional[str] = None
+    ) -> pd.DataFrame:
+        """
+        Read an Excel table (ListObject) from Dropbox into a pandas DataFrame.
+        
+        Args:
+            file_path: Path to the Excel file in Dropbox (relative path from shared folder)
+            sheet_name: Sheet name containing the table
+            table_name: Name of the Excel table (ListObject)
+            shared_link: Optional shared link URL if the file is from a shared folder
+            file_name: Optional file name for better error messages
+            
+        Returns:
+            pandas DataFrame containing the table data
+        """
+        file_content = self.download_file(file_path, shared_link=shared_link)
+        display_name = file_name or file_path
+        
+        try:
+            import openpyxl
+            # Load workbook without read_only to access tables (tables are not available in read-only mode)
+            # Use data_only=True to get calculated values instead of formulas
+            workbook = openpyxl.load_workbook(io.BytesIO(file_content), read_only=False, data_only=True)
+            
+            # Check that sheet exists
+            if sheet_name not in workbook.sheetnames:
+                workbook.close()
+                raise ValueError(
+                    f"Worksheet named '{sheet_name}' not found in file '{display_name}'. "
+                    f"Available sheets: {', '.join(workbook.sheetnames)}"
+                )
+            
+            worksheet = workbook[sheet_name]
+            
+            # Check that table exists (tables are accessible from worksheet in read/write mode)
+            if not worksheet.tables:
+                workbook.close()
+                raise ValueError(
+                    f"No tables found in sheet '{sheet_name}' of file '{display_name}'."
+                )
+            
+            if table_name not in worksheet.tables:
+                workbook.close()
+                available_tables = list(worksheet.tables.keys())
+                raise ValueError(
+                    f"Table named '{table_name}' not found in sheet '{sheet_name}' of file '{display_name}'. "
+                    f"Available tables: {', '.join(available_tables) if available_tables else 'None'}"
+                )
+            
+            # Get the table range
+            table = worksheet.tables[table_name]
+            table_range = table.ref  # e.g., "Sheet1!A1:Z100" or "A1:Z100"
+            
+            # Remove sheet name from range if present
+            if '!' in table_range:
+                table_range = table_range.split('!')[1]
+            
+            # Parse the range to get start and end cells
+            start_cell, end_cell = table_range.split(':')
+            
+            # Parse cell references using regex (handles multi-letter columns like AA, AB, etc.)
+            # Pattern matches: one or more letters followed by one or more digits
+            cell_pattern = re.compile(r'^([A-Z]+)(\d+)$')
+            
+            start_match = cell_pattern.match(start_cell)
+            end_match = cell_pattern.match(end_cell)
+            
+            if not start_match or not end_match:
+                workbook.close()
+                raise ValueError(
+                    f"Invalid table range format '{table_range}' in file '{display_name}'. "
+                    f"Expected format like 'A1:Z100'"
+                )
+            
+            start_col_letter, start_row_str = start_match.groups()
+            end_col_letter, end_row_str = end_match.groups()
+            
+            # Convert to integers and column indices
+            start_row = int(start_row_str)
+            end_row = int(end_row_str)
+            start_col = openpyxl.utils.column_index_from_string(start_col_letter) - 1  # Convert to 0-indexed
+            end_col = openpyxl.utils.column_index_from_string(end_col_letter)
+            
+            # Read the table data
+            # Note: This includes all columns in the table range, including hidden columns.
+            # Hidden columns are part of the table data and are included by default.
+            # If you need to exclude hidden columns, check worksheet.column_dimensions[col_letter].hidden
+            data = []
+            headers = []
+            
+            # Read header row (first row of table)
+            for col_idx in range(start_col, end_col):
+                cell = worksheet.cell(row=start_row, column=col_idx + 1)
+                headers.append(cell.value if cell.value is not None else f'Column{col_idx + 1}')
+            
+            # Read data rows (includes hidden columns in the table range)
+            for row_idx in range(start_row + 1, end_row + 1):  # Start from row after header
+                row_data = []
+                for col_idx in range(start_col, end_col):
+                    cell = worksheet.cell(row=row_idx, column=col_idx + 1)
+                    row_data.append(cell.value)
+                data.append(row_data)
+            
+            workbook.close()
+            
+            # Create DataFrame
+            df = pd.DataFrame(data, columns=headers)
+            
+            # Remove completely empty rows
+            df = df.dropna(how='all')
+            
+            # Validate that DataFrame has data
+            if df.empty:
+                raise ValueError(f"Table '{table_name}' in file '{display_name}' has no data rows")
+            
+            return df
+            
+        except ImportError:
+            raise ImportError("openpyxl is required to read Excel tables")
+        except ValueError:
+            raise
+        except Exception as e:
+            raise Exception(f"Failed to read table '{table_name}' from file '{display_name}': {str(e)}")
+    
     def check_expected_files(
         self,
         expected_files: List[str],

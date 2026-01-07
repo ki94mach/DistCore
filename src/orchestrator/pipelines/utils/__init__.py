@@ -15,11 +15,7 @@ from .excel_utils import (
     parse_excel_date,
     safe_int,
 )
-from .staging_utils import (
-    calculate_row_hash,
-    check_row_hash_exists,
-    get_last_successful_ingestion_date,
-)
+# staging_utils functions removed - no longer needed after distributor_deliveries simplification
 from .dropbox_utils import (
     load_excel_files_from_dropbox,
     transform_dataframe_to_staging_rows,
@@ -35,9 +31,6 @@ __all__ = [
     'substitute_jalali_year_parameter',
     'parse_excel_date',
     'safe_int',
-    'calculate_row_hash',
-    'check_row_hash_exists',
-    'get_last_successful_ingestion_date',
     'load_excel_files_from_dropbox',
     'transform_dataframe_to_staging_rows',
 ]

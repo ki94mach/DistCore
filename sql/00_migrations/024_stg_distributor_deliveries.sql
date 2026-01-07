@@ -82,31 +82,4 @@ BEGIN
 END;
 GO
 
--- Nonclustered index on row_hash for exact duplicate detection
-IF NOT EXISTS (
-    SELECT 1
-    FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[stg_DistributorDeliveries]', 'U')
-      AND i.name = N'IX_DistributorDeliveries_RowHash'
-)
-BEGIN
-    CREATE NONCLUSTERED INDEX IX_DistributorDeliveries_RowHash
-        ON [Data].[stg_DistributorDeliveries] (row_hash);
-END;
-GO
-
--- Nonclustered index on business key for update detection
--- Primary key: warehouse_exit_letter_number (when not NULL)
--- Fallback key: product_name + distributor_name + delivery_date + batch_number
-IF NOT EXISTS (
-    SELECT 1
-    FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[stg_DistributorDeliveries]', 'U')
-      AND i.name = N'IX_DistributorDeliveries_BusinessKey'
-)
-BEGIN
-    CREATE NONCLUSTERED INDEX IX_DistributorDeliveries_BusinessKey
-        ON [Data].[stg_DistributorDeliveries] (warehouse_exit_letter_number, product_name, distributor_name, delivery_date, batch_number);
-END;
-GO
 

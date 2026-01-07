@@ -9,7 +9,6 @@ import pandas as pd
 import openpyxl
 
 from src.orchestrator.pipelines.utils.excel_utils import parse_excel_date, safe_int
-from src.orchestrator.pipelines.utils.staging_utils import calculate_row_hash
 from src.orchestrator.services.dropbox import DropboxClient
 
 
@@ -30,14 +29,14 @@ def extract_factory_name_from_filename(filename: str) -> Optional[str]:
     return None
 
 
-def find_matching_sheet(
+def find_matching_table(
     dropbox_client: DropboxClient,
     file_info: dict,
     factory_name: str,
     shared_link: str
-) -> Optional[str]:
+) -> Optional[Tuple[str, str]]:
     """
-    Find the sheet in an Excel file that matches the factory name.
+    Find the Excel table (ListObject) in an Excel file that matches the factory name.
     
     Args:
         dropbox_client: DropboxClient instance
@@ -46,19 +45,89 @@ def find_matching_sheet(
         shared_link: Dropbox shared link
         
     Returns:
-        Sheet name if found, None otherwise
+        Tuple of (sheet_name, table_name) if found, None otherwise
     """
     file_content = dropbox_client.download_file(file_info['path'], shared_link=shared_link)
-    workbook = openpyxl.load_workbook(io.BytesIO(file_content), read_only=True)
+    # Load workbook without read_only to access tables (tables are not available in read-only mode)
+    workbook = openpyxl.load_workbook(io.BytesIO(file_content), read_only=False)
     available_sheets = workbook.sheetnames
-    workbook.close()
     
-    for sheet in available_sheets:
-        normalized_sheet = unicodedata.normalize('NFC', sheet.strip())
-        normalized_factory = unicodedata.normalize('NFC', factory_name.strip())
+    # Normalize factory name
+    factory_stripped = factory_name.strip()
+    
+    # Remove zero-width characters from factory name
+    factory_cleaned = ''.join(c for c in factory_stripped if unicodedata.category(c) != 'Cf')
+    
+    # Try to find matching table across all sheets
+    for sheet_name in available_sheets:
+        worksheet = workbook[sheet_name]
         
-        if normalized_sheet == normalized_factory or normalized_factory in normalized_sheet:
-            return sheet
+        # Access tables from worksheet (available in read/write mode)
+        if not worksheet.tables:
+            continue
+        
+        # Check all tables in this sheet
+        for table_name, table in worksheet.tables.items():
+            table_stripped = table_name.strip()
+            
+            # Remove zero-width characters from table name
+            table_cleaned = ''.join(c for c in table_stripped if unicodedata.category(c) != 'Cf')
+            
+            # Strategy 1: Exact match without normalization (fastest, most likely to work)
+            if table_stripped == factory_stripped:
+                workbook.close()
+                return (sheet_name, table_name)
+            
+            # Strategy 2: Exact match with cleaned versions (no zero-width chars)
+            if table_cleaned == factory_cleaned:
+                workbook.close()
+                return (sheet_name, table_name)
+            
+            # Strategy 2.5: Match after removing spaces (handles cases like "اسپاد فارمد" vs "اسپادفارمد")
+            table_no_spaces = table_cleaned.replace(' ', '').replace('\u200C', '').replace('\u200D', '')
+            factory_no_spaces = factory_cleaned.replace(' ', '').replace('\u200C', '').replace('\u200D', '')
+            if table_no_spaces == factory_no_spaces:
+                workbook.close()
+                return (sheet_name, table_name)
+            
+            # Strategy 3: Try different normalization forms
+            for norm_form in ['NFC', 'NFD', 'NFKC', 'NFKD']:
+                normalized_table = unicodedata.normalize(norm_form, table_stripped)
+                normalized_factory = unicodedata.normalize(norm_form, factory_stripped)
+                
+                # Exact match
+                if normalized_table == normalized_factory:
+                    workbook.close()
+                    return (sheet_name, table_name)
+                
+                # Substring match (factory in table or table in factory)
+                if normalized_factory in normalized_table or normalized_table in normalized_factory:
+                    workbook.close()
+                    return (sheet_name, table_name)
+            
+            # Strategy 4: Substring match with cleaned versions
+            if factory_cleaned in table_cleaned or table_cleaned in factory_cleaned:
+                workbook.close()
+                return (sheet_name, table_name)
+            
+            # Strategy 5: Case-insensitive comparison (though Persian doesn't have case)
+            if table_cleaned.lower() == factory_cleaned.lower():
+                workbook.close()
+                return (sheet_name, table_name)
+    
+    # If no match found, print debug information before closing
+    print(f"  [DEBUG] Available tables in file:")
+    for sheet_name in available_sheets:
+        worksheet = workbook[sheet_name]
+        if worksheet.tables:
+            for table_name in worksheet.tables.keys():
+                print(f"    - Sheet '{sheet_name}', Table '{table_name}' (repr: {repr(table_name)})")
+        else:
+            print(f"    - Sheet '{sheet_name}': No tables found")
+    print(f"  [DEBUG] Looking for factory name: '{factory_name}' (repr: {repr(factory_name)})")
+    
+    # Close workbook
+    workbook.close()
     
     return None
 
@@ -177,42 +246,6 @@ def safe_get_column(row: pd.Series, column_name: str, default=None):
     return value
 
 
-def calculate_distributor_deliveries_row_hash(row: pd.Series) -> bytes:
-    """
-    Calculate SHA-256 hash of all data columns for distributor deliveries.
-    
-    Args:
-        row: DataFrame row with Persian column names
-        
-    Returns:
-        SHA-256 hash as bytes (32 bytes)
-    """
-    hash_values = [
-        row.get('کد دارو', ''),
-        row.get('کالا', ''),
-        row.get('نام پخش', ''),
-        row.get('شماره بچ', ''),
-        parse_excel_date(row.get('تاریخ انقضاء')),
-        safe_int(row.get('تعداد تحویلی')),
-        safe_int(row.get('تعداد تحویلی رند بالا')),
-        safe_int(row.get('تعداد تحویلی رند پایین')),
-        parse_excel_date(row.get('تاریخ درخواست')),
-        parse_excel_date(row.get('تاریخ تحویل')),
-        row.get('ماه', ''),
-        row.get('شماره نامه خروج از انبار', ''),
-        safe_int(row.get('تعداد خروج از انبار')),
-        row.get('جزئیات خروج از انبار', ''),
-        row.get('وضعیت رسید', ''),
-        parse_excel_date(row.get('تاریخ ریلیز')),
-        safe_int(row.get('تعداد روز بین تاریخ تحویلی و ریلیز')),
-        safe_int(row.get('تعداد تحویل روتین')),
-        safe_int(row.get('تعداد درخواست زنجیره تامین')),
-        row.get('کارخانه', ''),
-        row.get('توضیحات', ''),
-    ]
-    return calculate_row_hash(hash_values)
-
-
 def transform_distributor_delivery_row(
     row: pd.Series,
     batch_id: int,
@@ -249,7 +282,6 @@ def transform_distributor_delivery_row(
         except:
             month = None
     
-    row_hash = calculate_distributor_deliveries_row_hash(row)
     source_file = safe_get_column(row, 'source_file', '')
     
     def safe_str(val, default=''):
@@ -282,7 +314,7 @@ def transform_distributor_delivery_row(
         None,  # company_name
         safe_str(safe_get_column(row, 'توضیحات')),
         source_file,
-        row_hash,
+        None,  # row_hash - no longer needed for deduplication
     )
 
 
@@ -296,7 +328,7 @@ def load_excel_files_from_dropbox(
     header_row: int = 7
 ) -> pd.DataFrame:
     """
-    Load and concatenate Excel files from Dropbox, matching factory names to sheet names.
+    Load and concatenate Excel files from Dropbox, matching factory names to Excel table names.
     
     Args:
         dropbox_client: DropboxClient instance
@@ -358,35 +390,36 @@ def load_excel_files_from_dropbox(
             print(f"  Extracted factory name: {factory_name}")
             
             file_shared_link = file_info.get('_shared_link') if file_info.get('_is_shared') else shared_link
-            matching_sheet = find_matching_sheet(dropbox_client, file_info, factory_name, file_shared_link)
+            matching_table = find_matching_table(dropbox_client, file_info, factory_name, file_shared_link)
             
-            if not matching_sheet:
-                print(f"  [ERROR] No sheet found matching factory name '{factory_name}'")
+            if not matching_table:
+                print(f"  [ERROR] No table found matching factory name '{factory_name}'")
                 skipped_files.append(file_name)
                 continue
             
-            print(f"  Using sheet: '{matching_sheet}'")
+            sheet_name, table_name = matching_table
+            print(f"  Using table: '{table_name}' in sheet: '{sheet_name}'")
             
-            df = dropbox_client.read_excel_file(
+            df = dropbox_client.read_excel_table(
                 file_info['path'],
-                sheet_name=matching_sheet,
-                header_row=header_row,
+                sheet_name=sheet_name,
+                table_name=table_name,
                 shared_link=file_shared_link,
                 file_name=file_name
             )
             
             if df.empty or len(df) == 0:
-                print(f"  [WARN] Sheet '{matching_sheet}' has no data rows. Skipping.")
+                print(f"  [WARN] Table '{table_name}' has no data rows. Skipping.")
                 skipped_files.append(file_name)
                 continue
             
             df['source_file'] = file_name
             dataframes.append(df)
-            print(f"  [OK] Successfully loaded {len(df)} rows from sheet '{matching_sheet}'")
+            print(f"  [OK] Successfully loaded {len(df)} rows from table '{table_name}'")
             
         except ValueError as e:
             error_msg = str(e)
-            if "not found" in error_msg.lower() and "sheet" in error_msg.lower():
+            if "not found" in error_msg.lower() and ("table" in error_msg.lower() or "sheet" in error_msg.lower()):
                 print(f"  [ERROR] {error_msg}")
             elif "only" in error_msg and "lines in file" in error_msg:
                 print(f"  [WARN] {error_msg}. Skipping.")
@@ -403,17 +436,36 @@ def load_excel_files_from_dropbox(
             f"Total files found: {len(files)}, Skipped: {len(skipped_files)}"
         )
     
-    print(f"\n[INFO] Concatenating {len(dataframes)} file(s)...")
-    df = pd.concat(dataframes, ignore_index=True)
+    # Filter out empty DataFrames before concatenation to avoid FutureWarning
+    # about concatenation with empty or all-NA entries
+    non_empty_dataframes = [df for df in dataframes if not df.empty and len(df) > 0]
+    
+    if not non_empty_dataframes:
+        raise ValueError(
+            f"No valid data found in Excel files. "
+            f"Total files found: {len(files)}, Skipped: {len(skipped_files)}"
+        )
+    
+    print(f"\n[INFO] Concatenating {len(non_empty_dataframes)} file(s)...")
+    # Use sort=False to avoid FutureWarning about dtype inference
+    df = pd.concat(non_empty_dataframes, ignore_index=True, sort=False)
     
     if skipped_files:
-        print(f"[INFO] Summary: Loaded {len(dataframes)} file(s), Skipped {len(skipped_files)} file(s)")
+        print(f"[INFO] Summary: Loaded {len(non_empty_dataframes)} file(s), Skipped {len(skipped_files)} file(s)")
     
     # Normalize and validate
     df = normalize_dataframe_columns(df, persian_columns)
     validate_dataframe_columns(df, persian_columns)
     validate_dataframe_has_data(df, persian_columns)
     df = filter_empty_rows(df, persian_columns)
+    
+    # Filter to only include expected columns (plus source_file if present)
+    # This ensures we don't have extra columns from hidden columns or other sources
+    # Extra columns won't cause errors, but filtering keeps the DataFrame clean
+    columns_to_keep = persian_columns.copy()
+    if 'source_file' in df.columns:
+        columns_to_keep.append('source_file')
+    df = df[columns_to_keep]
     
     loaded_files = df['source_file'].unique().tolist() if 'source_file' in df.columns else []
     print(f"\n✓ Successfully loaded {len(df)} rows from {len(loaded_files)} file(s):")
@@ -427,8 +479,7 @@ def load_excel_files_from_dropbox(
 def transform_dataframe_to_staging_rows(
     df: pd.DataFrame,
     batch_id: int,
-    persian_columns: List[str],
-    min_delivery_date: Optional[date] = None
+    persian_columns: List[str]
 ) -> List[tuple]:
     """
     Transform DataFrame rows to staging table tuples.
@@ -437,7 +488,6 @@ def transform_dataframe_to_staging_rows(
         df: DataFrame with Persian column names
         batch_id: Batch ID for the rows
         persian_columns: List of Persian column names
-        min_delivery_date: Optional minimum delivery_date filter (for incremental loading)
         
     Returns:
         List of tuples ready for insertion into staging table
@@ -448,26 +498,16 @@ def transform_dataframe_to_staging_rows(
     
     staging_rows = []
     total_rows = len(df)
-    filtered_count = 0
     progress_interval = max(1000, total_rows // 10)
     
     for idx, (_, row) in enumerate(df.iterrows(), 1):
         if idx % progress_interval == 0 or idx == total_rows:
             print(f"  Transforming row {idx}/{total_rows} ({idx*100//total_rows}%)...", end='\r', flush=True)
         
-        delivery_date = parse_excel_date(safe_get_column(row, 'تاریخ تحویل'))
-        
-        if min_delivery_date is not None:
-            if delivery_date is None or delivery_date < min_delivery_date:
-                filtered_count += 1
-                continue
-        
         staging_row = transform_distributor_delivery_row(row, batch_id, persian_columns)
         staging_rows.append(staging_row)
     
     print(" " * 60, end='\r', flush=True)
-    if filtered_count > 0:
-        print(f"  Filtered out {filtered_count} rows outside date range")
     
     return staging_rows
 
