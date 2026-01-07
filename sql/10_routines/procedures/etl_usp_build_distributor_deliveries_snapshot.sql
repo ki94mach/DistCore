@@ -60,6 +60,8 @@ BEGIN
           AND distributor_name IS NOT NULL
           AND delivery_date IS NOT NULL
           AND delivered_quantity IS NOT NULL
+          AND delivered_quantity <> 0
+          AND receipt_status = N'رسید شده'
           AND delivery_date >= @six_months_ago
           AND delivery_date < @snapshot_month_start  -- Exclude current month
         GROUP BY
@@ -112,6 +114,8 @@ BEGIN
           AND distributor_name IS NOT NULL
           AND delivery_date IS NOT NULL
           AND delivered_quantity IS NOT NULL
+          AND delivered_quantity <> 0
+          AND receipt_status = N'رسید شده'
           AND delivery_date >= @six_months_ago
           AND delivery_date < @snapshot_month_start  -- Exclude current month
         GROUP BY product_name, distributor_name
@@ -125,6 +129,9 @@ BEGIN
         WHERE batch_id = @batch_id
           AND product_name IS NOT NULL
           AND distributor_name IS NOT NULL
+          AND delivered_quantity IS NOT NULL
+          AND delivered_quantity <> 0
+          AND receipt_status = N'رسید شده'
     )
     -- MERGE into snapshot table
     MERGE [Data].[snp_DistributorDeliveriesSnapshot] AS target
