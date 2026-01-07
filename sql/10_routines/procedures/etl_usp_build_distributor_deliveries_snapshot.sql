@@ -52,8 +52,6 @@ BEGIN
         SELECT
             product_name,
             distributor_name,
-            product_id,
-            distributor_id,
             DATEFROMPARTS(YEAR(delivery_date), MONTH(delivery_date), 1) AS delivery_month,
             SUM(delivered_quantity) AS monthly_delivered_qty
         FROM [Data].[stg_DistributorDeliveries]
@@ -67,8 +65,6 @@ BEGIN
         GROUP BY
             product_name,
             distributor_name,
-            product_id,
-            distributor_id,
             DATEFROMPARTS(YEAR(delivery_date), MONTH(delivery_date), 1)
     ),
     -- CTE 2: Calculate 6-month moving average for each month
@@ -77,8 +73,6 @@ BEGIN
         SELECT
             product_name,
             distributor_name,
-            product_id,
-            distributor_id,
             delivery_month,
             monthly_delivered_qty,
             -- Calculate moving average over last 6 months (excluding current month)
@@ -96,8 +90,6 @@ BEGIN
         SELECT
             product_name,
             distributor_name,
-            product_id,
-            distributor_id,
             delivered_qty_ma_6,
             ROW_NUMBER() OVER (
                 PARTITION BY product_name, distributor_name
@@ -128,9 +120,7 @@ BEGIN
     AllProductDistributors AS (
         SELECT DISTINCT
             product_name,
-            distributor_name,
-            product_id,
-            distributor_id
+            distributor_name
         FROM [Data].[stg_DistributorDeliveries]
         WHERE batch_id = @batch_id
           AND product_name IS NOT NULL
@@ -142,8 +132,6 @@ BEGIN
         SELECT
             apd.product_name,
             apd.distributor_name,
-            apd.product_id,
-            apd.distributor_id,
             ISNULL(lma.delivered_qty_ma_6, 0) AS delivered_qty_ma_6,
             ISNULL(df.has_delivery_last_6m, 0) AS has_delivery_last_6m
         FROM AllProductDistributors AS apd
@@ -160,14 +148,12 @@ BEGIN
        AND target.distributor_name = source.distributor_name
     WHEN MATCHED THEN
         UPDATE SET
-            product_id = source.product_id,
-            distributor_id = source.distributor_id,
             delivered_qty_ma_6 = source.delivered_qty_ma_6,
             has_delivery_last_6m = source.has_delivery_last_6m,
             batch_id = @batch_id
     WHEN NOT MATCHED BY TARGET THEN
-        INSERT (snapshot_date, product_id, distributor_id, product_name, distributor_name, delivered_qty_ma_6, has_delivery_last_6m, batch_id)
-        VALUES (@snapshot_date, source.product_id, source.distributor_id, source.product_name, source.distributor_name, source.delivered_qty_ma_6, source.has_delivery_last_6m, @batch_id)
+        INSERT (snapshot_date, product_name, distributor_name, delivered_qty_ma_6, has_delivery_last_6m, batch_id, product_id, distributor_id)
+        VALUES (@snapshot_date, source.product_name, source.distributor_name, source.delivered_qty_ma_6, source.has_delivery_last_6m, @batch_id, NULL, NULL)
     OUTPUT
         $action AS ActionType,
         inserted.snapshot_date,
