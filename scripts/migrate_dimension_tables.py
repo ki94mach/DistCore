@@ -27,8 +27,7 @@ Usage:
 import sys
 import argparse
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
-import pyodbc
+from typing import List, Optional, Dict, Any
 
 # Add project root to Python path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -177,17 +176,25 @@ class DimensionTableMigrator:
                     # Build column definition
                     col_def = f"[{col_name}] {data_type}"
                     
-                    # Add length/precision
-                    if max_length and max_length > 0:
-                        if data_type in ['nvarchar', 'varchar', 'nchar', 'char']:
-                            if max_length == -1:
-                                col_def += "(MAX)"
-                            else:
-                                col_def += f"({max_length})"
-                    elif precision and scale:
-                        col_def += f"({precision},{scale})"
-                    elif precision:
+                    # Add length/precision ONLY where SQL Server supports it
+                    dt = data_type.lower()
+
+                    # (MAX) / (n) for string/binary types
+                    if dt in ("varchar", "nvarchar", "char", "nchar", "binary", "varbinary"):
+                        if max_length == -1:
+                            col_def += "(MAX)"
+                        elif max_length and max_length > 0:
+                            col_def += f"({max_length})"
+
+                    # (precision, scale) only for decimal/numeric
+                    elif dt in ("decimal", "numeric"):
+                        if precision is not None and scale is not None:
+                            col_def += f"({precision},{scale})"
+
+                    # optional: float precision
+                    elif dt == "float" and precision:
                         col_def += f"({precision})"
+
 
                     # Add identity
                     if is_identity:
@@ -255,7 +262,8 @@ class DimensionTableMigrator:
     def migrate_table_schema(
         self,
         table_name: str,
-        schema: str = 'Data',
+        source_schema: str = 'dbo',
+        target_schema: str = 'Data',
         if_exists: str = 'skip'
     ) -> bool:
         """
@@ -263,16 +271,17 @@ class DimensionTableMigrator:
 
         Args:
             table_name: Name of the table
-            schema: Schema name
+            source_schema: Source schema name
+            target_schema: Target schema name
             if_exists: What to do if table exists ('skip', 'drop', 'error')
 
         Returns:
             True if schema was migrated, False if skipped
         """
-        full_table_name = f"[{schema}].[{table_name}]"
+        full_table_name = f"[{target_schema}].[{table_name}]"
         
         # Check if table exists
-        exists = self.table_exists(table_name, schema, 'test')
+        exists = self.table_exists(table_name, target_schema, 'test')
         
         if exists:
             if if_exists == 'skip':
@@ -280,14 +289,16 @@ class DimensionTableMigrator:
                 return False
             elif if_exists == 'drop':
                 print(f"  Dropping existing table {full_table_name}")
-                self._drop_table(table_name, schema, 'test')
+                self._drop_table(table_name, target_schema, 'test')
             elif if_exists == 'error':
                 raise ValueError(f"Table {full_table_name} already exists in test database")
 
         # Get schema from source
         print(f"  Getting schema for {full_table_name} from source...")
-        create_sql = self.get_table_schema(table_name, schema)
-
+        create_sql = self.get_table_schema(table_name, source_schema)
+        create_sql = create_sql.replace(
+            f"[{source_schema}].[{table_name}]", f'[{target_schema}].[{table_name}]'
+            )
         # Create table in test
         print(f"  Creating table {full_table_name} in test...")
         try:
@@ -306,18 +317,20 @@ class DimensionTableMigrator:
             database_type: str
             ) -> bool:
         query = f"""
-            SELECT 1
+            SELECT TOP 1 1
             FROM sys.identity_columns
             WHERE object_id = OBJECT_ID('[{schema}].[{table_name}]')
         """
         with self.factory.connection(database_type) as conn:
             cursor = conn.cursor()
+            cursor.execute(query)
             return cursor.fetchone() is not None
 
     def migrate_table_data(
         self,
         table_name: str,
-        schema: str = 'Data',
+        source_schema: str = 'dbo',
+        target_schema: str = 'Data',
         batch_size: int = 10000,
         if_exists: str = 'truncate'
     ) -> int:
@@ -333,49 +346,49 @@ class DimensionTableMigrator:
         Returns:
             Number of rows migrated
         """
-        full_table_name = f"[{schema}].[{table_name}]"
-        
+        source_full = f"[{source_schema}].[{table_name}]"
+        target_full = f"[{target_schema}].[{table_name}]"
         # Check if table has data
         try:
             with self.factory.connection('test') as conn:
                 cursor = conn.cursor()
-                cursor.execute(f"SELECT COUNT(*) FROM {full_table_name}")
+                cursor.execute(f"SELECT COUNT(*) FROM {target_full}")
                 existing_count = cursor.fetchone()[0]
         except:
             existing_count = 0
 
         if existing_count > 0:
             if if_exists == 'truncate':
-                print(f"  Truncating existing data in {full_table_name}...")
+                print(f"  Truncating existing data in {target_full}...")
                 with self.factory.connection('test') as conn:
                     cursor = conn.cursor()
-                    cursor.execute(f"TRUNCATE TABLE {full_table_name}")
+                    cursor.execute(f"TRUNCATE TABLE {target_full}")
                     conn.commit()
             elif if_exists == 'merge':
-                print(f"  Merging data into {full_table_name} (existing rows will be updated)...")
+                print(f"  Merging data into {target_full} (existing rows will be updated)...")
                 # For merge, we'll use a different approach
-                return self._merge_table_data(table_name, schema, batch_size)
+                return self._merge_table_data(table_name, target_schema, batch_size)
             elif if_exists == 'error':
-                raise ValueError(f"Table {full_table_name} already has {existing_count} rows in test database")
+                raise ValueError(f"Table {target_full} already has {existing_count} rows in test database")
 
         # Get column names
-        columns = self._get_table_columns(table_name, schema, 'source')
+        columns = self._get_table_columns(table_name, source_schema, 'source')
         column_list = ", ".join([f"[{col}]" for col in columns])
 
         # Get row count from source
         with self.factory.connection('source') as conn:
             cursor = conn.cursor()
-            cursor.execute(f"SELECT COUNT(*) FROM {full_table_name}")
+            cursor.execute(f"SELECT COUNT(*) FROM {source_full}")
             total_rows = cursor.fetchone()[0]
 
         if total_rows == 0:
-            print(f"  Source table {full_table_name} is empty, nothing to migrate")
+            print(f"  Source table {source_full} is empty, nothing to migrate")
             return 0
 
-        print(f"  Migrating {total_rows:,} rows from {full_table_name}...")
+        print(f"  Migrating {total_rows:,} rows from {source_full}...")
 
         # Get a key column for ordering (prefer primary key, otherwise first column)
-        key_column = self._get_key_column_for_ordering(table_name, schema, 'source')
+        key_column = self._get_key_column_for_ordering(table_name, source_schema, 'source')
         
         # Migrate data in batches
         migrated_rows = 0
@@ -390,7 +403,7 @@ class DimensionTableMigrator:
                     # Use key-based pagination (more efficient and reliable)
                     query = f"""
                         SELECT TOP ({batch_size}) {column_list}
-                        FROM {full_table_name}
+                        FROM {source_full}
                         WHERE [{key_column}] > ?
                         ORDER BY [{key_column}]
                     """
@@ -399,13 +412,13 @@ class DimensionTableMigrator:
                     # First batch
                     query = f"""
                         SELECT TOP ({batch_size}) {column_list}
-                        FROM {full_table_name}
+                        FROM {source_full}
                         ORDER BY [{key_column}]
                     """
                     source_cursor.execute(query)
                 if not key_column:
                     raise ValueError(
-                        f"Table {full_table_name} has no PK or identity column"
+                        f"Table {source_full} has no PK or identity column"
                         "Cannot safely batch copy."
                     )
                 
@@ -417,16 +430,16 @@ class DimensionTableMigrator:
                 # Insert batch into test
                 placeholders = ", ".join(["?" for _ in columns])
                 insert_query = f"""
-                INSERT INTO {full_table_name} ({column_list}) VALUES ({placeholders})
+                INSERT INTO {target_full} ({column_list}) VALUES ({placeholders})
                 """
 
-                has_identity = self._has_identity_column(table_name, schema, 'test')
+                has_identity = self._has_identity_column(table_name, target_schema, 'test')
 
                 with self.factory.connection('test') as test_conn:
                     test_cursor = test_conn.cursor()
                     if has_identity:
                         test_cursor.execute(f""" 
-                                                SET IDENTITY_INSERT {full_table_name} ON
+                                                SET IDENTITY_INSERT {target_full} ON
                                                 """)
                     test_cursor.executemany(insert_query, rows)
                     test_conn.commit()
@@ -631,11 +644,17 @@ def main():
     )
     
     parser.add_argument(
-        '--schema',
+        '--source-schema',
         default='dbo',
-        help='Schema name (default: dbo)'
+        help='Source schema name (default: dbo)'
     )
     
+    parser.add_argument(
+        '--target-schema',
+        default='Data',
+        help='Target schema name (default: Data)'
+    )
+
     parser.add_argument(
         '--schema-only',
         action='store_true',
@@ -700,17 +719,21 @@ def main():
     # Determine which tables to migrate
     if args.tables:
         tables_to_migrate = [
-            {'schema': args.schema, 'name': table_name}
-            for table_name in args.tables
+            {'name': t,
+             'source_schema': args.source_schema,
+             'schema': args.target_schema}
+            for t in args.tables
         ]
     elif args.pattern:
         all_tables = migrator.list_dimension_tables(
-            schema=args.schema,
+            schema=args.source_schema,
             pattern=args.pattern
         )
         tables_to_migrate = [
-            {'schema': table['schema'], 'name': table['name']}
-            for table in all_tables
+            {'name': t,
+             'source_schema': args.source_schema,
+             'schema': args.target_schema}
+            for t in all_tables
         ]
     else:
         print("Error: Must specify --tables, --pattern, or --list")
@@ -729,7 +752,7 @@ def main():
     data_if_exists = 'error'
     if args.truncate_existing:
         data_if_exists = 'truncate'
-    elif args.merge_existing:
+    elif args.drop_existing:
         data_if_exists = 'merge'
 
     # Migrate tables
@@ -749,7 +772,8 @@ def main():
             if not args.data_only:
                 migrator.migrate_table_schema(
                     table_name=table_name,
-                    schema=schema,
+                    source_schema=args.source_schema,
+                    target_schema=args.target_schema,
                     if_exists=schema_if_exists
                 )
 
@@ -757,7 +781,8 @@ def main():
             if not args.schema_only:
                 migrator.migrate_table_data(
                     table_name=table_name,
-                    schema=schema,
+                    source_schema=args.source_schema,
+                    target_schema=args.target_schema,
                     batch_size=args.batch_size,
                     if_exists=data_if_exists
                 )
