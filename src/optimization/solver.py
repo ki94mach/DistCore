@@ -14,18 +14,11 @@ Installation: pip install pulp
 
 from __future__ import annotations
 
+import pulp
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 from src.optimization.lp import Model, Variable
-
-# Try to import PuLP, but make it optional
-try:
-    import pulp
-    PULP_AVAILABLE = True
-except ImportError:
-    PULP_AVAILABLE = False
-    pulp = None
 
 
 @dataclass
@@ -58,14 +51,7 @@ class PuLPSolver:
                 - "CPLEX" - IBM CPLEX (requires license)
                 - "GUROBI" - Gurobi Optimizer (requires license)
                 - "PULP_CBC_CMD" - CBC via command line
-
-        Raises:
-            ImportError: If PuLP is not installed
         """
-        if not PULP_AVAILABLE:
-            raise ImportError(
-                "PuLP is not installed. Install it with: pip install pulp"
-            )
         self.solver_name = solver_name
         self._pulp_solver = self._get_pulp_solver(solver_name)
 
@@ -167,8 +153,6 @@ class PuLPSolver:
         Returns:
             PuLP solver instance (defaults to CBC)
         """
-        if not PULP_AVAILABLE:
-            raise ImportError("PuLP is not installed")
 
         solver_map = {
             "CBC": pulp.PULP_CBC_CMD(msg=0),  # Quiet mode

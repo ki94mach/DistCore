@@ -19,6 +19,10 @@ class Constraint:
     name: str
     is_hard: bool = False
 
-    def apply(self, model: Model, data: OptimizationData, x: dict[tuple[str, str], Variable]) -> ConstraintResult:
+    def apply(
+            self, model: Model,
+            data: OptimizationData,
+            x: dict[tuple[str, str], Variable]
+            ) -> ConstraintResult:
         raise NotImplementedError
         

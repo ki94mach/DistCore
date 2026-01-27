@@ -44,7 +44,10 @@ class OptimizationData:
         return max(0.0, demand)
 
     def total_sales_mtd(self, product: str) -> float:
-        return sum(self.sales_month_to_date(distributor, product) for distributor in self.distributors)
+        return sum(
+            self.sales_month_to_date(distributor, product)
+            for distributor in self.distributors
+            )
 
     def remaining_target_units(self, product: str) -> float:
         target = self.target_units.get(product, 0.0)

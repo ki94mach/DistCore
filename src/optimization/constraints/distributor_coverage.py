@@ -11,7 +11,11 @@ class DistributorCoverageConstraint(Constraint):
     name = "distributor_coverage"
     is_hard = False
 
-    def apply(self, model: Model, data: OptimizationData, x: dict[tuple[str, str], Variable]) -> ConstraintResult:
+    def apply(
+            self, model: Model,
+            data: OptimizationData,
+            x: dict[tuple[str, str], Variable]
+            ) -> ConstraintResult:
         result = ConstraintResult()
         ratio = data.settings.coverage_ratio
         for distributor in data.distributors:

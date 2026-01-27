@@ -11,9 +11,16 @@ class FactorySupplyConstraint(Constraint):
     name = "factory_supply"
     is_hard = True
 
-    def apply(self, model: Model, data: OptimizationData, x: dict[tuple[str, str], Variable]) -> ConstraintResult:
+    def apply(
+            self, model: Model,
+            data: OptimizationData,
+            x: dict[tuple[str, str], Variable]
+            ) -> ConstraintResult:
         for product in data.products:
-            terms = [(x[(distributor, product)], 1.0) for distributor in data.distributors]
+            terms = [
+                (x[(distributor, product)], 1.0)
+                for distributor in data.distributors
+                ]
             expression = linear_sum(terms)
             model.add_constraint(
                 expression,

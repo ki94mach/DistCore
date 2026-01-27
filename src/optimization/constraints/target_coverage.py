@@ -11,7 +11,11 @@ class ProductTargetUnitsConstraint(Constraint):
     name = "product_target_units"
     is_hard = False
 
-    def apply(self, model: Model, data: OptimizationData, x: dict[tuple[str, str], Variable]) -> ConstraintResult:
+    def apply(
+            self, model: Model,
+            data: OptimizationData,
+            x: dict[tuple[str, str], Variable]
+            ) -> ConstraintResult:
         result = ConstraintResult()
         ratio = data.settings.coverage_ratio
         for product in data.products:
@@ -19,8 +23,14 @@ class ProductTargetUnitsConstraint(Constraint):
                 name=f"s_units_{product}",
                 low=0.0,
             )
-            terms = [(x[(distributor, product)], 1.0) for distributor in data.distributors]
-            total_inventory = sum(data.inventory(distributor, product) for distributor in data.distributors)
+            terms = [
+                (x[(distributor, product)], 1.0)
+                for distributor in data.distributors
+                ]
+            total_inventory = sum(
+                data.inventory(distributor, product) 
+                for distributor in data.distributors
+                )
             expression = linear_sum(terms + [(slack, 1.0)], constant=total_inventory)
             model.add_constraint(
                 expression,
