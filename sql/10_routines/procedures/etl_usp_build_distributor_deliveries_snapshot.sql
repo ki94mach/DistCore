@@ -10,14 +10,18 @@ Assumptions: T-SQL on SQL Server; staging table [Data].[stg_DistributorDeliverie
 Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. It aggregates staging data by product_name and distributor_name, computes 6-month moving averages, and merges into the snapshot table. The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will update existing records if staging data has changed, or leave them unchanged if data is identical.
 Parameters:
     @batch_id BIGINT - The batch identifier for the staging data to publish (must exist in [Data].[stg_DistributorDeliveries]).
-    @snapshot_date DATE - The snapshot date to assign to published records. Moving averages are calculated up to this date.
+    @snapshot_date DATE - Gregorian snapshot date to assign to published records. Moving averages are calculated up to this date.
+    @snapshot_jalali_yyyymm INT - Optional Jalali year-month (YYYYMM). If provided, it is converted to Gregorian date
+        using [Analytics_Stage].[Data].[DimDate] (ShamsiYearMonth, ShamsiDay=1) and overrides @snapshot_date.
 Returns: A resultset with columns: inserted_count, updated_count, total_count (one row summary).
 How to run: Execute via EXEC [Data].[etl_usp_build_distributor_deliveries_snapshot] @batch_id = 123, @snapshot_date = '2024-01-15'.
+             Or EXEC [Data].[etl_usp_build_distributor_deliveries_snapshot] @batch_id = 123, @snapshot_jalali_yyyymm = 140409.
 */
 
 CREATE OR ALTER PROCEDURE [Data].[etl_usp_build_distributor_deliveries_snapshot]
     @batch_id BIGINT,
-    @snapshot_date DATE
+    @snapshot_date DATE,
+    @snapshot_jalali_yyyymm INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -28,9 +32,31 @@ BEGIN
         THROW 50000, N'@batch_id cannot be NULL. Provide a valid batch identifier.', 1;
     END;
 
-    IF @snapshot_date IS NULL
+    IF @snapshot_date IS NULL AND @snapshot_jalali_yyyymm IS NULL
     BEGIN
-        THROW 50000, N'@snapshot_date cannot be NULL. Provide a valid snapshot date.', 1;
+        THROW 50000, N'@snapshot_date cannot be NULL unless @snapshot_jalali_yyyymm is provided.', 1;
+    END;
+
+    -- Resolve effective snapshot date (Gregorian). If Jalali YYYYMM is provided, map to DateID via DimDate.
+    DECLARE @effective_snapshot_date DATE = @snapshot_date;
+    IF @snapshot_jalali_yyyymm IS NOT NULL
+    BEGIN
+        DECLARE @snapshot_jalali_yyyymm_char NVARCHAR(6) =
+            RIGHT('000000' + CAST(@snapshot_jalali_yyyymm AS VARCHAR(6)), 6);
+
+        SELECT TOP (1)
+            @effective_snapshot_date = DateID
+        FROM [Analytics_Stage].[Data].[DimDate]
+        WHERE (
+            REPLACE(REPLACE(LTRIM(RTRIM(ShamsiYearMonth)), '/', ''), '-', '') = @snapshot_jalali_yyyymm_char
+            OR REPLACE(REPLACE(LTRIM(RTRIM(LongShamsiYearMonth)), '/', ''), '-', '') = @snapshot_jalali_yyyymm_char
+        )
+          AND ShamsiDay = 1;
+
+        IF @effective_snapshot_date IS NULL
+        BEGIN
+            THROW 50000, N'Invalid @snapshot_jalali_yyyymm. No matching DateID in [Analytics_Stage].[Data].[DimDate].', 1;
+        END;
     END;
 
     -- Table variable to capture MERGE results
@@ -42,10 +68,10 @@ BEGIN
     );
 
     -- Calculate date range for last 6 months (excluding current month)
-    -- Last 6 months: from 6 months ago to 1 month ago (relative to snapshot_date)
-    DECLARE @six_months_ago DATE = DATEADD(MONTH, -6, @snapshot_date);
-    DECLARE @one_month_ago DATE = DATEADD(MONTH, -1, @snapshot_date);
-    DECLARE @snapshot_month_start DATE = DATEFROMPARTS(YEAR(@snapshot_date), MONTH(@snapshot_date), 1);
+    -- Last 6 months: from 6 months ago to 1 month ago (relative to effective snapshot date)
+    DECLARE @six_months_ago DATE = DATEADD(MONTH, -6, @effective_snapshot_date);
+    DECLARE @one_month_ago DATE = DATEADD(MONTH, -1, @effective_snapshot_date);
+    DECLARE @snapshot_month_start DATE = DATEFROMPARTS(YEAR(@effective_snapshot_date), MONTH(@effective_snapshot_date), 1);
 
     -- CTE 1: Monthly aggregated deliveries by product and distributor
     WITH MonthlyDeliveries AS (
@@ -150,7 +176,7 @@ BEGIN
             ON df.product_name = apd.product_name
            AND df.distributor_name = apd.distributor_name
     ) AS source
-        ON target.snapshot_date = @snapshot_date
+        ON target.snapshot_date = @effective_snapshot_date
        AND target.product_name = source.product_name
        AND target.distributor_name = source.distributor_name
     WHEN MATCHED THEN
@@ -160,7 +186,7 @@ BEGIN
             batch_id = @batch_id
     WHEN NOT MATCHED BY TARGET THEN
         INSERT (snapshot_date, product_name, distributor_name, delivered_qty_ma_6, has_delivery_last_6m, batch_id, product_id, distributor_id)
-        VALUES (@snapshot_date, source.product_name, source.distributor_name, source.delivered_qty_ma_6, source.has_delivery_last_6m, @batch_id, NULL, NULL)
+        VALUES (@effective_snapshot_date, source.product_name, source.distributor_name, source.delivered_qty_ma_6, source.has_delivery_last_6m, @batch_id, NULL, NULL)
     OUTPUT
         $action AS ActionType,
         inserted.snapshot_date,
