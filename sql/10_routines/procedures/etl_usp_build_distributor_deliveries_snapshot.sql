@@ -1,13 +1,19 @@
 /*
-Purpose: Build distributor deliveries snapshots from staging ([Data].[stg_DistributorDeliveries]) into the snapshot table ([Data].[snp_DistributorDeliveriesSnapshot]) for a given snapshot date.
+Purpose: Build distributor deliveries snapshots from staging ([Data].[stg_DistributorDeliveries]) into the snapshot table 
+        ([Data].[snp_DistributorDeliveriesSnapshot]) for a given snapshot date.
 Aggregation Logic:
     - Aggregates by (product_id, distributor_id) by joining dimension tables.
     - Calculates 6-month moving average of delivered quantity (excluding current month).
     - Sets flag indicating if there was any delivery in the last 6 months.
     - Includes all product-distributor combinations from staging data.
 Grain: One row per (snapshot_date, product_id, distributor_id) in the snapshot table.
-Assumptions: T-SQL on SQL Server; staging table [Data].[stg_DistributorDeliveries] exists (see 024_stg_distributor_deliveries.sql); snapshot table [Data].[snp_DistributorDeliveriesSnapshot] exists (see 034_snap_distributor_deliveries_snapshot.sql); dimension tables [Analytics_Stage].[Data].[DimProduct] and [Analytics_Stage].[Data].[DimDistrbutor] exist and are populated.
-Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. It aggregates staging data, computes 6-month moving averages, and merges into the snapshot table. The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will update existing records if staging data has changed, or leave them unchanged if data is identical.
+Assumptions: T-SQL on SQL Server; staging table [Data].[stg_DistributorDeliveries] exists (see 024_stg_distributor_deliveries.sql); 
+            snapshot table [Data].[snp_DistributorDeliveriesSnapshot] exists (see 034_snap_distributor_deliveries_snapshot.sql); 
+            dimension tables [Analytics_Stage].[Data].[DimProduct], [Analytics_Stage].[Data].[DimDistrbutor], and [Analytics_Stage].[Data].[DimDate] exist and are populated.
+Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. 
+        It aggregates staging data, computes 6-month moving averages, and merges into the snapshot table. 
+        The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will update existing records if staging data has changed, 
+        or leave them unchanged if data is identical.
 Parameters:
     @batch_id BIGINT - The batch identifier for the staging data to publish (must exist in [Data].[stg_DistributorDeliveries]).
     @snapshot_date DATE - Gregorian snapshot date to assign to published records. Moving averages are calculated up to this date.
@@ -41,17 +47,11 @@ BEGIN
     DECLARE @effective_snapshot_date DATE = @snapshot_date;
     IF @snapshot_jalali_yyyymm IS NOT NULL
     BEGIN
-        DECLARE @snapshot_jalali_yyyymm_char NVARCHAR(6) =
-            RIGHT('000000' + CAST(@snapshot_jalali_yyyymm AS VARCHAR(6)), 6);
-
         SELECT TOP (1)
             @effective_snapshot_date = DateID
         FROM [Analytics_Stage].[Data].[DimDate]
-        WHERE (
-            REPLACE(REPLACE(LTRIM(RTRIM(ShamsiYearMonth)), '/', ''), '-', '') = @snapshot_jalali_yyyymm_char
-            OR REPLACE(REPLACE(LTRIM(RTRIM(LongShamsiYearMonth)), '/', ''), '-', '') = @snapshot_jalali_yyyymm_char
-        )
-          AND ShamsiDay = 1;
+        WHERE ShamsiDay = 1
+          AND TRY_CONVERT(INT, LongShamsiYearMonth) = @snapshot_jalali_yyyymm;
 
         IF @effective_snapshot_date IS NULL
         BEGIN
@@ -73,22 +73,25 @@ BEGIN
     DECLARE @one_month_ago DATE = DATEADD(MONTH, -1, @effective_snapshot_date);
     DECLARE @snapshot_month_start DATE = DATEFROMPARTS(YEAR(@effective_snapshot_date), MONTH(@effective_snapshot_date), 1);
 
-    -- CTE 1: Filter staging data and map to dimensions
+    -- CTE 1: Filter staging data and map to dimensions (derive delivery month from staging [month])
     WITH StagingMapped AS (
         SELECT
             dp.ID AS product_id,
             dd.ID AS distributor_id,
-            sd.delivery_date,
+            ddt.DateID AS delivery_month,
             sd.delivered_quantity
         FROM [Data].[stg_DistributorDeliveries] AS sd
         INNER JOIN [Analytics_Stage].[Data].[DimProduct] AS dp
             ON dp.ProductTitle = sd.product_name
         INNER JOIN [Analytics_Stage].[Data].[DimDistrbutor] AS dd
             ON dd.DistrbutorTitle = sd.distributor_name
+        INNER JOIN [Analytics_Stage].[Data].[DimDate] AS ddt
+            ON ddt.ShamsiDay = 1
+           AND TRY_CONVERT(INT, ddt.LongShamsiYearMonth) = sd.[month]
         WHERE sd.batch_id = @batch_id
           AND sd.product_name IS NOT NULL
           AND sd.distributor_name IS NOT NULL
-          AND sd.delivery_date IS NOT NULL
+          AND sd.[month] IS NOT NULL
           AND sd.delivered_quantity IS NOT NULL
           AND sd.delivered_quantity <> 0
           AND sd.receipt_status = N'رسید شده'
@@ -98,15 +101,15 @@ BEGIN
         SELECT
             product_id,
             distributor_id,
-            DATEFROMPARTS(YEAR(delivery_date), MONTH(delivery_date), 1) AS delivery_month,
+            delivery_month,
             SUM(delivered_quantity) AS monthly_delivered_qty
         FROM StagingMapped
-        WHERE delivery_date >= @six_months_ago
-          AND delivery_date < @snapshot_month_start  -- Exclude current month
+        WHERE delivery_month >= @six_months_ago
+          AND delivery_month < @snapshot_month_start  -- Exclude current month
         GROUP BY
             product_id,
             distributor_id,
-            DATEFROMPARTS(YEAR(delivery_date), MONTH(delivery_date), 1)
+            delivery_month
     ),
     -- CTE 3: Calculate 6-month moving average for each month
     -- Moving average is calculated over the last 6 months (6 months ago to 1 month ago)
@@ -148,8 +151,8 @@ BEGIN
                 ELSE 0
             END AS has_delivery_last_6m
         FROM StagingMapped
-        WHERE delivery_date >= @six_months_ago
-          AND delivery_date < @snapshot_month_start  -- Exclude current month
+        WHERE delivery_month >= @six_months_ago
+          AND delivery_month < @snapshot_month_start  -- Exclude current month
         GROUP BY product_id, distributor_id
     ),
     -- CTE 6: Get all unique product-distributor combinations from staging
