@@ -73,97 +73,148 @@ def configure_dates() -> dict:
         print_info(f"Using today's date: {snapshot_date}")
     
     # Snapshot month (optional)
-    print_info("\nSnapshot Month (for sales data):")
-    print(colorize("  - Press Enter to use snapshot date's month", Colors.DIM))
-    print(colorize("  - Enter a date (YYYY-MM-DD) to use a specific month", Colors.DIM))
-    snapshot_month_str = print_prompt("Enter snapshot month (YYYY-MM-DD) or press Enter: ").strip()
+    # print_info("\nSnapshot Month (for sales data):")
+    # print(colorize("  - Press Enter to use snapshot date's month", Colors.DIM))
+    # print(colorize("  - Enter a date (YYYY-MM-DD) to use a specific month", Colors.DIM))
+    # snapshot_month_str = print_prompt("Enter snapshot month (YYYY-MM-DD) or press Enter: ").strip()
     
-    snapshot_month = None
-    if snapshot_month_str:
-        try:
-            snapshot_month = date.fromisoformat(snapshot_month_str)
-        except ValueError:
-            print_error("Invalid date format. Using snapshot date's month.")
-            snapshot_month = None
+    # snapshot_month = None
+    # if snapshot_month_str:
+    #     try:
+    #         snapshot_month = date.fromisoformat(snapshot_month_str)
+    #     except ValueError:
+    #         print_error("Invalid date format. Using snapshot date's month.")
+    #         snapshot_month = None
     
     return {
         'snapshot_date': snapshot_date,
-        'snapshot_month': snapshot_month
+        'snapshot_month': None
     }
 
 
 def configure_database() -> dict:
-    """Configure database settings."""
-    print_header("Database Configuration", Colors.BRIGHT_BLUE)
+    # """Configure database settings."""
+    # print_header("Database Configuration", Colors.BRIGHT_BLUE)
     
-    # Database type
-    print_info("\nDatabase Type:")
-    print_menu_item('1', 'Test database', Colors.BRIGHT_WHITE)
-    print_menu_item('2', 'Source database', Colors.WHITE)
-    db_choice = print_prompt("Select database type (1/2, default=1): ").strip() or "1"
+    # # Database type
+    # print_info("\nDatabase Type:")
+    # print_menu_item('1', 'Test database', Colors.BRIGHT_WHITE)
+    # print_menu_item('2', 'Source database', Colors.WHITE)
+    # db_choice = print_prompt("Select database type (1/2, default=1): ").strip() or "1"
     
-    database_type = 'source' if db_choice == "2" else 'test'
+    # database_type = 'source' if db_choice == "2" else 'test'
     
     # Config path (optional)
-    print_info("\nDatabase Configuration File:")
-    print(colorize("  - Press Enter to use default configuration", Colors.DIM))
-    print(colorize("  - Enter path to custom YAML configuration file", Colors.DIM))
-    config_path_str = print_prompt("Enter config path (optional): ").strip()
+    # print_info("\nDatabase Configuration File:")
+    # print(colorize("  - Press Enter to use default configuration", Colors.DIM))
+    # print(colorize("  - Enter path to custom YAML configuration file", Colors.DIM))
+    # config_path_str = print_prompt("Enter config path (optional): ").strip()
     
-    config_path = config_path_str if config_path_str else None
+    # config_path = config_path_str if config_path_str else None
     
     return {
-        'database_type': database_type,
-        'config_path': config_path
+        'database_type': 'test',
+        'config_path': None
     }
 
 
 def configure_optimization_settings() -> OptimizationSettings:
     """Configure optimization parameters."""
     print_header("Optimization Settings", Colors.BRIGHT_BLUE)
-    
-    # Coverage ratio
-    print_info("\nCoverage Ratio:")
-    print(colorize("  - Multiplier for target coverage (e.g., 1.5 = 150% of demand)", Colors.DIM))
-    coverage_ratio_str = print_prompt("Enter coverage ratio (default: 1.5): ").strip()
-    try:
-        coverage_ratio = float(coverage_ratio_str) if coverage_ratio_str else 1.5
-    except ValueError:
-        print_error("Invalid number. Using default 1.5.")
-        coverage_ratio = 1.5
-    
-    # Sales window
-    print_info("\nSales Moving Average Window:")
-    print_menu_item('1', '3 months', Colors.BRIGHT_WHITE)
-    print_menu_item('2', '6 months (recommended)', Colors.WHITE)
-    window_choice = print_prompt("Select window (1/2, default=2): ").strip() or "2"
-    sales_window = 3 if window_choice == "1" else 6
-    
-    # Weight coverage
-    print_info("\nCoverage Slack Weight:")
-    print(colorize("  - Weight for coverage constraint violations in objective", Colors.DIM))
-    weight_coverage_str = print_prompt("Enter weight (default: 1.0): ").strip()
-    try:
-        weight_coverage = float(weight_coverage_str) if weight_coverage_str else 1.0
-    except ValueError:
-        print_error("Invalid number. Using default 1.0.")
-        weight_coverage = 1.0
-    
-    # Weight target units
-    print_info("\nTarget Units Slack Weight:")
-    print(colorize("  - Weight for target units constraint violations in objective", Colors.DIM))
-    weight_target_str = print_prompt("Enter weight (default: 2.0): ").strip()
-    try:
-        weight_target_units = float(weight_target_str) if weight_target_str else 2.0
-    except ValueError:
-        print_error("Invalid number. Using default 2.0.")
-        weight_target_units = 2.0
-    
+
+    settings = OptimizationSettings()
+
+    print_info("\nCurrent Optimization Parameters:")
+    print(colorize(f"  - coverage_ratio: {settings.coverage_ratio}", Colors.WHITE))
+    print(colorize(f"  - sales_window: {settings.sales_window} months", Colors.WHITE))
+    print(colorize(f"  - delivery_lower_bound: {settings.delivery_lower_bound}", Colors.WHITE))
+    print(colorize(f"  - delivery_upper_bound: {settings.delivery_upper_bound}", Colors.WHITE))
+    print(colorize(f"  - weight_coverage: {settings.weight_coverage}", Colors.WHITE))
+    print(colorize(f"  - weight_target_units: {settings.weight_target_units}", Colors.WHITE))
+    print(colorize(f"  - weight_delivery: {settings.weight_delivery}", Colors.WHITE))
+
+    edit_choice = print_prompt("Edit these settings? (y/n): ").strip().lower()
+    if edit_choice not in {"y", "yes"}:
+        return settings
+
+    def prompt_float(label: str, current: float, hint: Optional[str] = None) -> float:
+        if hint:
+            print(colorize(f"  - {hint}", Colors.DIM))
+        value_str = print_prompt(f"{label} (current: {current}): ").strip()
+        if not value_str:
+            return current
+        try:
+            return float(value_str)
+        except ValueError:
+            print_error("Invalid number. Keeping current value.")
+            return current
+
+    def prompt_int(label: str, current: int, hint: Optional[str] = None) -> int:
+        if hint:
+            print(colorize(f"  - {hint}", Colors.DIM))
+        value_str = print_prompt(f"{label} (current: {current}): ").strip()
+        if not value_str:
+            return current
+        try:
+            return int(value_str)
+        except ValueError:
+            print_error("Invalid number. Keeping current value.")
+            return current
+
+    print_info("\nEdit Optimization Parameters:")
+    coverage_ratio = prompt_float(
+        "Coverage ratio",
+        settings.coverage_ratio,
+        "Multiplier for target coverage (e.g., 1.5 = 150% of demand)",
+    )
+    sales_window = prompt_int(
+        "Sales moving average window (months)",
+        settings.sales_window,
+        "Allowed values: 3 or 6",
+    )
+    if sales_window not in {3, 6}:
+        print_warning("Unsupported sales window. Keeping current value.")
+        sales_window = settings.sales_window
+
+    delivery_lower_bound = prompt_float(
+        "Delivery lower bound",
+        settings.delivery_lower_bound,
+        "Lower bound for delivery smoothing constraint (e.g., 0.9 = 90%)",
+    )
+    delivery_upper_bound = prompt_float(
+        "Delivery upper bound",
+        settings.delivery_upper_bound,
+        "Upper bound for delivery smoothing constraint (e.g., 1.2 = 120%)",
+    )
+    if delivery_lower_bound > delivery_upper_bound:
+        print_warning("Lower bound exceeds upper bound. Keeping current values.")
+        delivery_lower_bound = settings.delivery_lower_bound
+        delivery_upper_bound = settings.delivery_upper_bound
+
+    weight_coverage = prompt_float(
+        "Coverage slack weight",
+        settings.weight_coverage,
+        "Weight for coverage constraint violations in objective",
+    )
+    weight_target_units = prompt_float(
+        "Target units slack weight",
+        settings.weight_target_units,
+        "Weight for target units constraint violations in objective",
+    )
+    weight_delivery = prompt_float(
+        "Delivery slack weight",
+        settings.weight_delivery,
+        "Weight for delivery smoothing constraint violations in objective",
+    )
+
     return OptimizationSettings(
         coverage_ratio=coverage_ratio,
         sales_window=sales_window,
+        delivery_lower_bound=delivery_lower_bound,
+        delivery_upper_bound=delivery_upper_bound,
         weight_coverage=weight_coverage,
-        weight_target_units=weight_target_units
+        weight_target_units=weight_target_units,
+        weight_delivery=weight_delivery,
     )
 
 
