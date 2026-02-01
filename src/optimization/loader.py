@@ -60,11 +60,20 @@ class SnapshotDataLoader:
         distributor_inventory = self._load_distributor_inventory(snapshot_date)
         sales_data = self._load_sales_snapshot(snapshot_month)
         target_data = self._load_target_snapshot(snapshot_date)
+        distributor_deliveries = self._load_distributor_deliveries_snapshot(snapshot_date)
 
         # Extract unique distributors and products
-        distributors = self._extract_distributors(distributor_inventory, sales_data)
+        distributors = self._extract_distributors(
+            distributor_inventory,
+            sales_data,
+            distributor_deliveries,
+        )
         products = self._extract_products(
-            factory_inventory, distributor_inventory, sales_data, target_data
+            factory_inventory,
+            distributor_inventory,
+            sales_data,
+            target_data,
+            distributor_deliveries,
         )
 
         # Transform data to OptimizationData format
@@ -101,6 +110,20 @@ class SnapshotDataLoader:
             for row in sales_data
         }
 
+        delivery_ma_6_map = {
+            (str(row["distributor_id"]), str(row["product_id"])): float(
+                row["delivered_qty_ma_6"] or 0.0
+            )
+            for row in distributor_deliveries
+        }
+
+        has_delivery_last_6m_map = {
+            (str(row["distributor_id"]), str(row["product_id"])): bool(
+                row["has_delivery_last_6m"] or 0
+            )
+            for row in distributor_deliveries
+        }
+
         # Aggregate target data by product (sum across year/month combinations)
         target_units_map: Dict[str, float] = {}
         for row in target_data:
@@ -118,6 +141,8 @@ class SnapshotDataLoader:
             sales_mtd=sales_mtd_map,
             target_units=target_units_map,
             settings=settings,
+            delivery_ma_6=delivery_ma_6_map,
+            has_delivery_last_6m=has_delivery_last_6m_map,
         )
 
     def _load_factory_inventory(self, snapshot_date: date) -> List[Dict[str, Any]]:
@@ -174,6 +199,21 @@ class SnapshotDataLoader:
         """
         return self._execute_parameterized_query(query, (snapshot_date, year, month))
 
+    def _load_distributor_deliveries_snapshot(
+        self, snapshot_date: date
+    ) -> List[Dict[str, Any]]:
+        """Load distributor deliveries snapshot data."""
+        query = """
+        SELECT 
+            distributor_id,
+            product_id,
+            delivered_qty_ma_6,
+            has_delivery_last_6m
+        FROM [Data].[snp_DistributorDeliveriesSnapshot]
+        WHERE snapshot_date = ?
+        """
+        return self._execute_parameterized_query(query, (snapshot_date,))
+
     def _execute_parameterized_query(
         self, query: str, parameters: tuple
     ) -> List[Dict[str, Any]]:
@@ -203,6 +243,7 @@ class SnapshotDataLoader:
         self,
         distributor_inventory: List[Dict[str, Any]],
         sales_data: List[Dict[str, Any]],
+        distributor_deliveries: List[Dict[str, Any]],
     ) -> set[str]:
         """Extract unique distributor IDs from inventory and sales data."""
         distributors = set()
@@ -210,6 +251,9 @@ class SnapshotDataLoader:
             if row.get("distributor_id") is not None:
                 distributors.add(str(row["distributor_id"]))
         for row in sales_data:
+            if row.get("distributor_id") is not None:
+                distributors.add(str(row["distributor_id"]))
+        for row in distributor_deliveries:
             if row.get("distributor_id") is not None:
                 distributors.add(str(row["distributor_id"]))
         return distributors
@@ -220,6 +264,7 @@ class SnapshotDataLoader:
         distributor_inventory: List[Dict[str, Any]],
         sales_data: List[Dict[str, Any]],
         target_data: List[Dict[str, Any]],
+        distributor_deliveries: List[Dict[str, Any]],
     ) -> set[str]:
         """Extract unique product IDs from all data sources."""
         products = set()
@@ -233,6 +278,9 @@ class SnapshotDataLoader:
             if row.get("product_id") is not None:
                 products.add(str(row["product_id"]))
         for row in target_data:
+            if row.get("product_id") is not None:
+                products.add(str(row["product_id"]))
+        for row in distributor_deliveries:
             if row.get("product_id") is not None:
                 products.add(str(row["product_id"]))
         return products

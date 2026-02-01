@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Mapping, Sequence, Tuple
 
 
@@ -10,8 +10,11 @@ from typing import Mapping, Sequence, Tuple
 class OptimizationSettings:
     coverage_ratio: float = 1.5
     sales_window: int = 6
+    delivery_lower_bound: float = 0.9
+    delivery_upper_bound: float = 1.2
     weight_coverage: float = 1.0
     weight_target_units: float = 1.0
+    weight_delivery: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -25,6 +28,8 @@ class OptimizationData:
     sales_mtd: Mapping[Tuple[str, str], float]
     target_units: Mapping[str, float]
     settings: OptimizationSettings
+    delivery_ma_6: Mapping[Tuple[str, str], float] = field(default_factory=dict)
+    has_delivery_last_6m: Mapping[Tuple[str, str], bool] = field(default_factory=dict)
 
     def inventory(self, distributor: str, product: str) -> float:
         return self.distributor_inventory.get((distributor, product), 0.0)
@@ -42,6 +47,12 @@ class OptimizationData:
             distributor, product
         )
         return max(0.0, demand)
+
+    def delivery_moving_average(self, distributor: str, product: str) -> float:
+        return self.delivery_ma_6.get((distributor, product), 0.0)
+
+    def has_recent_delivery(self, distributor: str, product: str) -> bool:
+        return bool(self.has_delivery_last_6m.get((distributor, product), False))
 
     def total_sales_mtd(self, product: str) -> float:
         return sum(

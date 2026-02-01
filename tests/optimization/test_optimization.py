@@ -76,6 +76,31 @@ target_coverage.Constraint = base.Constraint
 target_coverage.ConstraintResult = base.ConstraintResult
 target_coverage_spec.loader.exec_module(target_coverage)
 
+# Load delivery constraints
+delivery_history_path = _src_opt / "constraints" / "delivery_history.py"
+delivery_history_spec = importlib.util.spec_from_file_location("delivery_history", delivery_history_path)
+delivery_history = importlib.util.module_from_spec(delivery_history_spec)
+sys.modules["delivery_history"] = delivery_history
+delivery_history.OptimizationData = data.OptimizationData
+delivery_history.Model = lp.Model
+delivery_history.Variable = lp.Variable
+delivery_history.linear_sum = lp.linear_sum
+delivery_history.Constraint = base.Constraint
+delivery_history.ConstraintResult = base.ConstraintResult
+delivery_history_spec.loader.exec_module(delivery_history)
+
+delivery_smoothing_path = _src_opt / "constraints" / "delivery_smoothing.py"
+delivery_smoothing_spec = importlib.util.spec_from_file_location("delivery_smoothing", delivery_smoothing_path)
+delivery_smoothing = importlib.util.module_from_spec(delivery_smoothing_spec)
+sys.modules["delivery_smoothing"] = delivery_smoothing
+delivery_smoothing.OptimizationData = data.OptimizationData
+delivery_smoothing.Model = lp.Model
+delivery_smoothing.Variable = lp.Variable
+delivery_smoothing.linear_sum = lp.linear_sum
+delivery_smoothing.Constraint = base.Constraint
+delivery_smoothing.ConstraintResult = base.ConstraintResult
+delivery_smoothing_spec.loader.exec_module(delivery_smoothing)
+
 # Load builder module
 builder_path = _src_opt / "builder.py"
 builder_spec = importlib.util.spec_from_file_location("builder", builder_path)
@@ -104,6 +129,8 @@ ModelBuildResult = builder.ModelBuildResult
 FactorySupplyConstraint = factory_supply.FactorySupplyConstraint
 DistributorCoverageConstraint = distributor_coverage.DistributorCoverageConstraint
 ProductTargetUnitsConstraint = target_coverage.ProductTargetUnitsConstraint
+DeliveryHistoryConstraint = delivery_history.DeliveryHistoryConstraint
+DeliverySmoothingConstraint = delivery_smoothing.DeliverySmoothingConstraint
 
 
 class TestLPModel(unittest.TestCase):
@@ -450,6 +477,85 @@ class TestConstraints(unittest.TestCase):
         # Should have 1 slack variable
         self.assertEqual(len(result.slack_variables), 1)
         self.assertEqual(len(result.objective_terms), 1)
+
+    def test_delivery_history_constraint(self):
+        """Test delivery history constraint (hard constraint)."""
+        settings = OptimizationSettings()
+        data = OptimizationData(
+            distributors=["D1", "D2"],
+            products=["P1"],
+            factory_inventory={},
+            distributor_inventory={},
+            sales_ma_3={},
+            sales_ma_6={},
+            sales_mtd={},
+            target_units={},
+            settings=settings,
+            has_delivery_last_6m={
+                ("D1", "P1"): True,
+                ("D2", "P1"): False
+            }
+        )
+        model = Model()
+        x = {
+            ("D1", "P1"): model.add_variable("x_D1_P1"),
+            ("D2", "P1"): model.add_variable("x_D2_P1")
+        }
+
+        constraint = DeliveryHistoryConstraint()
+        result = constraint.apply(model, data, x)
+
+        # Should only constrain D2 (no recent delivery)
+        self.assertEqual(len(model.constraints), 1)
+        self.assertEqual(model.constraints[0].name, "delivery_history_D2_P1")
+        self.assertEqual(model.constraints[0].sense, "<=")
+        self.assertEqual(model.constraints[0].rhs, 0.0)
+        self.assertEqual(len(result.slack_variables), 0)
+        self.assertEqual(len(result.objective_terms), 0)
+
+    def test_delivery_smoothing_constraint(self):
+        """Test delivery smoothing constraint (soft constraint)."""
+        settings = OptimizationSettings(
+            delivery_lower_bound=0.9,
+            delivery_upper_bound=1.2,
+            weight_delivery=1.5
+        )
+        data = OptimizationData(
+            distributors=["D1", "D2"],
+            products=["P1"],
+            factory_inventory={},
+            distributor_inventory={},
+            sales_ma_3={},
+            sales_ma_6={},
+            sales_mtd={},
+            target_units={},
+            settings=settings,
+            delivery_ma_6={
+                ("D1", "P1"): 100.0,
+                ("D2", "P1"): 50.0
+            }
+        )
+        model = Model()
+        x = {
+            ("D1", "P1"): model.add_variable("x_D1_P1"),
+            ("D2", "P1"): model.add_variable("x_D2_P1")
+        }
+
+        constraint = DeliverySmoothingConstraint()
+        result = constraint.apply(model, data, x)
+
+        # Two constraints per distributor (low/high)
+        self.assertEqual(len(model.constraints), 4)
+        low_constraint = next(c for c in model.constraints if c.name == "delivery_low_D1_P1")
+        high_constraint = next(c for c in model.constraints if c.name == "delivery_high_D1_P1")
+        self.assertEqual(low_constraint.sense, ">=")
+        self.assertEqual(low_constraint.rhs, 90.0)
+        self.assertEqual(high_constraint.sense, "<=")
+        self.assertEqual(high_constraint.rhs, 120.0)
+        # Two slacks per distributor
+        self.assertEqual(len(result.slack_variables), 4)
+        self.assertEqual(len(result.objective_terms), 4)
+        self.assertTrue(all(term[1] == 1.5 for term in result.objective_terms))
 
 
 class TestModelBuilder(unittest.TestCase):

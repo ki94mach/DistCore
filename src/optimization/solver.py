@@ -189,12 +189,16 @@ def solve_with_pulp(
         ...     DistributorCoverageConstraint,
         ...     FactorySupplyConstraint,
         ...     TargetCoverageConstraint,
+        ...     DeliveryHistoryConstraint,
+        ...     DeliverySmoothingConstraint,
         ... )
         >>>
         >>> builder = ModelBuilder([
         ...     DistributorCoverageConstraint(),
         ...     FactorySupplyConstraint(),
         ...     TargetCoverageConstraint(),
+        ...     DeliveryHistoryConstraint(),
+        ...     DeliverySmoothingConstraint(),
         ... ])
         >>> result = builder.build(data)
         >>> solution = solve_with_pulp(result.model, result.decision_variables)

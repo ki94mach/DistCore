@@ -29,6 +29,8 @@ from src.optimization import (
     SnapshotDataLoader
 )
 from src.optimization.constraints import (
+    DeliveryHistoryConstraint,
+    DeliverySmoothingConstraint,
     FactorySupplyConstraint,
     DistributorCoverageConstraint,
     ProductTargetUnitsConstraint
@@ -257,7 +259,9 @@ def build_and_solve_model(data, solver_name: str):
     
     # Define constraints
     constraints = [
-        FactorySupplyConstraint(),      # Hard: factory capacity
+        FactorySupplyConstraint(),       # Hard: factory capacity
+        DeliveryHistoryConstraint(),     # Hard: no delivery without history
+        DeliverySmoothingConstraint(),   # Soft: delivery smoothing
         DistributorCoverageConstraint(), # Soft: distributor coverage
         ProductTargetUnitsConstraint()   # Soft: product targets
     ]
