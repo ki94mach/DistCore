@@ -11,15 +11,13 @@ IF OBJECT_ID(N'[Data].[snp_DistributorDeliveriesSnapshot]', 'U') IS NULL
 BEGIN
     CREATE TABLE [Data].[snp_DistributorDeliveriesSnapshot] (
         snapshot_date DATE NOT NULL,
-        product_id INT NULL,              -- Nullable until dimensions are backfilled
-        distributor_id INT NULL,          -- Nullable until dimensions are backfilled
-        product_name NVARCHAR(500) NOT NULL,
-        distributor_name NVARCHAR(200) NOT NULL,
+        product_id INT NOT NULL,
+        distributor_id INT NOT NULL,
         delivered_qty_ma_6 DECIMAL(18, 4) NULL,  -- 6-month moving average of delivered quantity
         has_delivery_last_6m BIT NOT NULL DEFAULT 0,  -- Flag: 1 if there was a delivery in last 6 months, 0 otherwise
         batch_id BIGINT NOT NULL,
         created_at DATETIME2 NOT NULL CONSTRAINT DF_DistributorDeliveriesSnapshot_created_at DEFAULT SYSUTCDATETIME(),
-        CONSTRAINT PK_DistributorDeliveriesSnapshot PRIMARY KEY (snapshot_date, product_name, distributor_name)
+        CONSTRAINT PK_DistributorDeliveriesSnapshot PRIMARY KEY (snapshot_date, product_id, distributor_id)
     );
 END;
 GO
@@ -46,7 +44,7 @@ IF NOT EXISTS (
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_DistributorDeliveriesSnapshot_Product_Distributor
-        ON [Data].[snp_DistributorDeliveriesSnapshot] (product_name, distributor_name);
+        ON [Data].[snp_DistributorDeliveriesSnapshot] (product_id, distributor_id);
 END;
 GO
 
