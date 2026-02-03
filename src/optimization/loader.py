@@ -10,6 +10,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from src.optimization.data import OptimizationData, OptimizationSettings
+from src.orchestrator.pipelines.utils import get_jalali_year
 
 if TYPE_CHECKING:
     from src.orchestrator.services.sql_server_db import SQLExecutor
@@ -184,9 +185,9 @@ class SnapshotDataLoader:
 
     def _load_target_snapshot(self, snapshot_date: date) -> List[Dict[str, Any]]:
         """Load target snapshot data."""
-        # Extract year and month from snapshot_date
-        year = snapshot_date.year
-        month = snapshot_date.month
+        # Target snapshots use Jalali calendar year; month rows are stored per Jalali month.
+        # We filter by snapshot_date and Jalali year, then aggregate across months downstream.
+        year = get_jalali_year(snapshot_date)
 
         query = """
         SELECT 
@@ -195,9 +196,8 @@ class SnapshotDataLoader:
         FROM [Data].[snp_TargetSnapshot]
         WHERE snapshot_date = ?
           AND year = ?
-          AND month = ?
         """
-        return self._execute_parameterized_query(query, (snapshot_date, year, month))
+        return self._execute_parameterized_query(query, (snapshot_date, year))
 
     def _load_distributor_deliveries_snapshot(
         self, snapshot_date: date

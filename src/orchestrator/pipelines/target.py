@@ -1,6 +1,6 @@
 from datetime import date
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from src.orchestrator.pipelines.pipeline_template import TemplatePipeline
 from src.orchestrator.pipelines.utils import (
@@ -45,7 +45,7 @@ class TargetPipeline(TemplatePipeline):
         query = substitute_date_parameter(query, 'since', since_date)
         
         return query
-    
+
     @property
     def batch_type(self) -> str:
         return 'TARGET'
@@ -83,4 +83,25 @@ class TargetPipeline(TemplatePipeline):
             row_dict.get('target_quantity'),
             self.snapshot_date,  # Use snapshot_date as as_of_datetime
         )
+
+    def _prepare_staging_table(self) -> None:
+        delete_query = f"DELETE FROM {self.staging_table}"
+
+        with self._connection_factory.connection('test') as test_conn:
+            test_cursor = test_conn.cursor()
+            test_cursor.execute(delete_query)
+            test_conn.commit()
+
+    def publish(self) -> None:
+        with self._handle_batch_failure("Publish failed: "):
+            self._ensure_snapshot_date()
+            self._ensure_batch_created()
+            self.execute_procedure(
+                self.publish_procedure,
+                parameters={
+                    'batch_id': self.batch_id,
+                    'snapshot_date': self.snapshot_date,
+                },
+                database_type=self._database_type,
+            )
 

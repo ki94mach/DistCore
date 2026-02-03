@@ -7,10 +7,10 @@ Aggregation Logic:
     - Result: Target quantities per product, year, and month for the snapshot date
 Grain: One row per (snapshot_date, product_id, year, month) in the snapshot table.
 Assumptions: T-SQL on SQL Server; staging table [Data].[stg_Target] exists (see 023_stg_target.sql); snapshot table [Data].[snp_TargetSnapshot] exists (see 033_snap_target_snapshot.sql).
-Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. It merges staging data into the snapshot table. The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will update existing records if staging data has changed, or leave them unchanged if data is identical. This allows safe reruns of the ETL pipeline without creating duplicate snapshots.
+Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. It clears the snapshot rows for @snapshot_date, then loads the staging data for the Jalali year/month resolved from [Analytics_Stage].[Data].[DimDate] using @snapshot_date. Re-running with the same @batch_id and @snapshot_date will replace the snapshot rows for that date.
 Parameters:
     @batch_id BIGINT - The batch identifier for the staging data to publish (must exist in [Data].[stg_Target]).
-    @snapshot_date DATE - The snapshot date to assign to published records.
+    @snapshot_date DATE - The snapshot date to assign to published records (used to resolve Jalali year/month).
 Returns: A resultset with columns: inserted_count, updated_count, total_count (one row summary).
 How to run: Execute via EXEC [Data].[etl_usp_build_target_snapshot] @batch_id = 123, @snapshot_date = '2024-01-15'.
 */
@@ -32,6 +32,20 @@ BEGIN
     BEGIN
         THROW 50000, N'@snapshot_date cannot be NULL. Provide a valid snapshot date.', 1;
     END;
+
+    DECLARE @target_year INT;
+    DECLARE @target_month INT;
+
+    SELECT TOP (1)
+        @target_year = ShamsiYear,
+        @target_month = ShamsiMonth
+    FROM [Analytics_Stage].[Data].[DimDate]
+    WHERE DateID = @snapshot_date;
+
+    IF @target_year IS NULL OR @target_month IS NULL
+    BEGIN
+        THROW 50000, N'Could not resolve Jalali year/month from [Analytics_Stage].[Data].[DimDate] for @snapshot_date.', 1;
+    END;
     
     -- Table variable to capture MERGE results
     DECLARE @MergeResults TABLE (
@@ -42,6 +56,10 @@ BEGIN
         month INT
     );
     
+    -- Clear snapshot rows for this snapshot date before reloading
+    DELETE FROM [Data].[snp_TargetSnapshot]
+    WHERE snapshot_date = @snapshot_date;
+
     -- Build source dataset: select staging data for the batch
     -- Filter out NULL keys to ensure snapshot grain integrity
     WITH StagingData AS (
@@ -52,6 +70,8 @@ BEGIN
             target_quantity
         FROM [Data].[stg_Target]
         WHERE batch_id = @batch_id
+          AND year = @target_year
+          AND month = @target_month
           AND product_id IS NOT NULL
           AND year IS NOT NULL
           AND month IS NOT NULL
