@@ -13,11 +13,12 @@ Usage:
 
 from __future__ import annotations
 
+import csv
 import json
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 # Add project root to Python path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -245,18 +246,19 @@ def configure_solver() -> str:
     return solver_map.get(solver_choice, 'CBC')
 
 
-def configure_output(snapshot_date: date, solver_name: str) -> Optional[str]:
-    """Configure output file: save JSON results into the project data directory.
+def configure_output(snapshot_date: date, solver_name: str) -> dict[str, Any]:
+    """Configure output files: save JSON (and optionally CSV) into the project data directory.
     Default filename uses optimization date (YYYYMMDD) and solver name."""
     print_header("Output Configuration", Colors.BRIGHT_BLUE)
 
     project_root = Path(__file__).resolve().parent.parent
     data_dir = project_root / "data"
     date_str = snapshot_date.strftime("%Y%m%d")
-    default_path = data_dir / f"optimization_results_{date_str}_{solver_name}.json"
+    default_json_path = data_dir / f"optimization_results_{date_str}_{solver_name}.json"
+    default_csv_path = data_dir / f"optimization_results_{date_str}_{solver_name}.csv"
 
-    print_info("\nSave Results to File:")
-    print(colorize(f"  - Results will be saved to: {default_path}", Colors.DIM))
+    print_info("\nSave Results to File (JSON):")
+    print(colorize(f"  - Results will be saved to: {default_json_path}", Colors.DIM))
     print(colorize("  - Press Enter to use the default path above", Colors.DIM))
     print(colorize("  - Enter a filename (e.g. my_run.json) to save under data/ with that name", Colors.DIM))
     user_input = print_prompt("Enter filename (optional, or Enter for default): ").strip()
@@ -265,9 +267,26 @@ def configure_output(snapshot_date: date, solver_name: str) -> Optional[str]:
         name = user_input if user_input.endswith(".json") else f"{user_input}.json"
         output_file = data_dir / name
     else:
-        output_file = default_path
+        output_file = default_json_path
 
-    return str(output_file)
+    csv_file: Optional[str] = None
+    csv_include_variables = False
+    print_info("\nSave results to CSV:")
+    print(colorize("  - Enter 'y' to also save a CSV file (distributor, product, quantity)", Colors.DIM))
+    csv_choice = print_prompt("Save CSV as well? (y/n, default=n): ").strip().lower()
+    if csv_choice in ("y", "yes"):
+        csv_base = output_file.stem
+        csv_file = str(data_dir / f"{csv_base}.csv")
+        print_info("\nInclude optimization input variables in CSV:")
+        print(colorize("  - Adds columns: distributor_inventory, sales_ma, sales_mtd, coverage_demand, delivery_ma_6, has_delivery_last_6m, target_units, factory_supply", Colors.DIM))
+        var_choice = print_prompt("Include input variables in CSV? (y/n, default=n): ").strip().lower()
+        csv_include_variables = var_choice in ("y", "yes")
+
+    return {
+        "output_file": str(output_file),
+        "csv_file": csv_file,
+        "csv_include_variables": csv_include_variables,
+    }
 
 
 def initialize_database(config_path: Optional[str] = None) -> SQLExecutor:
@@ -461,6 +480,57 @@ def save_results(results: dict, output_file: str):
     print_success(f"Results saved to: {output_path}")
 
 
+def save_results_csv(result, solution, data, csv_path: str, include_variables: bool = False):
+    """Save optimization results to CSV. Optionally include input variables per (distributor, product)."""
+    output_path = Path(csv_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if include_variables:
+        fieldnames = [
+            "distributor",
+            "product",
+            "quantity",
+            "distributor_inventory",
+            "sales_ma_3",
+            "sales_ma_6",
+            "sales_mtd",
+            "coverage_demand",
+            "delivery_ma_6",
+            "has_delivery_last_6m",
+            "target_units",
+            "factory_supply",
+        ]
+    else:
+        fieldnames = ["distributor", "product", "quantity"]
+
+    rows: list[dict[str, Any]] = []
+    for (distributor, product), variable in sorted(result.decision_variables.items()):
+        quantity = round(solution.variable_values.get(variable, 0.0), 2)
+        row: dict[str, Any] = {
+            "distributor": distributor,
+            "product": product,
+            "quantity": quantity,
+        }
+        if include_variables:
+            row["distributor_inventory"] = round(data.inventory(distributor, product), 2)
+            row["sales_ma_3"] = round(data.sales_ma_3.get((distributor, product), 0.0), 2)
+            row["sales_ma_6"] = round(data.sales_ma_6.get((distributor, product), 0.0), 2)
+            row["sales_mtd"] = round(data.sales_mtd.get((distributor, product), 0.0), 2)
+            row["coverage_demand"] = round(data.coverage_demand(distributor, product), 2)
+            row["delivery_ma_6"] = round(data.delivery_moving_average(distributor, product), 2)
+            row["has_delivery_last_6m"] = data.has_recent_delivery(distributor, product)
+            row["target_units"] = round(data.target_units.get(product, 0.0), 2)
+            row["factory_supply"] = round(data.factory_supply(product), 2)
+        rows.append(row)
+
+    with open(output_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    print_success(f"CSV results saved to: {output_path}")
+
+
 def run_optimization(config: dict):
     """Run the optimization with provided configuration."""
     print_header("Running Optimization", Colors.BRIGHT_GREEN)
@@ -490,7 +560,15 @@ def run_optimization(config: dict):
         # Save results if requested
         if config.get('output_file'):
             save_results(results, config['output_file'])
-        
+        if config.get('csv_file'):
+            save_results_csv(
+                result,
+                solution,
+                data,
+                config['csv_file'],
+                include_variables=config.get('csv_include_variables', False),
+            )
+
         print_success("Optimization completed successfully")
         
         # Warn if solution is not optimal/feasible
@@ -519,11 +597,14 @@ def main():
             db_config = configure_database()
             settings = configure_optimization_settings()
             solver = configure_solver()
-            output_file = configure_output(
+            output_config = configure_output(
                 snapshot_date=date_config["snapshot_date"],
                 solver_name=solver,
             )
-            
+            output_file = output_config["output_file"]
+            csv_file = output_config.get("csv_file")
+            csv_include_variables = output_config.get("csv_include_variables", False)
+
             # Summary
             print_header("Configuration Summary", Colors.BRIGHT_CYAN)
             print_info(f"Snapshot Date: {date_config['snapshot_date']}")
@@ -536,7 +617,11 @@ def main():
             print_info(f"Target Units Weight: {settings.weight_target_units}")
             print_info(f"Solver: {solver}")
             if output_file:
-                print_info(f"Output File: {output_file}")
+                print_info(f"Output File (JSON): {output_file}")
+            if csv_file:
+                print_info(f"Output File (CSV): {csv_file}")
+                if csv_include_variables:
+                    print_info("  CSV will include optimization input variables")
             
             # Confirm
             confirm = print_prompt("\nProceed with optimization? (y/n, default=y): ").strip().lower()
@@ -550,7 +635,9 @@ def main():
                 **db_config,
                 'settings': settings,
                 'solver': solver,
-                'output_file': output_file
+                'output_file': output_file,
+                'csv_file': csv_file,
+                'csv_include_variables': csv_include_variables,
             }
             
             # Run optimization
