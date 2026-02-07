@@ -49,6 +49,14 @@ class SalesTemplatePipeline(TemplatePipeline):
                 self._cleanup_partial_staging_data()
                 raise
 
+    def _prepare_staging_table(self) -> None:
+        delete_query = f"DELETE FROM {self.staging_table}"
+
+        with self._connection_factory.connection('test') as test_conn:
+            test_cursor = test_conn.cursor()
+            test_cursor.execute(delete_query)
+            test_conn.commit()
+
     def _six_month_window_start(self, snapshot_date: date) -> date:
         snapshot_month = date(snapshot_date.year, snapshot_date.month, 1)
         month_index = snapshot_month.month - 1

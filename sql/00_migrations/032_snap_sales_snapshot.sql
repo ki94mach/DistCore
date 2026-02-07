@@ -13,6 +13,8 @@ BEGIN
         snapshot_month DATE NOT NULL,
         product_id INT NOT NULL,
         distributor_id INT NOT NULL,
+        jalali_year INT NULL,
+        jalali_month INT NULL,
         sales_mtd BIGINT NULL,
         sales_ma_3 DECIMAL(18, 4) NULL,
         sales_ma_6 DECIMAL(18, 4) NULL,
@@ -20,6 +22,31 @@ BEGIN
         created_at DATETIME2 NOT NULL CONSTRAINT DF_SalesSnapshot_created_at DEFAULT SYSUTCDATETIME(),
         CONSTRAINT PK_SalesSnapshot PRIMARY KEY (snapshot_month, product_id, distributor_id)
     );
+END;
+GO
+
+-- Add Jalali year/month columns if missing (idempotent)
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.columns c
+    WHERE c.object_id = OBJECT_ID(N'[Data].[snp_SalesSnapshot]', 'U')
+      AND c.name = N'jalali_year'
+)
+BEGIN
+    ALTER TABLE [Data].[snp_SalesSnapshot]
+        ADD jalali_year INT NULL;
+END;
+GO
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.columns c
+    WHERE c.object_id = OBJECT_ID(N'[Data].[snp_SalesSnapshot]', 'U')
+      AND c.name = N'jalali_month'
+)
+BEGIN
+    ALTER TABLE [Data].[snp_SalesSnapshot]
+        ADD jalali_month INT NULL;
 END;
 GO
 

@@ -1,16 +1,16 @@
 /*
 Purpose: Build sales snapshots from staging ([Data].[stg_Sales]) into the snapshot table ([Data].[snp_SalesSnapshot]) for a given snapshot date.
 Aggregation Logic:
-    - Aggregates by (product_id, distributor_id, snapshot_month) from staging data.
-    - Calculates monthly sales totals and moving averages over monthly totals.
-    - Moving averages exclude the current month (MA 3: 3 months ago to 1 month ago, MA 6: 6 months ago to 1 month ago).
-    - Calculates month-to-date sales for the snapshot month up to the snapshot date.
+    - Aggregates by (product_id, distributor_id, Jalali snapshot_month) from staging data using DimDate.
+    - Calculates monthly sales totals and moving averages over monthly totals in Jalali months.
+    - Moving averages exclude the current Jalali month (MA 3: 3 months ago to 1 month ago, MA 6: 6 months ago to 1 month ago).
+    - Calculates month-to-date sales for the current Jalali month up to the snapshot date.
 Grain: One row per (snapshot_month, distributor_id, product_id) in the snapshot table.
 Assumptions: T-SQL on SQL Server; staging table [Data].[stg_Sales] exists (see 022_stg_sales.sql); snapshot table [Data].[snp_SalesSnapshot] exists (see 032_snap_sales_snapshot.sql).
 Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. It aggregates staging data by product_id and distributor_id by month, computes moving averages, and merges into the snapshot table. The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will update existing records if staging data has changed, or leave them unchanged if data is identical.
 Parameters:
     @batch_id BIGINT - The batch identifier for the staging data to publish (must exist in [Data].[stg_Sales]).
-    @snapshot_date DATE - The snapshot date to assign to published records. Month-to-date totals are computed up to this date.
+    @snapshot_date DATE - The snapshot date to assign to published records. Jalali month-to-date totals are computed up to this date.
 Returns: A resultset with columns: inserted_count, updated_count, total_count (one row summary).
 How to run: Execute via EXEC [Data].[etl_usp_build_sales_snapshot] @batch_id = 123, @snapshot_date = '2024-01-15'.
 */
@@ -33,7 +33,33 @@ BEGIN
         THROW 50000, N'@snapshot_date cannot be NULL. Provide a valid snapshot date.', 1;
     END;
 
-    DECLARE @snapshot_month DATE = DATEFROMPARTS(YEAR(@snapshot_date), MONTH(@snapshot_date), 1);
+    DECLARE @snapshot_jalali_yyyymm INT;
+    DECLARE @snapshot_jalali_year INT;
+    DECLARE @snapshot_jalali_month INT;
+    DECLARE @snapshot_month DATE;
+
+    SELECT TOP (1)
+        @snapshot_jalali_yyyymm = TRY_CONVERT(INT, LongShamsiYearMonth),
+        @snapshot_jalali_year = ShamsiYear,
+        @snapshot_jalali_month = ShamsiMonth
+    FROM [Analytics_Stage].[Data].[DimDate]
+    WHERE DateID = @snapshot_date;
+
+    IF @snapshot_jalali_yyyymm IS NULL OR @snapshot_jalali_year IS NULL OR @snapshot_jalali_month IS NULL
+    BEGIN
+        THROW 50000, N'Could not resolve Jalali year/month from [Analytics_Stage].[Data].[DimDate] for @snapshot_date.', 1;
+    END;
+
+    SELECT TOP (1)
+        @snapshot_month = DateID
+    FROM [Analytics_Stage].[Data].[DimDate]
+    WHERE ShamsiDay = 1
+      AND TRY_CONVERT(INT, LongShamsiYearMonth) = @snapshot_jalali_yyyymm;
+
+    IF @snapshot_month IS NULL
+    BEGIN
+        THROW 50000, N'Could not resolve Jalali month start date from [Analytics_Stage].[Data].[DimDate] for @snapshot_date.', 1;
+    END;
 
     -- Table variable to capture MERGE results
     DECLARE @MergeResults TABLE (
@@ -43,20 +69,37 @@ BEGIN
         distributor_id INT
     );
 
-    WITH MonthlyTotals AS (
+    -- Clear snapshot table before reloading
+    DELETE FROM [Data].[snp_SalesSnapshot];
+
+    WITH StagingMapped AS (
+        SELECT
+            s.product_id,
+            s.distributor_id,
+            s.as_of_datetime,
+            s.sales_qty,
+            d.LongShamsiYearMonth
+        FROM [Data].[stg_Sales] AS s
+        INNER JOIN [Analytics_Stage].[Data].[DimDate] AS d
+            ON d.DateID = s.as_of_datetime
+        WHERE s.product_id IS NOT NULL
+          AND s.distributor_id IS NOT NULL
+          AND s.as_of_datetime IS NOT NULL
+    ),
+    MonthlyTotals AS (
         SELECT
             product_id,
             distributor_id,
-            DATEFROMPARTS(YEAR(as_of_datetime), MONTH(as_of_datetime), 1) AS snapshot_month,
+            month_start.DateID AS snapshot_month,
             SUM(sales_qty) AS monthly_sales
-        FROM [Data].[stg_Sales]
-        WHERE product_id IS NOT NULL
-          AND distributor_id IS NOT NULL
-          AND as_of_datetime IS NOT NULL
+        FROM StagingMapped AS sm
+        INNER JOIN [Analytics_Stage].[Data].[DimDate] AS month_start
+            ON month_start.ShamsiDay = 1
+           AND TRY_CONVERT(INT, month_start.LongShamsiYearMonth) = TRY_CONVERT(INT, sm.LongShamsiYearMonth)
         GROUP BY
             product_id,
             distributor_id,
-            DATEFROMPARTS(YEAR(as_of_datetime), MONTH(as_of_datetime), 1)
+            month_start.DateID
     ),
     MonthlyWithAverages AS (
         SELECT
@@ -91,10 +134,8 @@ BEGIN
             product_id,
             distributor_id,
             SUM(sales_qty) AS sales_mtd
-        FROM [Data].[stg_Sales]
-        WHERE product_id IS NOT NULL
-          AND distributor_id IS NOT NULL
-          AND as_of_datetime >= @snapshot_month
+        FROM StagingMapped
+        WHERE as_of_datetime >= @snapshot_month
           AND as_of_datetime <= @snapshot_date
         GROUP BY product_id, distributor_id
     )
@@ -104,6 +145,8 @@ BEGIN
             snapshot.snapshot_month,
             snapshot.product_id,
             snapshot.distributor_id,
+            @snapshot_jalali_year AS jalali_year,
+            @snapshot_jalali_month AS jalali_month,
             mtd.sales_mtd,
             snapshot.sales_ma_3,
             snapshot.sales_ma_6
@@ -120,10 +163,12 @@ BEGIN
             sales_mtd = source.sales_mtd,
             sales_ma_3 = source.sales_ma_3,
             sales_ma_6 = source.sales_ma_6,
+            jalali_year = source.jalali_year,
+            jalali_month = source.jalali_month,
             batch_id = @batch_id
     WHEN NOT MATCHED BY TARGET THEN
-        INSERT (snapshot_month, product_id, distributor_id, sales_mtd, sales_ma_3, sales_ma_6, batch_id)
-        VALUES (source.snapshot_month, source.product_id, source.distributor_id, source.sales_mtd, source.sales_ma_3, source.sales_ma_6, @batch_id)
+        INSERT (snapshot_month, product_id, distributor_id, jalali_year, jalali_month, sales_mtd, sales_ma_3, sales_ma_6, batch_id)
+        VALUES (source.snapshot_month, source.product_id, source.distributor_id, source.jalali_year, source.jalali_month, source.sales_mtd, source.sales_ma_3, source.sales_ma_6, @batch_id)
     OUTPUT
         $action AS ActionType,
         inserted.snapshot_month,
