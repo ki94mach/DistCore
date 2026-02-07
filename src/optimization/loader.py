@@ -41,7 +41,7 @@ class SnapshotDataLoader:
 
         Args:
             snapshot_date: Date for inventory and target snapshots
-            snapshot_month: Month for sales snapshot (defaults to snapshot_date's month)
+            snapshot_month: Month for sales snapshot (defaults to first day of Jalali month from DimDate)
             settings: Optimization settings (defaults to OptimizationSettings())
 
         Returns:
@@ -54,7 +54,7 @@ class SnapshotDataLoader:
             settings = OptimizationSettings()
 
         if snapshot_month is None:
-            snapshot_month = snapshot_date.replace(day=1)
+            snapshot_month = self._get_sales_snapshot_month(snapshot_date)
 
         # Load all snapshot data
         factory_inventory = self._load_factory_inventory(snapshot_date)
@@ -168,6 +168,30 @@ class SnapshotDataLoader:
         WHERE snapshot_date = ?
         """
         return self._execute_parameterized_query(query, (snapshot_date,))
+
+    def _get_sales_snapshot_month(self, snapshot_date: date) -> date:
+        """
+        Return the first day of the Jalali month (as a Gregorian date) for the given snapshot_date.
+        This must match the value written by [Data].[etl_usp_build_sales_snapshot], which uses
+        [Analytics_Stage].[Data].[DimDate] to resolve the month. Using Gregorian month start
+        (snapshot_date.replace(day=1)) would query a different key and return no rows.
+        """
+        query = """
+        SELECT TOP (1) month_start.DateID AS snapshot_month
+        FROM [Analytics_Stage].[Data].[DimDate] AS d
+        INNER JOIN [Analytics_Stage].[Data].[DimDate] AS month_start
+            ON month_start.ShamsiDay = 1
+           AND TRY_CONVERT(INT, month_start.LongShamsiYearMonth) = TRY_CONVERT(INT, d.LongShamsiYearMonth)
+        WHERE d.DateID = ?
+        """
+        rows = self._execute_parameterized_query(query, (snapshot_date,))
+        if not rows or rows[0].get("snapshot_month") is None:
+            raise ValueError(
+                f"Could not resolve Jalali month start from [Analytics_Stage].[Data].[DimDate] "
+                f"for snapshot_date={snapshot_date!s}. Ensure DimDate is populated for this date."
+            )
+        val = rows[0]["snapshot_month"]
+        return val.date() if hasattr(val, "date") else val
 
     def _load_sales_snapshot(self, snapshot_month: date) -> List[Dict[str, Any]]:
         """Load sales snapshot data."""
