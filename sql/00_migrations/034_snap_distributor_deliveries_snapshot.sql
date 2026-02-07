@@ -2,7 +2,7 @@
 Purpose: Create snapshot table for distributor deliveries metrics.
 Grain: One row per (snapshot_date, product_id, distributor_id) combination.
 Assumptions: T-SQL on SQL Server; [Data] schema already exists; requires permissions to create tables and indexes.
-Usage: This table stores point-in-time snapshots of distributor delivery metrics, including 6-month moving averages and delivery flags. Used by downstream optimization processes that require consistent snapshot inputs.
+Usage: This table stores point-in-time snapshots of distributor delivery metrics, including average delivery per event (last 6 months) and delivery flags. Used by downstream optimization processes that require consistent snapshot inputs.
 How to run: Execute in SSMS or via sqlcmd against the target database; script is idempotent.
 */
 
@@ -13,7 +13,7 @@ BEGIN
         snapshot_date DATE NOT NULL,
         product_id INT NOT NULL,
         distributor_id INT NOT NULL,
-        delivered_qty_ma_6 DECIMAL(18, 4) NULL,  -- 6-month moving average of delivered quantity
+        delivered_qty_ma_6 DECIMAL(18, 4) NULL,  -- Average delivery per event (SUM qty / COUNT deliveries) over last 6 months
         has_delivery_last_6m BIT NOT NULL DEFAULT 0,  -- Flag: 1 if there was a delivery in last 6 months, 0 otherwise
         batch_id BIGINT NOT NULL,
         created_at DATETIME2 NOT NULL CONSTRAINT DF_DistributorDeliveriesSnapshot_created_at DEFAULT SYSUTCDATETIME(),

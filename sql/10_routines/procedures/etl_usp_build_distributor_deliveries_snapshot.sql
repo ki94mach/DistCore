@@ -2,8 +2,9 @@
 Purpose: Build distributor deliveries snapshots from staging ([Data].[stg_DistributorDeliveries]) into the snapshot table 
         ([Data].[snp_DistributorDeliveriesSnapshot]) for a given snapshot date.
 Aggregation Logic:
-    - Aggregates by (product_id, distributor_id) by joining dimension tables.
-    - Calculates 6-month moving average of delivered quantity (excluding current month).
+    - Maps staging rows to (product_id, distributor_id) via dimension tables.
+    - 6-month average delivery: SUM(delivered_quantity) / COUNT(*) over all delivery records in the last 6 months
+      (excluding current month). I.e. average quantity per delivery event/batch, not per month.
     - Sets flag indicating if there was any delivery in the last 6 months.
     - Includes all product-distributor combinations from staging data.
 Grain: One row per (snapshot_date, product_id, distributor_id) in the snapshot table.
@@ -11,7 +12,7 @@ Assumptions: T-SQL on SQL Server; staging table [Data].[stg_DistributorDeliverie
             snapshot table [Data].[snp_DistributorDeliveriesSnapshot] exists (see 034_snap_distributor_deliveries_snapshot.sql); 
             dimension tables [Analytics_Stage].[Data].[DimProduct], [Analytics_Stage].[Data].[DimDistrbutor], and [Analytics_Stage].[Data].[DimDate] exist and are populated.
 Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. 
-        It aggregates staging data, computes 6-month moving averages, and merges into the snapshot table. 
+        It computes average delivery per event (SUM/COUNT) over the last 6 months and merges into the snapshot table. 
         The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will update existing records if staging data has changed, 
         or leave them unchanged if data is identical.
 Parameters:
@@ -67,10 +68,8 @@ BEGIN
         distributor_id INT
     );
 
-    -- Calculate date range for last 6 months (excluding current month)
-    -- Last 6 months: from 6 months ago to 1 month ago (relative to effective snapshot date)
+    -- Date range for last 6 months (excluding current month)
     DECLARE @six_months_ago DATE = DATEADD(MONTH, -6, @effective_snapshot_date);
-    DECLARE @one_month_ago DATE = DATEADD(MONTH, -1, @effective_snapshot_date);
     DECLARE @snapshot_month_start DATE = DATEFROMPARTS(YEAR(@effective_snapshot_date), MONTH(@effective_snapshot_date), 1);
 
     -- CTE 1: Filter staging data and map to dimensions (derive delivery month from staging [month])
@@ -96,52 +95,19 @@ BEGIN
           AND sd.delivered_quantity <> 0
           AND sd.receipt_status = N'رسید شده'
     ),
-    -- CTE 2: Monthly aggregated deliveries by product and distributor
-    MonthlyDeliveries AS (
+    -- CTE 2: Average delivery over last 6 months (excluding current month)
+    -- delivered_qty_ma_6 = sum of all delivery quantities / count of delivery records (average per delivery event)
+    DeliveryAverageLast6m AS (
         SELECT
             product_id,
             distributor_id,
-            delivery_month,
-            SUM(delivered_quantity) AS monthly_delivered_qty
+            CAST(SUM(delivered_quantity) AS DECIMAL(18, 4)) / NULLIF(COUNT(*), 0) AS delivered_qty_ma_6
         FROM StagingMapped
         WHERE delivery_month >= @six_months_ago
           AND delivery_month < @snapshot_month_start  -- Exclude current month
-        GROUP BY
-            product_id,
-            distributor_id,
-            delivery_month
+        GROUP BY product_id, distributor_id
     ),
-    -- CTE 3: Calculate 6-month moving average for each month
-    -- Moving average is calculated over the last 6 months (6 months ago to 1 month ago)
-    MonthlyWithMovingAverage AS (
-        SELECT
-            product_id,
-            distributor_id,
-            delivery_month,
-            monthly_delivered_qty,
-            -- Calculate moving average over last 6 months (excluding current month)
-            -- For each month, average the previous 6 months (if available)
-            AVG(CAST(monthly_delivered_qty AS DECIMAL(18, 4))) OVER (
-                PARTITION BY product_id, distributor_id
-                ORDER BY delivery_month
-                ROWS BETWEEN 5 PRECEDING AND CURRENT ROW
-            ) AS delivered_qty_ma_6
-        FROM MonthlyDeliveries
-        WHERE delivery_month <= @one_month_ago  -- Only include months up to 1 month ago
-    ),
-    -- CTE 4: Get the latest moving average for each product-distributor combination
-    LatestMovingAverage AS (
-        SELECT
-            product_id,
-            distributor_id,
-            delivered_qty_ma_6,
-            ROW_NUMBER() OVER (
-                PARTITION BY product_id, distributor_id
-                ORDER BY delivery_month DESC
-            ) AS rn
-        FROM MonthlyWithMovingAverage
-    ),
-    -- CTE 5: Check if there was any delivery in the last 6 months
+    -- CTE 3: Check if there was any delivery in the last 6 months
     DeliveryFlag AS (
         SELECT
             product_id,
@@ -155,7 +121,7 @@ BEGIN
           AND delivery_month < @snapshot_month_start  -- Exclude current month
         GROUP BY product_id, distributor_id
     ),
-    -- CTE 6: Get all unique product-distributor combinations from staging
+    -- CTE 4: Get all unique product-distributor combinations from staging
     AllProductDistributors AS (
         SELECT DISTINCT
             product_id,
@@ -171,10 +137,9 @@ BEGIN
             ISNULL(lma.delivered_qty_ma_6, 0) AS delivered_qty_ma_6,
             ISNULL(df.has_delivery_last_6m, 0) AS has_delivery_last_6m
         FROM AllProductDistributors AS apd
-        LEFT JOIN LatestMovingAverage AS lma
+        LEFT JOIN DeliveryAverageLast6m AS lma
             ON lma.product_id = apd.product_id
            AND lma.distributor_id = apd.distributor_id
-           AND lma.rn = 1
         LEFT JOIN DeliveryFlag AS df
             ON df.product_id = apd.product_id
            AND df.distributor_id = apd.distributor_id
