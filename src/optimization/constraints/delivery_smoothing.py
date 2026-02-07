@@ -23,6 +23,15 @@ class DeliverySmoothingConstraint(Constraint):
         for distributor in data.distributors:
             for product in data.products:
                 delivery_ma = data.delivery_moving_average(distributor, product)
+                # Only apply smoothing lower bound when there is a need for delivery
+                # (market demand or target coverage); otherwise do not force x > 0.
+                has_demand = data.coverage_demand(distributor, product) > 0
+                has_target = data.remaining_target_units(product) > 0
+                effective_lower = (
+                    lower_bound * delivery_ma
+                    if (has_demand or has_target)
+                    else 0.0
+                )
                 slack_low = model.add_variable(
                     name=f"s_delivery_low_{distributor}_{product}",
                     low=0.0,
@@ -40,7 +49,7 @@ class DeliverySmoothingConstraint(Constraint):
                 model.add_constraint(
                     lower_expression,
                     ">=",
-                    lower_bound * delivery_ma,
+                    effective_lower,
                     name=f"delivery_low_{distributor}_{product}",
                 )
                 upper_expression = linear_sum(
