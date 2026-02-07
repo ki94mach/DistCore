@@ -28,6 +28,7 @@ from src.optimization import (
     solve_with_pulp,
     SnapshotDataLoader
 )
+from src.optimization.solver import get_available_solver_names
 from src.optimization.constraints import (
     DeliveryHistoryConstraint,
     DeliverySmoothingConstraint,
@@ -221,35 +222,52 @@ def configure_optimization_settings() -> OptimizationSettings:
 def configure_solver() -> str:
     """Configure solver selection."""
     print_header("Solver Configuration", Colors.BRIGHT_BLUE)
-    
+    available = get_available_solver_names()
+
+    def solver_desc(name: str, desc: str) -> str:
+        if name in available:
+            return desc
+        return f"{desc} [not available]"
+
     print_info("\nSelect Solver:")
-    print_menu_item('1', 'CBC (Coin-or Branch and Cut) - Recommended', Colors.BRIGHT_WHITE)
-    print_menu_item('2', 'GLPK (GNU Linear Programming Kit)', Colors.WHITE)
-    print_menu_item('3', 'CPLEX (IBM - requires license)', Colors.WHITE)
-    print_menu_item('4', 'GUROBI (requires license)', Colors.WHITE)
-    
-    solver_choice = print_prompt("Select solver (1/2/3/4, default=1): ").strip() or "1"
-    
+    print_menu_item('1', solver_desc('CBC', 'CBC (Coin-or Branch and Cut) - Recommended'), Colors.BRIGHT_WHITE)
+    print_menu_item('2', solver_desc('GLPK', 'GLPK (GNU Linear Programming Kit)'), Colors.WHITE)
+    print_menu_item('3', solver_desc('CPLEX', 'CPLEX (IBM - requires license)'), Colors.WHITE)
+    print_menu_item('4', solver_desc('GUROBI', 'GUROBI (requires license)'), Colors.WHITE)
+
     solver_map = {
         '1': 'CBC',
         '2': 'GLPK',
         '3': 'CPLEX',
         '4': 'GUROBI'
     }
-    
+    solver_choice = print_prompt("Select solver (1/2/3/4, default=1): ").strip() or "1"
     return solver_map.get(solver_choice, 'CBC')
 
 
-def configure_output() -> Optional[str]:
-    """Configure output file."""
+def configure_output(snapshot_date: date, solver_name: str) -> Optional[str]:
+    """Configure output file: save JSON results into the project data directory.
+    Default filename uses optimization date (YYYYMMDD) and solver name."""
     print_header("Output Configuration", Colors.BRIGHT_BLUE)
-    
+
+    project_root = Path(__file__).resolve().parent.parent
+    data_dir = project_root / "data"
+    date_str = snapshot_date.strftime("%Y%m%d")
+    default_path = data_dir / f"optimization_results_{date_str}_{solver_name}.json"
+
     print_info("\nSave Results to File:")
-    print(colorize("  - Press Enter to skip saving to file", Colors.DIM))
-    print(colorize("  - Enter path to save results as JSON", Colors.DIM))
-    output_file = print_prompt("Enter output file path (optional): ").strip()
-    
-    return output_file if output_file else None
+    print(colorize(f"  - Results will be saved to: {default_path}", Colors.DIM))
+    print(colorize("  - Press Enter to use the default path above", Colors.DIM))
+    print(colorize("  - Enter a filename (e.g. my_run.json) to save under data/ with that name", Colors.DIM))
+    user_input = print_prompt("Enter filename (optional, or Enter for default): ").strip()
+
+    if user_input:
+        name = user_input if user_input.endswith(".json") else f"{user_input}.json"
+        output_file = data_dir / name
+    else:
+        output_file = default_path
+
+    return str(output_file)
 
 
 def initialize_database(config_path: Optional[str] = None) -> SQLExecutor:
@@ -501,7 +519,10 @@ def main():
             db_config = configure_database()
             settings = configure_optimization_settings()
             solver = configure_solver()
-            output_file = configure_output()
+            output_file = configure_output(
+                snapshot_date=date_config["snapshot_date"],
+                solver_name=solver,
+            )
             
             # Summary
             print_header("Configuration Summary", Colors.BRIGHT_CYAN)

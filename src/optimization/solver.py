@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pulp
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 from src.optimization.lp import Model, Variable
 
@@ -167,6 +167,42 @@ class PuLPSolver:
             # Default to CBC
             return pulp.PULP_CBC_CMD(msg=0)
         return solver
+
+
+# PuLP internal names for availability checks
+_PULP_SOLVER_NAMES = {
+    "CBC": "PULP_CBC_CMD",
+    "GLPK": "GLPK_CMD",
+    "CPLEX": "CPLEX_CMD",
+    "GUROBI": "GUROBI_CMD",
+}
+
+
+def is_solver_available(solver_name: str) -> bool:
+    """
+    Check if a solver is available on this system (executable on PATH or installed).
+
+    Args:
+        solver_name: One of "CBC", "GLPK", "CPLEX", "GUROBI"
+
+    Returns:
+        True if the solver can be executed, False otherwise.
+    """
+    pulp_name = _PULP_SOLVER_NAMES.get(solver_name.upper())
+    if not pulp_name:
+        return False
+    try:
+        solver_class = getattr(pulp, pulp_name, None)
+        if solver_class is None:
+            return False
+        return solver_class().available()
+    except Exception:
+        return False
+
+
+def get_available_solver_names() -> list[str]:
+    """Return list of solver names that are currently available (e.g. ['CBC', 'GLPK'])."""
+    return [name for name in _PULP_SOLVER_NAMES if is_solver_available(name)]
 
 
 def solve_with_pulp(
