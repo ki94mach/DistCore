@@ -134,9 +134,10 @@ def configure_optimization_settings() -> OptimizationSettings:
     print(colorize(f"  - weight_coverage: {settings.weight_coverage}", Colors.WHITE))
     print(colorize(f"  - weight_target_units: {settings.weight_target_units}", Colors.WHITE))
     print(colorize(f"  - weight_delivery: {settings.weight_delivery}", Colors.WHITE))
+    print(colorize("  (Press Enter to edit; type 'n' to keep these and skip editing)", Colors.DIM))
 
-    edit_choice = print_prompt("Edit these settings? (y/n): ").strip().lower()
-    if edit_choice not in {"y", "yes"}:
+    edit_choice = print_prompt("Edit these settings? (y/n, default=y): ").strip().lower()
+    if edit_choice in {"n", "no"}:
         return settings
 
     def prompt_float(label: str, current: float, hint: Optional[str] = None) -> float:
@@ -348,8 +349,8 @@ def load_optimization_data(
         raise
 
 
-def build_and_solve_model(data, solver_name: str):
-    """Build optimization model and solve."""
+def build_and_solve_model(data, solver_name: str, settings=None):
+    """Build optimization model and solve. Pass settings to force their use in the model."""
     print_action("Building optimization model...")
     
     # Define constraints
@@ -364,9 +365,9 @@ def build_and_solve_model(data, solver_name: str):
     constraint_names = [c.__class__.__name__ for c in constraints]
     print_info(f"Constraints: {', '.join(constraint_names)}")
     
-    # Build model
+    # Build model (settings_override ensures CLI parameters are used in the optimization layer)
     builder = ModelBuilder(constraints)
-    result = builder.build(data)
+    result = builder.build(data, settings_override=settings)
     
     print_success(f"Model built: {len(result.decision_variables)} decision variables, "
                   f"{len(result.model.constraints)} constraints, "
@@ -526,9 +527,19 @@ def run_optimization(config: dict):
             database_type=config['database_type'],
             settings=config['settings']
         )
+
+        # Confirm settings used (so parameter changes are visible)
+        s = config["settings"]
+        print_info(
+            f"Settings for this run: coverage_ratio={s.coverage_ratio}, sales_window={s.sales_window}, "
+            f"delivery_bounds=[{s.delivery_lower_bound}, {s.delivery_upper_bound}], "
+            f"weights=(coverage={s.weight_coverage}, target_units={s.weight_target_units}, delivery={s.weight_delivery})"
+        )
         
-        # Build and solve
-        result, solution = build_and_solve_model(data, config['solver'])
+        # Build and solve (pass settings so optimization layer uses CLI parameters)
+        result, solution = build_and_solve_model(
+            data, config['solver'], settings=config['settings']
+        )
         
         # Format results
         results = format_results(result, solution, data)

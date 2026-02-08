@@ -68,4 +68,26 @@ class OptimizationData:
 
     def factory_supply(self, product: str) -> float:
         return self.factory_inventory.get(product, 0.0)
-        
+
+
+class DataWithSettings:
+    """
+    Wrapper around OptimizationData that overrides .settings and any methods that depend on it.
+    Use when the caller wants to force a specific settings instance (e.g. CLI-provided)
+    so the optimization layer definitely uses those values.
+    """
+
+    __slots__ = ("_data", "settings")
+
+    def __init__(self, data: OptimizationData, settings: OptimizationSettings) -> None:
+        self._data = data
+        self.settings = settings
+
+    def __getattr__(self, name: str):
+        return getattr(self._data, name)
+
+    def sales_moving_average(self, distributor: str, product: str) -> float:
+        if self.settings.sales_window == 3:
+            return self._data.sales_ma_3.get((distributor, product), 0.0)
+        return self._data.sales_ma_6.get((distributor, product), 0.0)
+

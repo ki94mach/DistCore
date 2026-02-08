@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 from src.optimization.constraints.base import Constraint
-from src.optimization.data import OptimizationData
+from src.optimization.data import OptimizationData, OptimizationSettings
 from src.optimization.lp import LinearExpression, Model, Variable, linear_sum
 
 
@@ -21,7 +21,14 @@ class ModelBuilder:
     def __init__(self, constraints: Iterable[Constraint]) -> None:
         self.constraints = list[Constraint](constraints)
 
-    def build(self, data: OptimizationData) -> ModelBuildResult:
+    def build(
+        self,
+        data: OptimizationData,
+        settings_override: Optional[OptimizationSettings] = None,
+    ) -> ModelBuildResult:
+        if settings_override is not None:
+            from src.optimization.data import DataWithSettings
+            data = DataWithSettings(data, settings_override)
         model = Model()
         decision_variables = self._create_decision_variables(model, data)
         objective_terms: List[Tuple[Variable, float]] = []
