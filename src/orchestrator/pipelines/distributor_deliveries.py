@@ -4,7 +4,7 @@ import sys
 import os
 import warnings
 from datetime import date
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 # Suppress openpyxl warnings BEFORE importing anything that uses it
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
@@ -101,10 +101,11 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
         triggered_by: str = 'PYTHON_PIPELINE',
         database_type: str = 'test',
         shared_link: Optional[str] = None,
+        log_fn: Optional[Callable[[str], None]] = None,
     ):
         """
         Initialize the distributor deliveries pipeline.
-        
+
         Args:
             batch_id: Optional batch ID (will be created if None)
             snapshot_date: Optional snapshot date (defaults to today)
@@ -112,13 +113,16 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
             triggered_by: Who/what triggered this pipeline
             database_type: Database type ('source' or 'test')
             shared_link: Optional Dropbox shared link. If not provided, will be loaded from config.
+            log_fn: Optional callback for summary output (e.g. expected vs loaded file count). When provided,
+                    detailed prints are suppressed and only the file-count check is reported via this callback.
         """
         if shared_link is None:
             shared_link = DropboxConfigLoader.get_distributor_deliveries_folder()
-        
+
         self._dropbox_shared_link = shared_link
         self._dropbox_client = DropboxClient(shared_link=shared_link)
-        
+        self._log_fn = log_fn
+
         super().__init__(
             batch_id=batch_id,
             snapshot_date=snapshot_date,
@@ -199,8 +203,7 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
         with self._handle_batch_failure("Load stage failed: "):
             self._ensure_snapshot_date()
             self._ensure_batch_created()
-            
-            print("Full load mode: Loading all rows regardless of date")
+
             df = load_excel_files_from_dropbox(
                 dropbox_client=self._dropbox_client,
                 shared_link=self._dropbox_shared_link,
@@ -208,57 +211,47 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
                 expected_files=self.EXPECTED_FILES,
                 ignored_files=self.IGNORED_FILES,
                 persian_columns=self.PERSIAN_COLUMNS,
-                header_row=7
+                header_row=7,
+                log_fn=self._log_fn,
             )
-            
-            # Delete all rows from staging table (full refresh)
+
             self._truncate_staging_table()
-            
+
             staging_rows = transform_dataframe_to_staging_rows(
                 df=df,
                 batch_id=self.batch_id,
                 persian_columns=self.PERSIAN_COLUMNS
             )
-            
+
             if not staging_rows:
-                print("No rows to load. Exiting.")
                 return
-            
+
             self._load_staging_rows_in_batches(staging_rows, batch_size)
     
     def _truncate_staging_table(self) -> None:
         """Delete all rows from staging table (full refresh)."""
         delete_query = f"DELETE FROM {self.staging_table}"
-        
+
         with self._connection_factory.connection(self._database_type) as conn:
             cursor = conn.cursor()
             cursor.execute(delete_query)
-            deleted_count = cursor.rowcount
             conn.commit()
-            print(f"Deleted {deleted_count} existing rows from staging table")
     
     def _load_staging_rows_in_batches(self, staging_rows: List[tuple], batch_size: int) -> None:
         """Load staging rows in batches using simple INSERT."""
-        total_batches = (len(staging_rows) + batch_size - 1) // batch_size
-        print(f"\nLoading {len(staging_rows)} rows into staging table in {total_batches} batch(es)...")
-        
         insert_query = self._get_staging_insert_query()
-        
+
         try:
             for i in range(0, len(staging_rows), batch_size):
                 if self._interrupted:
                     raise KeyboardInterrupt("Process interrupted by user")
-                
+
                 batch = staging_rows[i:i + batch_size]
                 batch_number = (i // batch_size) + 1
-                print(f"  Loading batch {batch_number}/{total_batches} ({len(batch)} rows)...", end=' ', flush=True)
                 self._load_batch_to_staging(batch, insert_query, batch_number)
-                print(f"✓")
         except KeyboardInterrupt:
             self._cleanup_partial_staging_data()
             raise
-        
-        print(f"\n✓ Successfully loaded {len(staging_rows)} rows into staging table")
     
     def _load_batch_to_staging(self, batch_data: List[tuple], insert_query: str, batch_number: int) -> None:
         """Load batch to staging using simple INSERT."""

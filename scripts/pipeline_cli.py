@@ -123,11 +123,15 @@ def select_pipeline():
     print_header("Available Pipelines", Colors.BRIGHT_CYAN)
     for key, pipeline_info in PIPELINES.items():
         print_menu_item(key, pipeline_info['name'], Colors.BRIGHT_WHITE)
+    print()
+    print_menu_item('a', 'Full Automate Pipeline (Run All)', Colors.BRIGHT_GREEN)
     print_menu_item('q', 'Quit', Colors.BRIGHT_YELLOW)
     
     choice = print_prompt("\nSelect pipeline: ").strip().lower()
     if choice == 'q':
         return None
+    if choice == 'a':
+        return 'ALL'
     return PIPELINES.get(choice)
 
 
@@ -280,72 +284,6 @@ def configure_batch(pipeline_info):
     return batch_id
 
 
-def check_loaded_delivery_files(
-    connection_factory: DBConnectionFactory,
-    snapshot_date: date,
-    database_type: str
-) -> None:
-    """
-    Check and display which delivery files were successfully loaded for the snapshot date.
-    
-    Args:
-        connection_factory: Database connection factory
-        snapshot_date: Snapshot date to check
-        database_type: Database type ('source' or 'test')
-    """
-    try:
-        import pyodbc
-        from src.orchestrator.services.sql_server_db.executors.result_formatter import format_result_set
-        
-        # First, try to find batch_id from snapshot table for this date
-        # If snapshot exists, use its batch_id; otherwise, find latest batch before snapshot date
-        query = """
-        SELECT DISTINCT
-            stg.source_file,
-            COUNT(*) as row_count,
-            MAX(stg.ingested_at) as last_loaded
-        FROM [Data].[stg_DistributorDeliveries] stg
-        WHERE stg.batch_id IN (
-            -- Get batch_id from snapshot if it exists for this date
-            SELECT DISTINCT batch_id 
-            FROM [Data].[snp_DistributorDeliveriesSnapshot]
-            WHERE snapshot_date = ?
-            UNION
-            -- Otherwise, get the latest batch_id before or on this date
-            SELECT TOP 1 batch_id
-            FROM [Data].[Batch]
-            WHERE batch_type = 'DISTRIBUTOR_DELIVERIES'
-              AND snapshot_date <= ?
-            ORDER BY snapshot_date DESC, batch_id DESC
-        )
-        GROUP BY stg.source_file
-        ORDER BY stg.source_file
-        """
-        
-        with connection_factory.connection(database_type) as conn:
-            cursor = conn.cursor()
-            cursor.execute(query, (snapshot_date, snapshot_date))
-            results = format_result_set(cursor)
-            conn.commit()
-        
-        if results:
-            print_info(f"\n✓ Delivery files successfully loaded for snapshot date {snapshot_date}:")
-            total_rows = 0
-            for row in results:
-                source_file = row.get('source_file', 'Unknown')
-                row_count = row.get('row_count', 0)
-                total_rows += row_count
-                if source_file:
-                    print_info(f"  - {colorize(source_file, Colors.BRIGHT_WHITE)} ({row_count} rows)")
-            print_info(f"Total: {len(results)} file(s), {total_rows} row(s)")
-        else:
-            print_warning(f"No delivery files found for snapshot date {snapshot_date}")
-            print_info("  Note: This may indicate that the distributor deliveries pipeline has not been run for this date.")
-    except Exception as e:
-        # Don't fail the pipeline if file checking fails
-        print_warning(f"Could not check loaded delivery files: {e}")
-
-
 def run_staging(pipeline_info, config):
     """Run the staging layer."""
     print_header("Running Staging Layer", Colors.BRIGHT_GREEN)
@@ -360,9 +298,11 @@ def run_staging(pipeline_info, config):
         'triggered_by': 'MANUAL_TEST',
         'database_type': 'test'
     }
-    
+    if pipeline_info['name'] == 'Distributor Deliveries':
+        pipeline_kwargs['log_fn'] = print_info
+
     pipeline = pipeline_info['class'](**pipeline_kwargs)
-    
+
     # Run load_stage with configured parameters
     print_action("Loading stage...")
     try:
@@ -384,19 +324,8 @@ def run_staging(pipeline_info, config):
             )
         else:
             pipeline.load_stage()
-        
+
         print_success(f"[{pipeline_info['name']}] Load stage completed successfully!")
-        
-        # Check loaded files for Distributor Deliveries pipeline
-        if pipeline_info['name'] == 'Distributor Deliveries' and config.get('snapshot_date'):
-            print_action("Checking loaded delivery files...")
-            connection_factory = DBConnectionFactory()
-            check_loaded_delivery_files(
-                connection_factory=connection_factory,
-                snapshot_date=config['snapshot_date'],
-                database_type='test'
-            )
-        
         return pipeline
     except Exception as e:
         print_error(f"Error: {str(e)}")
@@ -448,9 +377,11 @@ def run_full_pipeline(pipeline_info):
         'triggered_by': 'MANUAL_TEST',
         'database_type': 'test'
     }
-    
+    if pipeline_info['name'] == 'Distributor Deliveries':
+        pipeline_kwargs['log_fn'] = print_info
+
     pipeline = pipeline_info['class'](**pipeline_kwargs)
-    
+
     # Run full pipeline
     print_action("Running full pipeline (load_stage + publish)...")
     try:
@@ -478,17 +409,7 @@ def run_full_pipeline(pipeline_info):
             )
         else:
             pipeline.load_stage()
-        
-        # Check loaded files for Distributor Deliveries pipeline after staging
-        if pipeline_info['name'] == 'Distributor Deliveries' and staging_config.get('snapshot_date'):
-            print_action("Checking loaded delivery files...")
-            connection_factory = DBConnectionFactory()
-            check_loaded_delivery_files(
-                connection_factory=connection_factory,
-                snapshot_date=staging_config['snapshot_date'],
-                database_type='test'
-            )
-        
+
         # Run publish
         print_action("Publishing...")
         pipeline.publish()
@@ -508,6 +429,107 @@ def run_full_pipeline(pipeline_info):
                 pass
         print_error(f"Error: {str(e)}")
         raise
+
+
+def run_full_automate_pipeline():
+    """Run all pipelines fully automated with default settings.
+    
+    Each pipeline runs with:
+    - snapshot_date: today's date (None -> defaults to today inside the pipeline)
+    - batch_size: 10000 (default)
+    - incremental: True (default)
+    - single_date_only: False (default)
+    - batch: auto-created per pipeline
+    - triggered_by: MANUAL_TEST
+    - database_type: test
+    """
+    print_header("Full Automate Pipeline - Running All Pipelines", Colors.BRIGHT_MAGENTA)
+    print_info("All pipelines will run with default settings (today's date, incremental, auto-batch).")
+    print()
+
+    total = len(PIPELINES)
+    succeeded = []
+    failed = []
+
+    for key, pipeline_info in PIPELINES.items():
+        pipeline_name = pipeline_info['name']
+        print_header(f"[{key}/{total}] {pipeline_name}", Colors.BRIGHT_CYAN)
+        try:
+            # Create batch
+            print_action(f"[{pipeline_name}] Creating batch...")
+            batch_id = start_new_batch(
+                batch_type=pipeline_info['batch_type'],
+                triggered_by='MANUAL_TEST',
+                database_type='test',
+                pipeline_name=pipeline_name
+            )
+
+            # Create pipeline instance with defaults
+            pipeline_kwargs_auto = {
+                'batch_id': batch_id,
+                'snapshot_date': None,
+                'triggered_by': 'MANUAL_TEST',
+                'database_type': 'test'
+            }
+            if pipeline_name == 'Distributor Deliveries':
+                pipeline_kwargs_auto['log_fn'] = print_info
+            pipeline = pipeline_info['class'](**pipeline_kwargs_auto)
+
+            # --- Load stage ---
+            print_action(f"[{pipeline_name}] Loading stage...")
+            if pipeline_name in ('Factory Inventory', 'Distributor Inventory'):
+                pipeline.load_stage(
+                    batch_size=10000,
+                    incremental=True,
+                    single_date_only=False
+                )
+            elif pipeline_name == 'Sales Snapshot':
+                pipeline.load_stage(batch_size=10000)
+            elif pipeline_name == 'Target':
+                pipeline.load_stage(
+                    batch_size=10000,
+                    incremental=True,
+                    single_date_only=False
+                )
+            elif pipeline_name == 'Distributor Deliveries':
+                pipeline.load_stage(batch_size=10000)
+            else:
+                pipeline.load_stage()
+
+            # --- Publish ---
+            print_action(f"[{pipeline_name}] Publishing...")
+            pipeline.publish()
+
+            # Finish batch
+            if hasattr(pipeline, 'batch_id') and pipeline.batch_id:
+                pipeline.finish_batch(pipeline.batch_id, 'SUCCESS', 'OK')
+
+            print_success(f"[{pipeline_name}] Completed successfully!")
+            succeeded.append(pipeline_name)
+
+        except Exception as e:
+            print_error(f"[{pipeline_name}] Failed: {e}")
+            # Try to mark batch as failed
+            try:
+                if 'pipeline' in locals() and hasattr(pipeline, 'batch_id') and pipeline.batch_id:
+                    pipeline.finish_batch(pipeline.batch_id, 'FAILED', str(e))
+            except Exception:
+                pass
+            import traceback
+            traceback.print_exc()
+            failed.append(pipeline_name)
+
+        print()  # blank line between pipelines
+
+    # --- Summary ---
+    print_header("Full Automate Pipeline - Summary", Colors.BRIGHT_MAGENTA)
+    print_info(f"Total pipelines: {total}")
+    if succeeded:
+        print_success(f"Succeeded ({len(succeeded)}): {', '.join(succeeded)}")
+    if failed:
+        print_error(f"Failed    ({len(failed)}): {', '.join(failed)}")
+    if not failed:
+        print_success("All pipelines completed successfully!")
 
 
 def handle_error(e):
@@ -543,6 +565,14 @@ def main():
             print()
             print_info("Goodbye!")
             break
+        
+        # Handle full automate pipeline (run all)
+        if pipeline_info == 'ALL':
+            try:
+                run_full_automate_pipeline()
+            except Exception as e:
+                handle_error(e)
+            continue
         
         # Second layer: Select layer/operation
         while True:

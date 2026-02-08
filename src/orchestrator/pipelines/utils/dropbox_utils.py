@@ -4,7 +4,7 @@ import io
 import re
 import unicodedata
 from datetime import date
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 import pandas as pd
 import openpyxl
 
@@ -325,11 +325,14 @@ def load_excel_files_from_dropbox(
     expected_files: List[str],
     ignored_files: List[str],
     persian_columns: List[str],
-    header_row: int = 7
+    header_row: int = 7,
+    log_fn: Optional[Callable[[str], None]] = None,
 ) -> pd.DataFrame:
     """
     Load and concatenate Excel files from Dropbox, matching factory names to Excel table names.
-    
+
+    When log_fn is provided, only a single summary line is emitted: expected vs loaded file count.
+
     Args:
         dropbox_client: DropboxClient instance
         shared_link: Dropbox shared link
@@ -338,68 +341,44 @@ def load_excel_files_from_dropbox(
         ignored_files: List of files to ignore
         persian_columns: List of expected Persian column names
         header_row: Row number (0-indexed) to use as header
-        
+        log_fn: Optional callback for progress/summary (e.g. one line: expected vs loaded file count)
+
     Returns:
         Concatenated DataFrame with all data
     """
-    print(f"Downloading files from Dropbox shared link: {shared_link}")
-    print("Checking for expected files...")
-    
     files = dropbox_client.list_files(shared_link=shared_link, pattern=file_pattern)
-    
+
     if not files:
         raise ValueError(f"No files found in Dropbox shared folder matching pattern '{file_pattern}'")
-    
-    # Check expected files
-    if expected_files:
-        found_file_names = {file_info['name'] for file_info in files}
-        found = [f for f in expected_files if f in found_file_names]
-        missing = [f for f in expected_files if f not in found_file_names]
-        
-        if found:
-            print(f"[OK] Found {len(found)} expected file(s):")
-            for filename in found:
-                print(f"  - {filename}")
-        
-        if missing:
-            print(f"[WARN] Missing {len(missing)} expected file(s):")
-            for filename in missing:
-                print(f"  - {filename}")
-    
+
     # Filter ignored files
     files_to_process = [f for f in files if f['name'] not in (ignored_files or [])]
-    
+
     if not files_to_process:
         raise ValueError("No files to process after filtering ignored files")
-    
-    # Process each file
+
+    # Process each file (no per-file logging)
     dataframes = []
     skipped_files = []
-    
+
     for file_info in files_to_process:
         file_name = file_info['name']
-        
+
         try:
             factory_name = extract_factory_name_from_filename(file_name)
             if not factory_name:
-                print(f"[WARN] Could not extract factory name from filename: {file_name}. Skipping.")
                 skipped_files.append(file_name)
                 continue
-            
-            print(f"\n[INFO] Processing file: {file_name}")
-            print(f"  Extracted factory name: {factory_name}")
-            
+
             file_shared_link = file_info.get('_shared_link') if file_info.get('_is_shared') else shared_link
             matching_table = find_matching_table(dropbox_client, file_info, factory_name, file_shared_link)
-            
+
             if not matching_table:
-                print(f"  [ERROR] No table found matching factory name '{factory_name}'")
                 skipped_files.append(file_name)
                 continue
-            
+
             sheet_name, table_name = matching_table
-            print(f"  Using table: '{table_name}' in sheet: '{sheet_name}'")
-            
+
             df = dropbox_client.read_excel_table(
                 file_info['path'],
                 sheet_name=sheet_name,
@@ -407,72 +386,49 @@ def load_excel_files_from_dropbox(
                 shared_link=file_shared_link,
                 file_name=file_name
             )
-            
+
             if df.empty or len(df) == 0:
-                print(f"  [WARN] Table '{table_name}' has no data rows. Skipping.")
                 skipped_files.append(file_name)
                 continue
-            
+
             df['source_file'] = file_name
             dataframes.append(df)
-            print(f"  [OK] Successfully loaded {len(df)} rows from table '{table_name}'")
-            
-        except ValueError as e:
-            error_msg = str(e)
-            if "not found" in error_msg.lower() and ("table" in error_msg.lower() or "sheet" in error_msg.lower()):
-                print(f"  [ERROR] {error_msg}")
-            elif "only" in error_msg and "lines in file" in error_msg:
-                print(f"  [WARN] {error_msg}. Skipping.")
-            else:
-                print(f"  [ERROR] {error_msg}")
+
+        except (ValueError, Exception):
             skipped_files.append(file_name)
-        except Exception as e:
-            print(f"  [ERROR] Failed to process file '{file_name}': {str(e)}")
-            skipped_files.append(file_name)
-    
+
     if not dataframes:
         raise ValueError(
             f"No valid Excel files could be loaded. "
             f"Total files found: {len(files)}, Skipped: {len(skipped_files)}"
         )
-    
-    # Filter out empty DataFrames before concatenation to avoid FutureWarning
-    # about concatenation with empty or all-NA entries
+
     non_empty_dataframes = [df for df in dataframes if not df.empty and len(df) > 0]
-    
+
     if not non_empty_dataframes:
         raise ValueError(
             f"No valid data found in Excel files. "
             f"Total files found: {len(files)}, Skipped: {len(skipped_files)}"
         )
-    
-    print(f"\n[INFO] Concatenating {len(non_empty_dataframes)} file(s)...")
-    # Use sort=False to avoid FutureWarning about dtype inference
+
     df = pd.concat(non_empty_dataframes, ignore_index=True, sort=False)
-    
-    if skipped_files:
-        print(f"[INFO] Summary: Loaded {len(non_empty_dataframes)} file(s), Skipped {len(skipped_files)} file(s)")
-    
+
     # Normalize and validate
     df = normalize_dataframe_columns(df, persian_columns)
     validate_dataframe_columns(df, persian_columns)
     validate_dataframe_has_data(df, persian_columns)
     df = filter_empty_rows(df, persian_columns)
-    
-    # Filter to only include expected columns (plus source_file if present)
-    # This ensures we don't have extra columns from hidden columns or other sources
-    # Extra columns won't cause errors, but filtering keeps the DataFrame clean
+
     columns_to_keep = persian_columns.copy()
     if 'source_file' in df.columns:
         columns_to_keep.append('source_file')
     df = df[columns_to_keep]
-    
+
     loaded_files = df['source_file'].unique().tolist() if 'source_file' in df.columns else []
-    print(f"\n✓ Successfully loaded {len(df)} rows from {len(loaded_files)} file(s):")
-    for filename in sorted(loaded_files):
-        file_rows = len(df[df['source_file'] == filename])
-        print(f"  - {filename} ({file_rows} rows)")
-    
+    expected_count = len(expected_files) if expected_files else 0
+    if log_fn is not None:
+        log_fn(f"Expected {expected_count} files, loaded {len(loaded_files)} files")
+
     return df
 
 
