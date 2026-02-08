@@ -502,7 +502,7 @@ def save_results_csv(result, solution, data, csv_path: str, include_variables: b
             row["factory_supply"] = round(data.factory_supply(product_id), 2)
         rows.append(row)
 
-    with open(output_path, "w", newline="", encoding="utf-8") as f:
+    with open(output_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
