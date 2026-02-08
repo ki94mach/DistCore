@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from src.optimization.data import OptimizationData
+from src.optimization.solver import Solution
 from src.optimization.lp import (
     Model,
     Variable,
@@ -108,8 +109,7 @@ class GreedySolver:
         self,
         model: Model,
         decision_variables: Dict[Tuple[str, str], Variable],
-    ) -> "Solution":
-        from src.optimization.solver import Solution
+    ) -> Solution:
 
         variable_values = _greedy_allocate(self.data, decision_variables)
         for var in model.variables:
@@ -151,8 +151,7 @@ class SimulatedAnnealingSolver:
         self,
         model: Model,
         decision_variables: Dict[Tuple[str, str], Variable],
-    ) -> "Solution":
-        from src.optimization.solver import Solution
+    ) -> Solution:
 
         # Start from greedy solution
         variable_values = _greedy_allocate(self.data, decision_variables)

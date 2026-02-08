@@ -132,6 +132,10 @@ class SnapshotDataLoader:
             target_qty = float(row["target_quantity"] or 0.0)
             target_units_map[product_id] = target_units_map.get(product_id, 0.0) + target_qty
 
+        # Load dimension names from SQL Server (Analytics_Stage) for output display
+        distributor_names = self._load_distributor_names(sorted(distributors))
+        product_names = self._load_product_names(sorted(products))
+
         return OptimizationData(
             distributors=sorted(distributors),
             products=sorted(products),
@@ -144,6 +148,8 @@ class SnapshotDataLoader:
             settings=settings,
             delivery_ma_6=delivery_ma_6_map,
             has_delivery_last_6m=has_delivery_last_6m_map,
+            distributor_names=distributor_names,
+            product_names=product_names,
         )
 
     def _load_factory_inventory(self, snapshot_date: date) -> List[Dict[str, Any]]:
@@ -308,4 +314,36 @@ class SnapshotDataLoader:
             if row.get("product_id") is not None:
                 products.add(str(row["product_id"]))
         return products
+
+    def _load_distributor_names(self, distributor_ids: List[str]) -> Dict[str, str]:
+        """Load distributor ID -> name from [Analytics_Stage].[Data].[DimDistrbutor]."""
+        if not distributor_ids:
+            return {}
+        try:
+            placeholders = ",".join("?" * len(distributor_ids))
+            query = f"""
+            SELECT ID, DistrbutorTitle
+            FROM [Analytics_Stage].[Data].[DimDistrbutor]
+            WHERE ID IN ({placeholders})
+            """
+            rows = self._execute_parameterized_query(query, tuple(distributor_ids))
+            return {str(r["ID"]): (r["DistrbutorTitle"] or "").strip() or str(r["ID"]) for r in rows}
+        except Exception:
+            return {}
+
+    def _load_product_names(self, product_ids: List[str]) -> Dict[str, str]:
+        """Load product ID -> name from [Analytics_Stage].[Data].[DimProduct]."""
+        if not product_ids:
+            return {}
+        try:
+            placeholders = ",".join("?" * len(product_ids))
+            query = f"""
+            SELECT ID, ProductTitle
+            FROM [Analytics_Stage].[Data].[DimProduct]
+            WHERE ID IN ({placeholders})
+            """
+            rows = self._execute_parameterized_query(query, tuple(product_ids))
+            return {str(r["ID"]): (r["ProductTitle"] or "").strip() or str(r["ID"]) for r in rows}
+        except Exception:
+            return {}
 

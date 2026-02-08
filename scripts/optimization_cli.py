@@ -395,40 +395,42 @@ def build_and_solve_model(data, solver_name: str):
         raise
 
 
+def _distributor_label(data, distributor_id: str) -> str:
+    """Display name for distributor (from dimension) or ID if name not available."""
+    return (data.distributor_names or {}).get(distributor_id, distributor_id)
+
+
+def _product_label(data, product_id: str) -> str:
+    """Display name for product (from dimension) or ID if name not available."""
+    return (data.product_names or {}).get(product_id, product_id)
+
+
 def format_results(result, solution, data) -> dict:
-    """Format results as dictionary."""
-    # Extract shipment quantities
+    """Format results as dictionary. Uses distributor and product names from dimensions when available."""
+    # Extract shipment quantities; use names for output when available
     shipments = {}
-    for (distributor, product), variable in result.decision_variables.items():
+    for (distributor_id, product_id), variable in result.decision_variables.items():
         quantity = solution.variable_values.get(variable, 0.0)
-        shipments[f"{distributor}_{product}"] = {
-            "distributor": distributor,
-            "product": product,
-            "quantity": round(quantity, 2)
+        shipments[f"{distributor_id}_{product_id}"] = {
+            "distributor": _distributor_label(data, distributor_id),
+            "product": _product_label(data, product_id),
+            "quantity": round(quantity, 2),
         }
-    
-    # Calculate summary statistics
     total_shipments = sum(
         solution.variable_values.get(variable, 0.0)
         for variable in result.decision_variables.values()
     )
-    
-    # Group by product
-    shipments_by_product = {}
-    for (distributor, product), variable in result.decision_variables.items():
+    # Group by product name (or ID) for summary
+    shipments_by_product: dict[str, float] = {}
+    for (distributor_id, product_id), variable in result.decision_variables.items():
         quantity = solution.variable_values.get(variable, 0.0)
-        if product not in shipments_by_product:
-            shipments_by_product[product] = 0.0
-        shipments_by_product[product] += quantity
-    
-    # Group by distributor
-    shipments_by_distributor = {}
-    for (distributor, product), variable in result.decision_variables.items():
+        key = _product_label(data, product_id)
+        shipments_by_product[key] = shipments_by_product.get(key, 0.0) + quantity
+    shipments_by_distributor: dict[str, float] = {}
+    for (distributor_id, product_id), variable in result.decision_variables.items():
         quantity = solution.variable_values.get(variable, 0.0)
-        if distributor not in shipments_by_distributor:
-            shipments_by_distributor[distributor] = 0.0
-        shipments_by_distributor[distributor] += quantity
-    
+        key = _distributor_label(data, distributor_id)
+        shipments_by_distributor[key] = shipments_by_distributor.get(key, 0.0) + quantity
     return {
         "status": solution.status,
         "is_optimal": solution.is_optimal,
@@ -442,7 +444,7 @@ def format_results(result, solution, data) -> dict:
             "shipments_by_product": {k: round(v, 2) for k, v in shipments_by_product.items()},
             "shipments_by_distributor": {k: round(v, 2) for k, v in shipments_by_distributor.items()},
         },
-        "shipments": list(shipments.values())
+        "shipments": list(shipments.values()),
     }
 
 
@@ -476,8 +478,13 @@ def print_results(results: dict):
     print_info(f"\nDetailed Shipments:")
     print(colorize(f"{'Distributor':<20} {'Product':<15} {'Quantity':>15}", Colors.DIM))
     print(colorize("-" * 70, Colors.DIM))
-    for shipment in sorted(results['shipments'], key=lambda x: (x['distributor'], x['product'])):
-        print_info(f"{shipment['distributor']:<20} {shipment['product']:<15} {shipment['quantity']:>15.2f}")
+    for shipment in sorted(
+        results["shipments"],
+        key=lambda x: (x["distributor"], x["product"]),
+    ):
+        print_info(
+            f"{shipment['distributor']:<20} {shipment['product']:<15} {shipment['quantity']:>15.2f}"
+        )
 
 
 def save_results(results: dict, output_file: str):
@@ -515,23 +522,23 @@ def save_results_csv(result, solution, data, csv_path: str, include_variables: b
         fieldnames = ["distributor", "product", "quantity"]
 
     rows: list[dict[str, Any]] = []
-    for (distributor, product), variable in sorted(result.decision_variables.items()):
+    for (distributor_id, product_id), variable in sorted(result.decision_variables.items()):
         quantity = round(solution.variable_values.get(variable, 0.0), 2)
         row: dict[str, Any] = {
-            "distributor": distributor,
-            "product": product,
+            "distributor": _distributor_label(data, distributor_id),
+            "product": _product_label(data, product_id),
             "quantity": quantity,
         }
         if include_variables:
-            row["distributor_inventory"] = round(data.inventory(distributor, product), 2)
-            row["sales_ma_3"] = round(data.sales_ma_3.get((distributor, product), 0.0), 2)
-            row["sales_ma_6"] = round(data.sales_ma_6.get((distributor, product), 0.0), 2)
-            row["sales_mtd"] = round(data.sales_mtd.get((distributor, product), 0.0), 2)
-            row["coverage_demand"] = round(data.coverage_demand(distributor, product), 2)
-            row["delivery_ma_6"] = round(data.delivery_moving_average(distributor, product), 2)
-            row["has_delivery_last_6m"] = data.has_recent_delivery(distributor, product)
-            row["target_units"] = round(data.target_units.get(product, 0.0), 2)
-            row["factory_supply"] = round(data.factory_supply(product), 2)
+            row["distributor_inventory"] = round(data.inventory(distributor_id, product_id), 2)
+            row["sales_ma_3"] = round(data.sales_ma_3.get((distributor_id, product_id), 0.0), 2)
+            row["sales_ma_6"] = round(data.sales_ma_6.get((distributor_id, product_id), 0.0), 2)
+            row["sales_mtd"] = round(data.sales_mtd.get((distributor_id, product_id), 0.0), 2)
+            row["coverage_demand"] = round(data.coverage_demand(distributor_id, product_id), 2)
+            row["delivery_ma_6"] = round(data.delivery_moving_average(distributor_id, product_id), 2)
+            row["has_delivery_last_6m"] = data.has_recent_delivery(distributor_id, product_id)
+            row["target_units"] = round(data.target_units.get(product_id, 0.0), 2)
+            row["factory_supply"] = round(data.factory_supply(product_id), 2)
         rows.append(row)
 
     with open(output_path, "w", newline="", encoding="utf-8") as f:
