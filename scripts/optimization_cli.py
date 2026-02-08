@@ -448,45 +448,6 @@ def format_results(result, solution, data) -> dict:
     }
 
 
-def print_results(results: dict):
-    """Print results to console."""
-    print_header("OPTIMIZATION RESULTS", Colors.BRIGHT_GREEN)
-    
-    # Status information
-    status_color = Colors.BRIGHT_GREEN if results['is_optimal'] else (Colors.YELLOW if results['is_feasible'] else Colors.RED)
-    print_info(f"Status: {colorize(results['status'], status_color)}")
-    print_info(f"Optimal: {colorize(str(results['is_optimal']), status_color)}")
-    print_info(f"Feasible: {colorize(str(results['is_feasible']), status_color)}")
-    if results['objective_value'] is not None:
-        print_info(f"Objective Value: {colorize(str(results['objective_value']), Colors.BRIGHT_WHITE)}")
-    print_info(f"Solver: {results['solver_name']}")
-    
-    summary = results['summary']
-    print_info(f"\nSummary:")
-    print_info(f"  Total Shipments: {colorize(str(summary['total_shipments']), Colors.BRIGHT_WHITE)}")
-    print_info(f"  Distributors: {summary['num_distributors']}")
-    print_info(f"  Products: {summary['num_products']}")
-    
-    print_info(f"\nShipments by Product:")
-    for product, qty in summary['shipments_by_product'].items():
-        print_info(f"  {product}: {colorize(str(qty), Colors.BRIGHT_WHITE)}")
-    
-    print_info(f"\nShipments by Distributor:")
-    for distributor, qty in summary['shipments_by_distributor'].items():
-        print_info(f"  {distributor}: {colorize(str(qty), Colors.BRIGHT_WHITE)}")
-    
-    print_info(f"\nDetailed Shipments:")
-    print(colorize(f"{'Distributor':<20} {'Product':<15} {'Quantity':>15}", Colors.DIM))
-    print(colorize("-" * 70, Colors.DIM))
-    for shipment in sorted(
-        results["shipments"],
-        key=lambda x: (x["distributor"], x["product"]),
-    ):
-        print_info(
-            f"{shipment['distributor']:<20} {shipment['product']:<15} {shipment['quantity']:>15.2f}"
-        )
-
-
 def save_results(results: dict, output_file: str):
     """Save results to JSON file."""
     output_path = Path(output_file)
@@ -571,9 +532,6 @@ def run_optimization(config: dict):
         
         # Format results
         results = format_results(result, solution, data)
-        
-        # Print results
-        print_results(results)
         
         # Save results if requested
         if config.get('output_file'):
