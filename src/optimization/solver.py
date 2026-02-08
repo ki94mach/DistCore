@@ -373,6 +373,7 @@ def solve(
     method: str,
     *,
     data: Any = None,
+    solver_options: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Solution:
     """
     Unified entry point to solve the model with any available solver.
@@ -382,6 +383,9 @@ def solve(
         decision_variables: Mapping (distributor, product) -> Variable.
         method: Solver name: "CBC", "GLPK", "Scipy", "Greedy", "SimulatedAnnealing".
         data: OptimizationData; required when method is "Greedy" or "SimulatedAnnealing".
+        solver_options: Optional solver-specific options. Key by solver name, e.g.
+            {"SimulatedAnnealing": {"max_iter": 10000, "initial_temp": 2000.0}}.
+            See docs/optimization-fine-tuning.md for SA parameters.
 
     Returns:
         Solution with status, objective_value, variable_values.
@@ -391,6 +395,8 @@ def solve(
         RuntimeError: If the chosen solver fails.
     """
     method = method.strip()
+    opts = (solver_options or {}).get(method) or {}
+
     if method in _PULP_SOLVER_NAMES:
         solver = PuLPSolver(solver_name=method)
         return solver.solve(model, decision_variables)
@@ -407,7 +413,8 @@ def solve(
         if data is None:
             raise ValueError("SimulatedAnnealing solver requires OptimizationData (data=...)")
         from src.optimization.heuristic_solvers import SimulatedAnnealingSolver
-        return SimulatedAnnealingSolver(data).solve(model, decision_variables)
+        sa_solver = SimulatedAnnealingSolver(data, config_dict=opts)
+        return sa_solver.solve(model, decision_variables)
     raise ValueError(
         f"Unknown solver: {method}. Available: {', '.join(SOLVER_PRIORITY)}"
     )

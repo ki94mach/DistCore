@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.optimization.data import OptimizationData
 from src.optimization.solver import Solution
@@ -112,10 +112,13 @@ class GreedySolver:
     ) -> Solution:
 
         variable_values = _greedy_allocate(self.data, decision_variables)
+        # Do not pre-fill slacks: _set_slacks_for_feasibility must see them as "not in variable_values"
+        # so it can set them; otherwise slacks stay 0 and the objective is wrong.
+        _set_slacks_for_feasibility(model, variable_values)
+        # Ensure any remaining model variables (e.g. unused) have a value for the returned dict
         for var in model.variables:
             if var not in variable_values:
                 variable_values[var] = 0.0
-        _set_slacks_for_feasibility(model, variable_values)
         obj = evaluate_objective(model, variable_values)
         return Solution(
             status="Feasible",
@@ -134,6 +137,19 @@ class _SAConfig:
     cooling_rate: float = 0.995
     step_scale: float = 0.1
 
+    @classmethod
+    def from_dict(cls, d: Optional[Dict[str, Any]]) -> "_SAConfig":
+        """Build config from a dict (e.g. solver_options['SimulatedAnnealing']). Unknown keys ignored."""
+        if not d:
+            return cls()
+        return cls(
+            max_iter=int(d.get("max_iter", 5000)),
+            initial_temp=float(d.get("initial_temp", 1000.0)),
+            min_temp=float(d.get("min_temp", 0.01)),
+            cooling_rate=float(d.get("cooling_rate", 0.995)),
+            step_scale=float(d.get("step_scale", 0.1)),
+        )
+
 
 class SimulatedAnnealingSolver:
     """Priority 2: Metaheuristic solver. Improves on a starting solution by random perturbations."""
@@ -142,9 +158,13 @@ class SimulatedAnnealingSolver:
         self,
         data: OptimizationData,
         config: Optional[_SAConfig] = None,
+        config_dict: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.data = data
-        self.config = config or _SAConfig()
+        if config_dict is not None:
+            self.config = _SAConfig.from_dict(config_dict)
+        else:
+            self.config = config or _SAConfig()
         self.solver_name = "SimulatedAnnealing"
 
     def solve(
@@ -153,12 +173,12 @@ class SimulatedAnnealingSolver:
         decision_variables: Dict[Tuple[str, str], Variable],
     ) -> Solution:
 
-        # Start from greedy solution
+        # Start from greedy solution (do not pre-fill slacks so _set_slacks_for_feasibility sets them)
         variable_values = _greedy_allocate(self.data, decision_variables)
+        _set_slacks_for_feasibility(model, variable_values)
         for var in model.variables:
             if var not in variable_values:
                 variable_values[var] = 0.0
-        _set_slacks_for_feasibility(model, variable_values)
 
         # Only perturb decision variables (not slacks); slacks recomputed after each move
         decision_vars_list: List[Variable] = list(decision_variables.values())
