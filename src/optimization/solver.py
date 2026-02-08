@@ -3,21 +3,22 @@
 This module provides adapters to convert the abstract LP model to solver-specific
 formats and solve optimization problems.
 
-Recommended solver: PuLP (Python Linear Programming)
-- Easy to use and well-documented
-- Open source with CBC solver included
-- Supports commercial solvers (CPLEX, Gurobi) if available
-- Good for linear programming problems
+Solver priority for evaluation (best first for your use case):
+  1. CBC / GLPK  - Exact LP (PuLP); use for reference quality.
+  2. Scipy       - Exact LP (HiGHS); no extra binary, good fallback.
+  3. Greedy      - Heuristic baseline; no deps, very fast.
+  4. SimulatedAnnealing - Metaheuristic; better quality than greedy.
 
-Installation: pip install pulp
+Installation: pip install pulp   (for CBC/GLPK)
+              pip install scipy  (for Scipy; often already installed)
 """
 
 from __future__ import annotations
 
-import pulp
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+import pulp
 from src.optimization.lp import Model, Variable
 
 
@@ -48,9 +49,6 @@ class PuLPSolver:
             solver_name: Name of the PuLP solver to use. Options:
                 - "CBC" (default) - Coin-or Branch and Cut, open source
                 - "GLPK" - GNU Linear Programming Kit, open source
-                - "CPLEX" - IBM CPLEX (requires license)
-                - "GUROBI" - Gurobi Optimizer (requires license)
-                - "PULP_CBC_CMD" - CBC via command line
         """
         self.solver_name = solver_name
         self._pulp_solver = self._get_pulp_solver(solver_name)
@@ -157,8 +155,6 @@ class PuLPSolver:
         solver_map = {
             "CBC": pulp.PULP_CBC_CMD(msg=0),  # Quiet mode
             "GLPK": pulp.GLPK_CMD(msg=0),
-            "CPLEX": pulp.CPLEX_CMD(msg=0),
-            "GUROBI": pulp.GUROBI_CMD(msg=0),
             "PULP_CBC_CMD": pulp.PULP_CBC_CMD(msg=0),
         }
 
@@ -173,22 +169,148 @@ class PuLPSolver:
 _PULP_SOLVER_NAMES = {
     "CBC": "PULP_CBC_CMD",
     "GLPK": "GLPK_CMD",
-    "CPLEX": "CPLEX_CMD",
-    "GUROBI": "GUROBI_CMD",
 }
+
+# Priority order for evaluation: exact LP first, then heuristic/metaheuristic
+SOLVER_PRIORITY: List[str] = [
+    "CBC",
+    "GLPK",
+    "Scipy",
+    "Greedy",
+    "SimulatedAnnealing",
+]
+
+
+def _scipy_available() -> bool:
+    try:
+        from scipy.optimize import linprog
+        return True
+    except ImportError:
+        return False
+
+
+class ScipyLinprogSolver:
+    """Priority 3: Exact LP via scipy.optimize.linprog (HiGHS). No PuLP required."""
+
+    def __init__(self) -> None:
+        self.solver_name = "Scipy"
+
+    def solve(
+        self, model: Model, decision_variables: Dict[Tuple[str, str], Variable]
+    ) -> Solution:
+        from scipy.optimize import linprog
+        import numpy as np
+
+        n = len(model.variables)
+        var_to_idx = {v: i for i, v in enumerate(model.variables)}
+
+        # Objective: c @ x (minimize)
+        c = np.zeros(n)
+        if model.objective:
+            for var, coeff in model.objective.expression.coefficients.items():
+                if var in var_to_idx:
+                    c[var_to_idx[var]] = coeff
+            if model.objective.sense == "max":
+                c = -c
+        # Constant term ignored for optimum
+
+        # Bounds
+        bounds: List[Tuple[float, Optional[float]]] = []
+        for var in model.variables:
+            up = var.up if var.up is not None else None
+            bounds.append((var.low, up))
+
+        # Constraints: A_ub @ x <= b_ub, A_eq @ x = b_eq
+        A_ub_list: List[List[float]] = []
+        b_ub_list: List[float] = []
+        A_eq_list: List[List[float]] = []
+        b_eq_list: List[float] = []
+
+        for constraint in model.constraints:
+            row = [0.0] * n
+            for var, coeff in constraint.expression.coefficients.items():
+                if var in var_to_idx:
+                    row[var_to_idx[var]] = coeff
+            rhs = constraint.rhs - constraint.expression.constant
+            if constraint.sense == "<=":
+                A_ub_list.append(row)
+                b_ub_list.append(rhs)
+            elif constraint.sense == ">=":
+                A_ub_list.append([-x for x in row])
+                b_ub_list.append(-rhs)
+            else:
+                A_eq_list.append(row)
+                b_eq_list.append(rhs)
+
+        A_ub = np.array(A_ub_list) if A_ub_list else None
+        b_ub = np.array(b_ub_list) if b_ub_list else None
+        A_eq = np.array(A_eq_list) if A_eq_list else None
+        b_eq = np.array(b_eq_list) if b_eq_list else None
+
+        try:
+            res = linprog(
+                c,
+                A_ub=A_ub,
+                b_ub=b_ub,
+                A_eq=A_eq,
+                b_eq=b_eq,
+                bounds=bounds,
+                method="highs",
+                options={"disp": False},
+            )
+        except ValueError:
+            res = linprog(
+                c,
+                A_ub=A_ub,
+                b_ub=b_ub,
+                A_eq=A_eq,
+                b_eq=b_eq,
+                bounds=bounds,
+                method="revised_simplex",
+                options={"disp": False},
+            )
+
+        if not res.success:
+            status = "Infeasible" if res.status == 2 else "Unbounded" if res.status == 3 else "Failed"
+            variable_values = {var: 0.0 for var in model.variables}
+            return Solution(
+                status=status,
+                objective_value=float(res.fun) if res.fun is not None else None,
+                variable_values=variable_values,
+                is_optimal=False,
+                solver_name=self.solver_name,
+            )
+
+        variable_values: Dict[Variable, float] = {}
+        for i, var in enumerate(model.variables):
+            val = res.x[i] if res.x is not None else 0.0
+            variable_values[var] = float(val) if val is not None else 0.0
+
+        return Solution(
+            status="Optimal",
+            objective_value=float(res.fun) if res.fun is not None else None,
+            variable_values=variable_values,
+            is_optimal=True,
+            solver_name=self.solver_name,
+        )
 
 
 def is_solver_available(solver_name: str) -> bool:
     """
-    Check if a solver is available on this system (executable on PATH or installed).
+    Check if a solver is available on this system.
 
     Args:
-        solver_name: One of "CBC", "GLPK", "CPLEX", "GUROBI"
+        solver_name: One of "CBC", "GLPK", "Scipy", "Greedy", "SimulatedAnnealing"
 
     Returns:
-        True if the solver can be executed, False otherwise.
+        True if the solver can be used, False otherwise.
     """
-    pulp_name = _PULP_SOLVER_NAMES.get(solver_name.upper())
+    name = solver_name.strip()
+    if name in ("Greedy", "SimulatedAnnealing"):
+        return True
+    if name == "Scipy":
+        return _scipy_available()
+    pulp_name = _PULP_SOLVER_NAMES.get(name.upper())
     if not pulp_name:
         return False
     try:
@@ -201,8 +323,8 @@ def is_solver_available(solver_name: str) -> bool:
 
 
 def get_available_solver_names() -> list[str]:
-    """Return list of solver names that are currently available (e.g. ['CBC', 'GLPK'])."""
-    return [name for name in _PULP_SOLVER_NAMES if is_solver_available(name)]
+    """Return solver names in priority order that are currently available."""
+    return [name for name in SOLVER_PRIORITY if is_solver_available(name)]
 
 
 def solve_with_pulp(
@@ -243,4 +365,50 @@ def solve_with_pulp(
     """
     solver = PuLPSolver(solver_name=solver_name)
     return solver.solve(model, decision_variables)
+
+
+def solve(
+    model: Model,
+    decision_variables: Dict[Tuple[str, str], Variable],
+    method: str,
+    *,
+    data: Any = None,
+) -> Solution:
+    """
+    Unified entry point to solve the model with any available solver.
+
+    Args:
+        model: The abstract LP model.
+        decision_variables: Mapping (distributor, product) -> Variable.
+        method: Solver name: "CBC", "GLPK", "Scipy", "Greedy", "SimulatedAnnealing".
+        data: OptimizationData; required when method is "Greedy" or "SimulatedAnnealing".
+
+    Returns:
+        Solution with status, objective_value, variable_values.
+
+    Raises:
+        ValueError: If method is unknown or data is missing for heuristic solvers.
+        RuntimeError: If the chosen solver fails.
+    """
+    method = method.strip()
+    if method in _PULP_SOLVER_NAMES:
+        solver = PuLPSolver(solver_name=method)
+        return solver.solve(model, decision_variables)
+    if method == "Scipy":
+        if not _scipy_available():
+            raise RuntimeError("Scipy solver requested but scipy is not installed")
+        return ScipyLinprogSolver().solve(model, decision_variables)
+    if method == "Greedy":
+        if data is None:
+            raise ValueError("Greedy solver requires OptimizationData (data=...)")
+        from src.optimization.heuristic_solvers import GreedySolver
+        return GreedySolver(data).solve(model, decision_variables)
+    if method == "SimulatedAnnealing":
+        if data is None:
+            raise ValueError("SimulatedAnnealing solver requires OptimizationData (data=...)")
+        from src.optimization.heuristic_solvers import SimulatedAnnealingSolver
+        return SimulatedAnnealingSolver(data).solve(model, decision_variables)
+    raise ValueError(
+        f"Unknown solver: {method}. Available: {', '.join(SOLVER_PRIORITY)}"
+    )
 

@@ -26,10 +26,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.optimization import (
     OptimizationSettings,
     ModelBuilder,
-    solve_with_pulp,
-    SnapshotDataLoader
+    solve,
+    SnapshotDataLoader,
 )
-from src.optimization.solver import get_available_solver_names
+from src.optimization.solver import SOLVER_PRIORITY, get_available_solver_names
 from src.optimization.constraints import (
     DeliveryHistoryConstraint,
     DeliverySmoothingConstraint,
@@ -221,7 +221,7 @@ def configure_optimization_settings() -> OptimizationSettings:
 
 
 def configure_solver() -> str:
-    """Configure solver selection."""
+    """Configure solver selection (priority order: exact LP first, then heuristics)."""
     print_header("Solver Configuration", Colors.BRIGHT_BLUE)
     available = get_available_solver_names()
 
@@ -230,20 +230,27 @@ def configure_solver() -> str:
             return desc
         return f"{desc} [not available]"
 
-    print_info("\nSelect Solver:")
-    print_menu_item('1', solver_desc('CBC', 'CBC (Coin-or Branch and Cut) - Recommended'), Colors.BRIGHT_WHITE)
-    print_menu_item('2', solver_desc('GLPK', 'GLPK (GNU Linear Programming Kit)'), Colors.WHITE)
-    print_menu_item('3', solver_desc('CPLEX', 'CPLEX (IBM - requires license)'), Colors.WHITE)
-    print_menu_item('4', solver_desc('GUROBI', 'GUROBI (requires license)'), Colors.WHITE)
-
-    solver_map = {
-        '1': 'CBC',
-        '2': 'GLPK',
-        '3': 'CPLEX',
-        '4': 'GUROBI'
+    labels = {
+        "CBC": "CBC (Coin-or Branch and Cut) - Recommended",
+        "GLPK": "GLPK (GNU Linear Programming Kit)",
+        "Scipy": "Scipy (HiGHS) - exact LP, no PuLP",
+        "Greedy": "Greedy - heuristic baseline, fast",
+        "SimulatedAnnealing": "Simulated Annealing - metaheuristic",
     }
-    solver_choice = print_prompt("Select solver (1/2/3/4, default=1): ").strip() or "1"
-    return solver_map.get(solver_choice, 'CBC')
+    print_info("\nSelect Solver (priority order for evaluation):")
+    solver_map = {}
+    for i, name in enumerate(SOLVER_PRIORITY, start=1):
+        desc = labels.get(name, name)
+        print_menu_item(
+            str(i),
+            solver_desc(name, desc),
+            Colors.BRIGHT_WHITE if name in available else Colors.DIM,
+        )
+        solver_map[str(i)] = name
+    default = "1"
+    prompt = f"Select solver (1-{len(SOLVER_PRIORITY)}, default={default}): "
+    solver_choice = print_prompt(prompt).strip() or default
+    return solver_map.get(solver_choice, SOLVER_PRIORITY[0])
 
 
 def configure_output(snapshot_date: date, solver_name: str) -> dict[str, Any]:
@@ -368,16 +375,20 @@ def build_and_solve_model(data, solver_name: str):
     # Solve
     print_action(f"Solving optimization problem with {solver_name} solver...")
     try:
-        solution = solve_with_pulp(
+        solution = solve(
             result.model,
             result.decision_variables,
-            solver_name=solver_name
+            method=solver_name,
+            data=data,
         )
         print_success(f"Solution status: {solution.status}")
         return result, solution
+    except ValueError as e:
+        print_error(f"Configuration error: {e}")
+        raise
     except ImportError as e:
-        print_error(f"PuLP solver not available: {e}")
-        print_error("Install PuLP: pip install pulp")
+        print_error(f"Solver not available: {e}")
+        print_error("For LP: pip install pulp  |  For Scipy: pip install scipy")
         raise
     except Exception as e:
         print_error(f"Solver error: {e}")

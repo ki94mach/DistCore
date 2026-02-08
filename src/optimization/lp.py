@@ -67,4 +67,41 @@ def linear_sum(terms: Iterable[Tuple[Variable, float]], constant: float = 0.0) -
     for variable, coefficient in terms:
         expression.add_term(variable, coefficient)
     return expression
-    
+
+
+def evaluate_expression(
+    expression: LinearExpression, variable_values: Dict[Variable, float]
+) -> float:
+    """Evaluate a linear expression at the given variable values."""
+    value = expression.constant
+    for var, coeff in expression.coefficients.items():
+        value += coeff * variable_values.get(var, 0.0)
+    return value
+
+
+def evaluate_objective(model: Model, variable_values: Dict[Variable, float]) -> float:
+    """Evaluate the model objective at the given variable values. Returns 0.0 if no objective."""
+    if model.objective is None:
+        return 0.0
+    return evaluate_expression(model.objective.expression, variable_values)
+
+
+def is_feasible(
+    model: Model, variable_values: Dict[Variable, float], tol: float = 1e-6
+) -> bool:
+    """Check if variable values satisfy all constraints and variable bounds."""
+    for var in model.variables:
+        v = variable_values.get(var, 0.0)
+        if v < var.low - tol:
+            return False
+        if var.up is not None and v > var.up + tol:
+            return False
+    for constraint in model.constraints:
+        lhs = evaluate_expression(constraint.expression, variable_values)
+        if constraint.sense == "<=" and lhs > constraint.rhs + tol:
+            return False
+        if constraint.sense == ">=" and lhs < constraint.rhs - tol:
+            return False
+        if constraint.sense == "=" and abs(lhs - constraint.rhs) > tol:
+            return False
+    return True
