@@ -41,6 +41,7 @@ from src.optimization.constraints import (
     FactorySupplyConstraint,
     DistributorCoverageConstraint,
     ProductTargetUnitsConstraint,
+    ShipmentMinimizationConstraint,
 )
 from src.orchestrator.services.sql_server_db import DBConnectionFactory, SQLExecutor
 
@@ -51,6 +52,7 @@ CONSTRAINTS = [
     DeliverySmoothingConstraint(),
     DistributorCoverageConstraint(),
     ProductTargetUnitsConstraint(),
+    ShipmentMinimizationConstraint(),
 ]
 
 # Built-in presets: name -> OptimizationSettings (or dict for from_dict if we add it)

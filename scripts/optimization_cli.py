@@ -29,13 +29,14 @@ from src.optimization import (
     solve,
     SnapshotDataLoader,
 )
-from src.optimization.solver import SOLVER_PRIORITY, get_available_solver_names
+from src.optimization.solvers import SOLVER_PRIORITY, get_available_solver_names
 from src.optimization.constraints import (
     DeliveryHistoryConstraint,
     DeliverySmoothingConstraint,
     FactorySupplyConstraint,
     DistributorCoverageConstraint,
-    ProductTargetUnitsConstraint
+    ProductTargetUnitsConstraint,
+    ShipmentMinimizationConstraint,
 )
 from src.orchestrator.services.sql_server_db import DBConnectionFactory, SQLExecutor
 from src.orchestrator.ui.terminal_ui import (
@@ -134,6 +135,7 @@ def configure_optimization_settings() -> OptimizationSettings:
     print(colorize(f"  - weight_coverage: {settings.weight_coverage}", Colors.WHITE))
     print(colorize(f"  - weight_target_units: {settings.weight_target_units}", Colors.WHITE))
     print(colorize(f"  - weight_delivery: {settings.weight_delivery}", Colors.WHITE))
+    print(colorize(f"  - weight_shipment: {settings.weight_shipment}", Colors.WHITE))
     print(colorize("  (Press Enter to edit; type 'n' to keep these and skip editing)", Colors.DIM))
 
     edit_choice = print_prompt("Edit these settings? (y/n, default=y): ").strip().lower()
@@ -209,6 +211,11 @@ def configure_optimization_settings() -> OptimizationSettings:
         settings.weight_delivery,
         "Weight for delivery smoothing constraint violations in objective",
     )
+    weight_shipment = prompt_float(
+        "Shipment weight",
+        settings.weight_shipment,
+        "Weight for decision variables in objective (penalizes unnecessary shipping)",
+    )
 
     return OptimizationSettings(
         coverage_ratio=coverage_ratio,
@@ -218,6 +225,7 @@ def configure_optimization_settings() -> OptimizationSettings:
         weight_coverage=weight_coverage,
         weight_target_units=weight_target_units,
         weight_delivery=weight_delivery,
+        weight_shipment=weight_shipment,
     )
 
 
@@ -355,11 +363,12 @@ def build_and_solve_model(data, solver_name: str, settings=None):
     
     # Define constraints
     constraints = [
-        FactorySupplyConstraint(),       # Hard: factory capacity
-        DeliveryHistoryConstraint(),     # Hard: no delivery without history
-        DeliverySmoothingConstraint(),   # Soft: delivery smoothing
-        DistributorCoverageConstraint(), # Soft: distributor coverage
-        ProductTargetUnitsConstraint()   # Soft: product targets
+        FactorySupplyConstraint(),            # Hard: factory capacity
+        DeliveryHistoryConstraint(),          # Hard: no delivery without history
+        DeliverySmoothingConstraint(),        # Soft: delivery smoothing
+        DistributorCoverageConstraint(),      # Soft: distributor coverage
+        ProductTargetUnitsConstraint(),       # Soft: product targets
+        ShipmentMinimizationConstraint(),     # Soft: penalize unnecessary shipment
     ]
     
     constraint_names = [c.__class__.__name__ for c in constraints]

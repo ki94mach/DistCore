@@ -51,13 +51,14 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.optimization import ModelBuilder, OptimizationSettings, solve, SnapshotDataLoader
-from src.optimization.solver import get_available_solver_names
+from src.optimization.solvers import get_available_solver_names
 from src.optimization.constraints import (
     DeliveryHistoryConstraint,
     DeliverySmoothingConstraint,
     FactorySupplyConstraint,
     DistributorCoverageConstraint,
     ProductTargetUnitsConstraint,
+    ShipmentMinimizationConstraint,
 )
 from src.orchestrator.services.sql_server_db import DBConnectionFactory, SQLExecutor
 
@@ -68,6 +69,7 @@ CONSTRAINTS = [
     DeliverySmoothingConstraint(),
     DistributorCoverageConstraint(),
     ProductTargetUnitsConstraint(),
+    ShipmentMinimizationConstraint(),
 ]
 
 
