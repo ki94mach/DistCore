@@ -63,15 +63,17 @@ PRESETS: dict[str, OptimizationSettings] = {
         weight_coverage=1.0,
         weight_target_units=1.0,
         weight_delivery=1.0,
+        weight_shipment=0.0,
     ),
     "high_coverage": OptimizationSettings(
         coverage_ratio=1,
         sales_window=3,
         delivery_lower_bound=0.9,
         delivery_upper_bound=1.2,
-        weight_coverage=0.5,
-        weight_target_units=2.0,
+        weight_coverage=2.0,
+        weight_target_units=1.0,
         weight_delivery=1.0,
+        weight_shipment=1.0,
     ),
     "focus_targets": OptimizationSettings(
         coverage_ratio=1,
@@ -81,6 +83,7 @@ PRESETS: dict[str, OptimizationSettings] = {
         weight_coverage=1.0,
         weight_target_units=2.0,
         weight_delivery=1.0,
+        weight_shipment=1.0,
     ),
 }
 

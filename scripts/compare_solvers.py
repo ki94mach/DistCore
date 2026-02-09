@@ -86,10 +86,10 @@ def load_data(
     )
 
 
-def build_model(data: Any) -> Any:
+def build_model(data: Any, settings: OptimizationSettings | None = None) -> Any:
     """Build model and return (model, decision_variables) result."""
     builder = ModelBuilder(CONSTRAINTS)
-    return builder.build(data)
+    return builder.build(data, settings_override=settings)
 
 
 def l1_difference(
@@ -124,7 +124,7 @@ def run_comparison(
     sql_executor = SQLExecutor(factory)
 
     data = load_data(sql_executor, snapshot_date, database_type, settings)
-    result = build_model(data)
+    result = build_model(data, settings=settings)
 
     available = get_available_solver_names()
     if not available:
@@ -156,6 +156,7 @@ def run_comparison(
                 "objective_value": None,
                 "time_seconds": round(elapsed, 3),
                 "l1_vs_reference": None,
+                "total_delivery": None,
                 "error": str(e),
             })
             continue
@@ -171,6 +172,12 @@ def run_comparison(
         if solver_name == reference_solver:
             reference_values = solution.variable_values
 
+        # Calculate total delivery (sum of all decision variable values)
+        total_delivery = sum(
+            solution.variable_values.get(v, 0.0)
+            for v in result.decision_variables.values()
+        )
+
         rows.append({
             "solver": solver_name,
             "status": solution.status,
@@ -179,6 +186,7 @@ def run_comparison(
             "objective_value": round(solution.objective_value, 4) if solution.objective_value is not None else None,
             "time_seconds": round(elapsed, 3),
             "l1_vs_reference": round(l1_ref, 4) if l1_ref is not None else None,
+            "total_delivery": round(total_delivery, 2),
             "error": None,
         })
 
@@ -216,6 +224,55 @@ def main() -> None:
         default=None,
         help="Output JSON path (default: data/solver_comparison_YYYYMMDD.json)",
     )
+    parser.add_argument(
+        "--coverage-ratio",
+        type=float,
+        default=None,
+        help="Coverage ratio multiplier (default: from OptimizationSettings)",
+    )
+    parser.add_argument(
+        "--sales-window",
+        type=int,
+        default=None,
+        choices=(3, 6),
+        help="Sales moving average window in months: 3 or 6 (default: from OptimizationSettings)",
+    )
+    parser.add_argument(
+        "--delivery-lower-bound",
+        type=float,
+        default=None,
+        help="Delivery lower bound (default: from OptimizationSettings)",
+    )
+    parser.add_argument(
+        "--delivery-upper-bound",
+        type=float,
+        default=None,
+        help="Delivery upper bound (default: from OptimizationSettings)",
+    )
+    parser.add_argument(
+        "--weight-coverage",
+        type=float,
+        default=None,
+        help="Weight for coverage slack in objective (default: from OptimizationSettings)",
+    )
+    parser.add_argument(
+        "--weight-target-units",
+        type=float,
+        default=None,
+        help="Weight for target units slack in objective (default: from OptimizationSettings)",
+    )
+    parser.add_argument(
+        "--weight-delivery",
+        type=float,
+        default=None,
+        help="Weight for delivery smoothing slack in objective (default: from OptimizationSettings)",
+    )
+    parser.add_argument(
+        "--weight-shipment",
+        type=float,
+        default=None,
+        help="Weight for shipment slack in objective (default: from OptimizationSettings)",
+    )
     args = parser.parse_args()
 
     try:
@@ -230,6 +287,37 @@ def main() -> None:
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Build custom settings if any parameters provided
+    settings = None
+    if any([
+        args.coverage_ratio is not None,
+        args.sales_window is not None,
+        args.delivery_lower_bound is not None,
+        args.delivery_upper_bound is not None,
+        args.weight_coverage is not None,
+        args.weight_target_units is not None,
+        args.weight_delivery is not None,
+        args.weight_shipment is not None,
+    ]):
+        # Start with defaults and override only provided values
+        default_settings = OptimizationSettings()
+        settings = OptimizationSettings(
+            coverage_ratio=args.coverage_ratio if args.coverage_ratio is not None else default_settings.coverage_ratio,
+            sales_window=args.sales_window if args.sales_window is not None else default_settings.sales_window,
+            delivery_lower_bound=args.delivery_lower_bound if args.delivery_lower_bound is not None else default_settings.delivery_lower_bound,
+            delivery_upper_bound=args.delivery_upper_bound if args.delivery_upper_bound is not None else default_settings.delivery_upper_bound,
+            weight_coverage=args.weight_coverage if args.weight_coverage is not None else default_settings.weight_coverage,
+            weight_target_units=args.weight_target_units if args.weight_target_units is not None else default_settings.weight_target_units,
+            weight_delivery=args.weight_delivery if args.weight_delivery is not None else default_settings.weight_delivery,
+            weight_shipment=args.weight_shipment if args.weight_shipment is not None else default_settings.weight_shipment,
+        )
+        print(f"Using custom settings: coverage_ratio={settings.coverage_ratio}, "
+              f"sales_window={settings.sales_window}, "
+              f"weights=(coverage={settings.weight_coverage}, "
+              f"target_units={settings.weight_target_units}, "
+              f"delivery={settings.weight_delivery}, "
+              f"shipment={settings.weight_shipment})")
+
     print(f"Comparing solvers for snapshot date {snapshot_date} ({args.database_type} DB)")
     print("Loading data and building model...")
     try:
@@ -237,6 +325,7 @@ def main() -> None:
             snapshot_date=snapshot_date,
             database_type=args.database_type,
             config_path=args.config,
+            settings=settings,
         )
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -244,15 +333,16 @@ def main() -> None:
 
     # Console table
     print("\nSolver comparison:")
-    print("-" * 90)
-    print(f"{'Solver':<20} {'Status':<12} {'Optimal':<8} {'Objective':<12} {'Time(s)':<10} {'L1 vs ref':<12}")
-    print("-" * 90)
+    print("-" * 110)
+    print(f"{'Solver':<20} {'Status':<12} {'Optimal':<8} {'Objective':<12} {'Time(s)':<10} {'L1 vs ref':<12} {'Total delivery':<15}")
+    print("-" * 110)
     for r in rows:
         obj = str(r["objective_value"]) if r["objective_value"] is not None else "—"
         l1 = str(r["l1_vs_reference"]) if r.get("l1_vs_reference") is not None else "—"
+        tot_del = str(r["total_delivery"]) if r.get("total_delivery") is not None else "—"
         err = f" ({r['error'][:30]}...)" if r.get("error") else ""
-        print(f"{r['solver']:<20} {r['status']:<12} {str(r['is_optimal']):<8} {obj:<12} {r['time_seconds']:<10} {l1:<12}{err}")
-    print("-" * 90)
+        print(f"{r['solver']:<20} {r['status']:<12} {str(r['is_optimal']):<8} {obj:<12} {r['time_seconds']:<10} {l1:<12} {tot_del:<15}{err}")
+    print("-" * 110)
 
     report = {
         "snapshot_date": args.date,
