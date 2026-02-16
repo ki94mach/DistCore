@@ -70,9 +70,9 @@ factory_supply = load_module_with_patches(
     }
 )
 
-distributor_coverage = load_module_with_patches(
-    "distributor_coverage",
-    opt_dir / "constraints" / "distributor_coverage.py",
+demand_coverage = load_module_with_patches(
+    "demand_coverage",
+    opt_dir / "constraints" / "demand_coverage.py",
     patches={
         "OptimizationData": data.OptimizationData,
         "Model": lp.Model,
@@ -152,7 +152,7 @@ def test_basic_functionality():
     print("\n3. Building optimization model...")
     constraints = [
         factory_supply.FactorySupplyConstraint(),
-        distributor_coverage.DistributorCoverageConstraint(),
+        demand_coverage.DemandCoverageConstraint(),
         target_coverage.ProductTargetUnitsConstraint()
     ]
     model_builder = builder.ModelBuilder(constraints)

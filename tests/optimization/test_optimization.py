@@ -52,17 +52,17 @@ factory_supply.Constraint = base.Constraint
 factory_supply.ConstraintResult = base.ConstraintResult
 factory_supply_spec.loader.exec_module(factory_supply)
 
-distributor_coverage_path = _src_opt / "constraints" / "distributor_coverage.py"
-distributor_coverage_spec = importlib.util.spec_from_file_location("distributor_coverage", distributor_coverage_path)
-distributor_coverage = importlib.util.module_from_spec(distributor_coverage_spec)
-sys.modules["distributor_coverage"] = distributor_coverage
-distributor_coverage.OptimizationData = data.OptimizationData
-distributor_coverage.Model = lp.Model
-distributor_coverage.Variable = lp.Variable
-distributor_coverage.linear_sum = lp.linear_sum
-distributor_coverage.Constraint = base.Constraint
-distributor_coverage.ConstraintResult = base.ConstraintResult
-distributor_coverage_spec.loader.exec_module(distributor_coverage)
+demand_coverage_path = _src_opt / "constraints" / "demand_coverage.py"
+demand_coverage_spec = importlib.util.spec_from_file_location("demand_coverage", demand_coverage_path)
+demand_coverage = importlib.util.module_from_spec(demand_coverage_spec)
+sys.modules["demand_coverage"] = demand_coverage
+demand_coverage.OptimizationData = data.OptimizationData
+demand_coverage.Model = lp.Model
+demand_coverage.Variable = lp.Variable
+demand_coverage.linear_sum = lp.linear_sum
+demand_coverage.Constraint = base.Constraint
+demand_coverage.ConstraintResult = base.ConstraintResult
+demand_coverage_spec.loader.exec_module(demand_coverage)
 
 target_coverage_path = _src_opt / "constraints" / "target_coverage.py"
 target_coverage_spec = importlib.util.spec_from_file_location("target_coverage", target_coverage_path)
@@ -127,7 +127,7 @@ OptimizationSettings = data.OptimizationSettings
 ModelBuilder = builder.ModelBuilder
 ModelBuildResult = builder.ModelBuildResult
 FactorySupplyConstraint = factory_supply.FactorySupplyConstraint
-DistributorCoverageConstraint = distributor_coverage.DistributorCoverageConstraint
+DemandCoverageConstraint = demand_coverage.DemandCoverageConstraint
 ProductTargetUnitsConstraint = target_coverage.ProductTargetUnitsConstraint
 DeliveryHistoryConstraint = delivery_history.DeliveryHistoryConstraint
 DeliverySmoothingConstraint = delivery_smoothing.DeliverySmoothingConstraint
@@ -427,7 +427,7 @@ class TestConstraints(unittest.TestCase):
         self.assertEqual(len(result.slack_variables), 0)
         self.assertEqual(len(result.objective_terms), 0)
 
-    def test_distributor_coverage_constraint(self):
+    def test_demand_coverage_constraint(self):
         """Test distributor coverage constraint (soft constraint)."""
         model = Model()
         x = {
@@ -435,7 +435,7 @@ class TestConstraints(unittest.TestCase):
             ("D2", "P1"): model.add_variable("x_D2_P1")
         }
         
-        constraint = DistributorCoverageConstraint()
+        constraint = DemandCoverageConstraint()
         result = constraint.apply(model, self.data, x)
         
         # Should have 2 constraints (one per distributor)
@@ -604,7 +604,7 @@ class TestModelBuilder(unittest.TestCase):
         """Test ModelBuilder initialization."""
         constraints = [
             FactorySupplyConstraint(),
-            DistributorCoverageConstraint(),
+            DemandCoverageConstraint(),
             ProductTargetUnitsConstraint()
         ]
         builder = ModelBuilder(constraints)
@@ -625,7 +625,7 @@ class TestModelBuilder(unittest.TestCase):
         """Test complete model building with all constraints."""
         constraints = [
             FactorySupplyConstraint(),
-            DistributorCoverageConstraint(),
+            DemandCoverageConstraint(),
             ProductTargetUnitsConstraint()
         ]
         builder = ModelBuilder(constraints)
@@ -657,7 +657,7 @@ class TestModelBuilder(unittest.TestCase):
     def test_model_builder_objective_terms(self):
         """Test objective function construction."""
         constraints = [
-            DistributorCoverageConstraint(),
+            DemandCoverageConstraint(),
             ProductTargetUnitsConstraint()
         ]
         builder = ModelBuilder(constraints)
@@ -709,7 +709,7 @@ class TestEndToEnd(unittest.TestCase):
         # Build model
         constraints = [
             FactorySupplyConstraint(),
-            DistributorCoverageConstraint(),
+            DemandCoverageConstraint(),
             ProductTargetUnitsConstraint()
         ]
         builder = ModelBuilder(constraints)

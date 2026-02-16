@@ -1,4 +1,4 @@
-"""Soft constraint: distributor-product coverage versus sales."""
+"""Soft constraint: distributor-product coverage versus sales (demand-based)."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from src.optimization.lp import Model, Variable, linear_sum
 from src.optimization.constraints.base import Constraint, ConstraintResult
 
 
-class DistributorCoverageConstraint(Constraint):
-    name = "distributor_coverage"
+class DemandCoverageConstraint(Constraint):
+    name = "demand_coverage"
     is_hard = False
 
     def apply(
@@ -22,7 +22,7 @@ class DistributorCoverageConstraint(Constraint):
             for product in data.products:
                 demand = data.coverage_demand(distributor, product)
                 slack = model.add_variable(
-                    name=f"s_coverage_{distributor}_{product}",
+                    name=f"s_demand_coverage_{distributor}_{product}",
                     low=0.0,
                 )
                 on_hand = data.inventory(distributor, product)
@@ -37,9 +37,8 @@ class DistributorCoverageConstraint(Constraint):
                     expression,
                     ">=",
                     ratio * demand,
-                    name=f"coverage_{distributor}_{product}",
+                    name=f"demand_coverage_{distributor}_{product}",
                 )
                 result.slack_variables.append(slack)
                 result.objective_terms.append((slack, data.settings.weight_coverage))
         return result
-        

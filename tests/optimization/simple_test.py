@@ -44,7 +44,7 @@ exec_file_with_fixes(opt_dir / "constraints" / "base.py", namespace)
 namespace['optimization'].constraints.base = namespace
 
 exec_file_with_fixes(opt_dir / "constraints" / "factory_supply.py", namespace)
-exec_file_with_fixes(opt_dir / "constraints" / "distributor_coverage.py", namespace)
+exec_file_with_fixes(opt_dir / "constraints" / "demand_coverage.py", namespace)
 exec_file_with_fixes(opt_dir / "constraints" / "target_coverage.py", namespace)
 exec_file_with_fixes(opt_dir / "builder.py", namespace)
 
@@ -56,7 +56,7 @@ OptimizationData = namespace['OptimizationData']
 OptimizationSettings = namespace['OptimizationSettings']
 ModelBuilder = namespace['ModelBuilder']
 FactorySupplyConstraint = namespace['FactorySupplyConstraint']
-DistributorCoverageConstraint = namespace['DistributorCoverageConstraint']
+DemandCoverageConstraint = namespace['DemandCoverageConstraint']
 ProductTargetUnitsConstraint = namespace['ProductTargetUnitsConstraint']
 
 # Run test
@@ -98,7 +98,7 @@ print("   ✓ All data methods working")
 print("\n3. Building model...")
 constraints = [
     FactorySupplyConstraint(),
-    DistributorCoverageConstraint(),
+    DemandCoverageConstraint(),
     ProductTargetUnitsConstraint()
 ]
 builder = ModelBuilder(constraints)

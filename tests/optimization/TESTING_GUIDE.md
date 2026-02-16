@@ -117,13 +117,13 @@ assert data.coverage_demand("D1", "P1") == 45.0  # 50 - 5
 ```python
 from optimization.builder import ModelBuilder
 from optimization.constraints.factory_supply import FactorySupplyConstraint
-from optimization.constraints.distributor_coverage import DistributorCoverageConstraint
+from optimization.constraints.demand_coverage import DemandCoverageConstraint
 from optimization.constraints.target_coverage import ProductTargetUnitsConstraint
 
 # Create constraints
 constraints = [
     FactorySupplyConstraint(),
-    DistributorCoverageConstraint(),
+    DemandCoverageConstraint(),
     ProductTargetUnitsConstraint()
 ]
 
@@ -157,7 +157,7 @@ print(f"Constraints: {len(result.model.constraints)}")
 
 - [ ] **Constraints**
   - [ ] FactorySupplyConstraint (hard constraint)
-  - [ ] DistributorCoverageConstraint (soft constraint)
+  - [ ] DemandCoverageConstraint (soft constraint)
   - [ ] ProductTargetUnitsConstraint (soft constraint)
 
 - [ ] **Model Builder**

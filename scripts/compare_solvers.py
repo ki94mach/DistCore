@@ -51,7 +51,7 @@ from src.optimization.constraints import (
     DeliveryHistoryConstraint,
     DeliverySmoothingConstraint,
     FactorySupplyConstraint,
-    DistributorCoverageConstraint,
+    DemandCoverageConstraint,
     ProductTargetUnitsConstraint,
     ShipmentMinimizationConstraint,
 )
@@ -62,7 +62,7 @@ CONSTRAINTS = [
     FactorySupplyConstraint(),
     DeliveryHistoryConstraint(),
     DeliverySmoothingConstraint(),
-    DistributorCoverageConstraint(),
+    DemandCoverageConstraint(),
     ProductTargetUnitsConstraint(),
     ShipmentMinimizationConstraint(),
 ]
@@ -156,7 +156,7 @@ def run_comparison(
         
         for slack_var in result.slack_variables:
             value = solution.variable_values.get(slack_var, 0.0)
-            if slack_var.name.startswith("s_coverage_"):
+            if slack_var.name.startswith("s_demand_coverage_"):
                 slack_coverage += value
             elif slack_var.name.startswith("s_units_"):
                 slack_units += value

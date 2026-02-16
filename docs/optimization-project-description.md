@@ -107,7 +107,7 @@ These constraints represent business expectations. Each soft constraint is model
 - **s\_units[p] ≥ 0**: shortfall in total unit coverage against target units.
 - **s\_delivery\_low[d,p] ≥ 0**, **s\_delivery\_high[d,p] ≥ 0**: deviation below/above historical delivery bounds.
 
-**SC1 – Distributor–product coverage vs sales** (`DistributorCoverageConstraint`)
+**SC1 – Distributor–product coverage vs sales (demand-based)** (`DemandCoverageConstraint`)
 
 ```
 (Inv[d,p] + x[d,p]) + s_coverage[d,p] ≥ CoverageRatio × max(0, SalesMA_k[d,p] - SalesMTD[d,p])
@@ -201,7 +201,7 @@ Weights (`weight_coverage`, `weight_target_units`, `weight_delivery`, `weight_sh
 | HC1 – Factory supply | `FactorySupplyConstraint` | Implemented |
 | HC2 – Delivery history | `DeliveryHistoryConstraint` | Implemented |
 | HC3 – Non-negativity | Variable bounds | Implemented |
-| SC1 – Distributor coverage | `DistributorCoverageConstraint` | Implemented |
+| SC1 – Demand coverage | `DemandCoverageConstraint` | Implemented |
 | SC2 – Target units | `ProductTargetUnitsConstraint` | Implemented |
 | SC3 – Target value | — | Planned |
 | SC4 – Factory→distributor target | — | Planned |

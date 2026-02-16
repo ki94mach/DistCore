@@ -34,7 +34,7 @@ from src.optimization.constraints import (
     DeliveryHistoryConstraint,
     DeliverySmoothingConstraint,
     FactorySupplyConstraint,
-    DistributorCoverageConstraint,
+    DemandCoverageConstraint,
     ProductTargetUnitsConstraint,
     ShipmentMinimizationConstraint,
 )
@@ -373,7 +373,7 @@ def build_and_solve_model(data, solver_name: str, settings=None):
         FactorySupplyConstraint(),            # Hard: factory capacity
         DeliveryHistoryConstraint(),          # Hard: no delivery without history
         DeliverySmoothingConstraint(),        # Soft: delivery smoothing
-        DistributorCoverageConstraint(),      # Soft: distributor coverage
+        DemandCoverageConstraint(),      # Soft: demand coverage
         ProductTargetUnitsConstraint(),       # Soft: product targets
         ShipmentMinimizationConstraint(),     # Soft: penalize unnecessary shipment
     ]

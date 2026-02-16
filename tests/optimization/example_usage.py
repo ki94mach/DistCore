@@ -26,7 +26,7 @@ if str(_optimization_path.parent) not in sys.path:
 from src.optimization.data import OptimizationData, OptimizationSettings
 from src.optimization.builder import ModelBuilder
 from src.optimization.constraints.factory_supply import FactorySupplyConstraint
-from src.optimization.constraints.distributor_coverage import DistributorCoverageConstraint
+from src.optimization.constraints.demand_coverage import DemandCoverageConstraint
 from src.optimization.constraints.target_coverage import ProductTargetUnitsConstraint
 
 
@@ -141,15 +141,15 @@ def print_constraint_details(result, data):
             print(f"    Σ shipments[{product}] ≤ {constraint.rhs}")
             print(f"    Available factory inventory: {data.factory_supply(product)}")
     
-    # Distributor coverage constraints
-    print("\n2. DISTRIBUTOR COVERAGE CONSTRAINTS (Soft)")
+    # Demand coverage constraints
+    print("\n2. DEMAND COVERAGE CONSTRAINTS (Soft)")
     print("-" * 60)
     for constraint in result.model.constraints:
-        if "coverage_" in constraint.name and "target_units" not in constraint.name:
+        if "demand_coverage_" in constraint.name and "target_units" not in constraint.name:
             parts = constraint.name.split("_")
-            if len(parts) >= 3:
-                distributor = parts[1]
-                product = parts[2]
+            if len(parts) >= 4:  # demand_coverage_{distributor}_{product}
+                distributor = parts[2]
+                product = parts[3]
                 demand = data.coverage_demand(distributor, product)
                 inventory = data.inventory(distributor, product)
                 target = constraint.rhs
@@ -197,7 +197,7 @@ def main():
     print("\n2. Setting up constraints...")
     constraints = [
         FactorySupplyConstraint(),      # Hard: factory capacity
-        DistributorCoverageConstraint(), # Soft: distributor coverage
+        DemandCoverageConstraint(), # Soft: demand coverage
         ProductTargetUnitsConstraint()   # Soft: product targets
     ]
     print(f"   Constraints: {[c.name for c in constraints]}")

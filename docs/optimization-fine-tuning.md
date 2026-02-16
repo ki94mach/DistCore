@@ -172,7 +172,7 @@ src/optimization/
     base.py               #   Constraint ABC + ConstraintResult
     factory_supply.py     #   HC1
     delivery_history.py   #   HC2
-    distributor_coverage.py  # SC1
+    demand_coverage.py  # SC1
     target_coverage.py    #   SC2
     delivery_smoothing.py #   SC5
     shipment.py           #   Shipment regularization
