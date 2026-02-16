@@ -12,18 +12,13 @@ Methodology
    - **Status / Optimal**: Prefer "Optimal" over "Feasible" for production.
    - **Solve time (seconds)**: Wall-clock time per solver. Heuristics are often
      faster than LP for large instances; LP gives proven optimum.
-   - **Solution difference (L1 vs reference)**: For each solver, sum of
-     |x_solver - x_reference| over decision variables. Shows how much the
-     allocation differs from the reference (e.g. CBC). Useful to see if
-     heuristics are close to the optimal solution.
+   - **Slack variables**: Sum of slack variables by type (coverage, units, delivery low/high)
+     to track violations from soft constraints.
 
-3. **Reference solver**: Use an exact LP solver (CBC, GLPK, or Scipy) as
-   reference. Compare others against it (objective gap, L1 difference).
-
-4. **How to interpret**:
+3. **How to interpret**:
    - Same objective + feasible → solvers agree (or one is optimal, one feasible).
    - Higher objective (heuristic) → acceptable if within a few % and time is critical.
-   - Large L1 difference with similar objective → multiple near-optimal solutions.
+   - Slack variables → higher values indicate more violations of soft constraints.
    - Use the report to choose: exact solver for quality, heuristic for speed/fallback.
 
 Usage
@@ -94,20 +89,6 @@ def build_model(data: Any, settings: OptimizationSettings | None = None) -> Any:
     return builder.build(data, settings_override=settings)
 
 
-def l1_difference(
-    result: Any,
-    variable_values_a: dict,
-    variable_values_b: dict,
-) -> float:
-    """Sum of |value_a - value_b| over decision variables only."""
-    total = 0.0
-    for (_, _), variable in result.decision_variables.items():
-        va = variable_values_a.get(variable, 0.0)
-        vb = variable_values_b.get(variable, 0.0)
-        total += abs(va - vb)
-    return total
-
-
 def run_comparison(
     snapshot_date: date,
     database_type: str = "test",
@@ -132,14 +113,8 @@ def run_comparison(
     if not available:
         raise RuntimeError("No solvers available. Install pulp and/or scipy.")
 
-    # Run reference solver first (exact LP) so we can compute L1 vs others
-    exact = [s for s in available if s in ("CBC", "GLPK", "Scipy")]
-    reference_solver = exact[0] if exact else available[0]
-    order = [reference_solver] + [s for s in available if s != reference_solver]
-    reference_values: dict | None = None
-
     rows: list[dict[str, Any]] = []
-    for solver_name in order:
+    for solver_name in available:
         start = time.perf_counter()
         try:
             solution = solve(
@@ -157,28 +132,38 @@ def run_comparison(
                 "is_feasible": False,
                 "objective_value": None,
                 "time_seconds": round(elapsed, 3),
-                "l1_vs_reference": None,
                 "total_delivery": None,
+                "slack_coverage": None,
+                "slack_units": None,
+                "slack_delivery_low": None,
+                "slack_delivery_high": None,
                 "error": str(e),
             })
             continue
         elapsed = time.perf_counter() - start
-
-        l1_ref = None
-        if reference_values is not None:
-            l1_ref = l1_difference(
-                result,
-                solution.variable_values,
-                reference_values,
-            )
-        if solver_name == reference_solver:
-            reference_values = solution.variable_values
 
         # Calculate total delivery (sum of all decision variable values)
         total_delivery = sum(
             solution.variable_values.get(v, 0.0)
             for v in result.decision_variables.values()
         )
+
+        # Calculate sum of slack variables by type
+        slack_coverage = 0.0
+        slack_units = 0.0
+        slack_delivery_low = 0.0
+        slack_delivery_high = 0.0
+        
+        for slack_var in result.slack_variables:
+            value = solution.variable_values.get(slack_var, 0.0)
+            if slack_var.name.startswith("s_coverage_"):
+                slack_coverage += value
+            elif slack_var.name.startswith("s_units_"):
+                slack_units += value
+            elif slack_var.name.startswith("s_delivery_low_"):
+                slack_delivery_low += value
+            elif slack_var.name.startswith("s_delivery_high_"):
+                slack_delivery_high += value
 
         rows.append({
             "solver": solver_name,
@@ -187,8 +172,11 @@ def run_comparison(
             "is_feasible": solution.is_feasible,
             "objective_value": round(solution.objective_value, 4) if solution.objective_value is not None else None,
             "time_seconds": round(elapsed, 3),
-            "l1_vs_reference": round(l1_ref, 4) if l1_ref is not None else None,
             "total_delivery": round(total_delivery, 2),
+            "slack_coverage": round(slack_coverage, 4),
+            "slack_units": round(slack_units, 4),
+            "slack_delivery_low": round(slack_delivery_low, 4),
+            "slack_delivery_high": round(slack_delivery_high, 4),
             "error": None,
         })
 
@@ -335,16 +323,19 @@ def main() -> None:
 
     # Console table
     print("\nSolver comparison:")
-    print("-" * 110)
-    print(f"{'Solver':<20} {'Status':<12} {'Optimal':<8} {'Objective':<12} {'Time(s)':<10} {'L1 vs ref':<12} {'Total delivery':<15}")
-    print("-" * 110)
+    print("-" * 188)
+    print(f"{'Solver':<20} {'Status':<12} {'Optimal':<8} {'Objective':<12} {'Time(s)':<10} {'Total delivery':<15} {'Slack: Coverage':<18} {'Slack: Units':<15} {'Slack: Del Low':<18} {'Slack: Del High':<18}")
+    print("-" * 188)
     for r in rows:
         obj = str(r["objective_value"]) if r["objective_value"] is not None else "—"
-        l1 = str(r["l1_vs_reference"]) if r.get("l1_vs_reference") is not None else "—"
         tot_del = str(r["total_delivery"]) if r.get("total_delivery") is not None else "—"
+        slack_cov = str(r["slack_coverage"]) if r.get("slack_coverage") is not None else "—"
+        slack_units = str(r["slack_units"]) if r.get("slack_units") is not None else "—"
+        slack_del_low = str(r["slack_delivery_low"]) if r.get("slack_delivery_low") is not None else "—"
+        slack_del_high = str(r["slack_delivery_high"]) if r.get("slack_delivery_high") is not None else "—"
         err = f" ({r['error'][:30]}...)" if r.get("error") else ""
-        print(f"{r['solver']:<20} {r['status']:<12} {str(r['is_optimal']):<8} {obj:<12} {r['time_seconds']:<10} {l1:<12} {tot_del:<15}{err}")
-    print("-" * 110)
+        print(f"{r['solver']:<20} {r['status']:<12} {str(r['is_optimal']):<8} {obj:<12} {r['time_seconds']:<10} {tot_del:<15} {slack_cov:<18} {slack_units:<15} {slack_del_low:<18} {slack_del_high:<18}{err}")
+    print("-" * 188)
 
     report = {
         "snapshot_date": args.date,
