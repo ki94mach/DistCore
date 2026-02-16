@@ -1,8 +1,8 @@
 """
-Run optimization with 2–3 parameter presets (same data, CBC) and compare results.
+Run optimization with 2–3 parameter presets and compare results.
 
 Use this to compare different settings (coverage ratio, weights, bounds) on the same
-snapshot. All runs use the CBC solver. Results are printed and optionally saved.
+snapshot with a selected solver. Results are printed and optionally saved.
 
 Built-in presets (edit PRESETS in this file to change):
   - default:      coverage_ratio=1.5, equal weights
@@ -10,14 +10,14 @@ Built-in presets (edit PRESETS in this file to change):
   - focus_targets: emphasize target units (higher weight_target_units)
 
 Usage:
-  # Run with built-in presets (default + high_coverage + focus_targets)
+  # Interactive: select solver, then use built-in presets
   python scripts/compare_parameter_presets.py
 
-  # Specific date and output directory
-  python scripts/compare_parameter_presets.py --date 2026-02-08 --output-dir data
+  # Non-interactive: specify solver and date
+  python scripts/compare_parameter_presets.py --solver CBC --date 2026-02-08
 
-  # Custom presets from JSON file (see below for format)
-  python scripts/compare_parameter_presets.py --presets path/to/presets.json
+  # Custom presets from JSON file
+  python scripts/compare_parameter_presets.py --solver SimulatedAnnealing --presets path/to/presets.json
 """
 
 from __future__ import annotations
@@ -42,6 +42,11 @@ from src.optimization.constraints import (
     DistributorCoverageConstraint,
     ProductTargetUnitsConstraint,
     ShipmentMinimizationConstraint,
+)
+from src.optimization.solvers import (
+    SOLVER_PRIORITY,
+    get_available_solver_names,
+    is_solver_available,
 )
 from src.orchestrator.services.sql_server_db import DBConnectionFactory, SQLExecutor
 
@@ -87,6 +92,42 @@ PRESETS: dict[str, OptimizationSettings] = {
         weight_delivery=1.0,
         weight_shipment=1.0,
     ),
+}
+
+# Solver-specific preset options (e.g., for SimulatedAnnealing)
+SOLVER_PRESETS: dict[str, dict[str, dict[str, Any]]] = {
+    "SimulatedAnnealing": {
+        "default": {
+            "max_iter": 5000,
+            "initial_temp": 1000.0,
+            "min_temp": 0.01,
+            "cooling_rate": 0.995,
+            "step_scale": 0.2,
+            "transfer_fraction": 0.5,
+            "initial_scale": 0.15,
+            "decrease_bias": 0.6,
+        },
+        "fast": {
+            "max_iter": 2000,
+            "initial_temp": 500.0,
+            "min_temp": 0.1,
+            "cooling_rate": 0.99,
+            "step_scale": 0.15,
+            "transfer_fraction": 0.5,
+            "initial_scale": 0.15,
+            "decrease_bias": 0.6,
+        },
+        "thorough": {
+            "max_iter": 10000,
+            "initial_temp": 2000.0,
+            "min_temp": 0.001,
+            "cooling_rate": 0.999,
+            "step_scale": 0.2,
+            "transfer_fraction": 0.5,
+            "initial_scale": 0.15,
+            "decrease_bias": 0.6,
+        },
+    },
 }
 
 
@@ -201,8 +242,9 @@ def run_preset(
     preset_name: str,
     settings: OptimizationSettings,
     solver_name: str = "CBC",
+    solver_options: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Build model with given settings, solve with CBC, return metrics and solution."""
+    """Build model with given settings, solve with specified solver, return metrics and solution."""
     builder = ModelBuilder(CONSTRAINTS)
     result = builder.build(data, settings_override=settings)
     start = time.perf_counter()
@@ -211,28 +253,113 @@ def run_preset(
         result.decision_variables,
         method=solver_name,
         data=data,
+        solver_options=solver_options,
     )
     elapsed = time.perf_counter() - start
-    total_shipments = sum(
+    
+    # Calculate total delivery (sum of all decision variable values)
+    total_delivery = sum(
         solution.variable_values.get(v, 0.0)
         for v in result.decision_variables.values()
     )
+    
+    # Calculate sum of slack variables by type
+    slack_coverage = 0.0
+    slack_units = 0.0
+    slack_delivery_low = 0.0
+    slack_delivery_high = 0.0
+    
+    for slack_var in result.slack_variables:
+        value = solution.variable_values.get(slack_var, 0.0)
+        if slack_var.name.startswith("s_coverage_"):
+            slack_coverage += value
+        elif slack_var.name.startswith("s_units_"):
+            slack_units += value
+        elif slack_var.name.startswith("s_delivery_low_"):
+            slack_delivery_low += value
+        elif slack_var.name.startswith("s_delivery_high_"):
+            slack_delivery_high += value
+    
     return {
         "preset": preset_name,
         "settings": settings,
         "result": result,
         "solution": solution,
         "objective_value": solution.objective_value,
-        "total_shipments": round(total_shipments, 2),
+        "total_delivery": int(round(total_delivery)),
         "status": solution.status,
+        "is_optimal": solution.is_optimal,
+        "is_feasible": solution.is_feasible,
         "time_seconds": round(elapsed, 3),
+        "slack_coverage": int(round(slack_coverage)),
+        "slack_units": int(round(slack_units)),
+        "slack_delivery_low": int(round(slack_delivery_low)),
+        "slack_delivery_high": int(round(slack_delivery_high)),
         "variable_values": solution.variable_values,
     }
 
 
+def select_solver_interactive() -> str:
+    """Interactively select a solver from available options."""
+    available = get_available_solver_names()
+    
+    labels = {
+        "CBC": "CBC (Coin-or Branch and Cut) - Recommended",
+        "GLPK": "GLPK (GNU Linear Programming Kit)",
+        "Scipy": "Scipy (HiGHS) - exact LP, no PuLP",
+        "Greedy": "Greedy - heuristic baseline, fast",
+        "SimulatedAnnealing": "Simulated Annealing - metaheuristic",
+    }
+    
+    print("\nSelect Solver (priority order for evaluation):")
+    solver_map = {}
+    for i, name in enumerate(SOLVER_PRIORITY, start=1):
+        desc = labels.get(name, name)
+        if name in available:
+            print(f"  {i}. {desc}")
+        else:
+            print(f"  {i}. {desc} [not available]")
+        solver_map[str(i)] = name
+    
+    default = "1"
+    prompt = f"Select solver (1-{len(SOLVER_PRIORITY)}, default={default}): "
+    solver_choice = input(prompt).strip() or default
+    selected = solver_map.get(solver_choice, SOLVER_PRIORITY[0])
+    
+    if selected not in available:
+        print(f"Warning: {selected} is not available. Using {available[0]} instead.", file=sys.stderr)
+        selected = available[0]
+    
+    return selected
+
+
+def select_solver_preset_interactive(solver_name: str) -> dict[str, Any] | None:
+    """Interactively select solver-specific preset options if available."""
+    if solver_name not in SOLVER_PRESETS:
+        return None
+    
+    presets = SOLVER_PRESETS[solver_name]
+    print(f"\nSelect {solver_name} preset (or press Enter to skip):")
+    preset_map = {}
+    for i, (name, opts) in enumerate(presets.items(), start=1):
+        print(f"  {i}. {name}")
+        preset_map[str(i)] = name
+    
+    prompt = f"Select preset (1-{len(presets)}, or Enter to skip): "
+    preset_choice = input(prompt).strip()
+    
+    if not preset_choice:
+        return None
+    
+    selected_preset = preset_map.get(preset_choice)
+    if selected_preset:
+        return {solver_name: presets[selected_preset]}
+    return None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Compare optimization results across 2–3 parameter presets (CBC).",
+        description="Compare optimization results across 2–3 parameter presets.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -270,8 +397,19 @@ def main() -> None:
     parser.add_argument(
         "--solver",
         type=str,
-        default="CBC",
-        help="Solver to use (default: CBC)",
+        default=None,
+        help="Solver to use (if not provided, will prompt interactively)",
+    )
+    parser.add_argument(
+        "--solver-preset",
+        type=str,
+        default=None,
+        help="Solver-specific preset name (e.g., 'fast', 'thorough' for SimulatedAnnealing)",
+    )
+    parser.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="Skip interactive prompts (requires --solver)",
     )
     args = parser.parse_args()
 
@@ -280,6 +418,40 @@ def main() -> None:
     except ValueError:
         print(f"Invalid date: {args.date}", file=sys.stderr)
         sys.exit(1)
+
+    # Select solver
+    if args.solver:
+        solver_name = args.solver
+        if not is_solver_available(solver_name):
+            print(f"Warning: Solver '{solver_name}' is not available.", file=sys.stderr)
+            available = get_available_solver_names()
+            if available:
+                print(f"Available solvers: {', '.join(available)}", file=sys.stderr)
+                if not args.non_interactive:
+                    solver_name = select_solver_interactive()
+                else:
+                    print(f"Using first available solver: {available[0]}", file=sys.stderr)
+                    solver_name = available[0]
+            else:
+                print("No solvers available!", file=sys.stderr)
+                sys.exit(1)
+    elif args.non_interactive:
+        print("Error: --non-interactive requires --solver", file=sys.stderr)
+        sys.exit(1)
+    else:
+        solver_name = select_solver_interactive()
+
+    # Select solver-specific preset if applicable
+    solver_options = None
+    if solver_name in SOLVER_PRESETS:
+        if args.solver_preset:
+            if args.solver_preset in SOLVER_PRESETS[solver_name]:
+                solver_options = {solver_name: SOLVER_PRESETS[solver_name][args.solver_preset]}
+            else:
+                print(f"Warning: Solver preset '{args.solver_preset}' not found for {solver_name}.", file=sys.stderr)
+                print(f"Available presets: {', '.join(SOLVER_PRESETS[solver_name].keys())}", file=sys.stderr)
+        elif not args.non_interactive:
+            solver_options = select_solver_preset_interactive(solver_name)
 
     if args.presets:
         presets_path = Path(args.presets)
@@ -294,8 +466,10 @@ def main() -> None:
         presets = PRESETS
 
     preset_names = list(presets.keys())
-    print(f"Comparing {len(preset_names)} presets: {', '.join(preset_names)}")
-    print(f"Snapshot date: {snapshot_date}, solver: {args.solver}")
+    print(f"\nComparing {len(preset_names)} presets: {', '.join(preset_names)}")
+    print(f"Snapshot date: {snapshot_date}, solver: {solver_name}")
+    if solver_options:
+        print(f"Solver options: {solver_options}")
     print("Loading data...")
 
     factory = (
@@ -316,32 +490,23 @@ def main() -> None:
     results: list[dict[str, Any]] = []
     for name in preset_names:
         print(f"  Running preset '{name}'...")
-        row = run_preset(data, name, presets[name], solver_name=args.solver)
+        row = run_preset(data, name, presets[name], solver_name=solver_name, solver_options=solver_options)
         results.append(row)
 
-    # L1 vs first preset
-    ref_values = results[0]["variable_values"]
-    ref_result = results[0]["result"]
-    for r in results:
-        if r["preset"] == results[0]["preset"]:
-            r["l1_vs_first"] = None
-        else:
-            r["l1_vs_first"] = round(
-                l1_difference(ref_result, r["variable_values"], ref_values), 4
-            )
-
-    # Console table (objective = penalty from slacks; total_shipments = sum of quantity in CSV)
+    # Console table (matching compare_solvers.py format)
     print("\nParameter preset comparison:")
-    print("  (Objective = minimized penalty from constraint shortfalls; Total shipments = sum of quantity column in CSV)")
-    print("-" * 105)
-    print(f"{'Preset':<18} {'Objective':<14} {'Total ship':<12} {'Status':<10} {'Time(s)':<8} {'L1 vs first':<12}")
-    print("-" * 105)
+    print("-" * 188)
+    print(f"{'Preset':<20} {'Status':<12} {'Optimal':<8} {'Objective':<12} {'Time(s)':<10} {'Total delivery':<15} {'Slack: Coverage':<18} {'Slack: Units':<15} {'Slack: Del Low':<18} {'Slack: Del High':<18}")
+    print("-" * 188)
     for r in results:
-        obj = str(r["objective_value"]) if r["objective_value"] is not None else "—"
-        tot = str(r.get("total_shipments", "—"))
-        l1 = str(r.get("l1_vs_first")) if r.get("l1_vs_first") is not None else "—"
-        print(f"{r['preset']:<18} {obj:<14} {tot:<12} {r['status']:<10} {r['time_seconds']:<8} {l1:<12}")
-    print("-" * 105)
+        obj = str(int(round(r["objective_value"]))) if r["objective_value"] is not None else "—"
+        tot_del = str(r.get("total_delivery", "—"))
+        slack_cov = str(r.get("slack_coverage", "—"))
+        slack_units = str(r.get("slack_units", "—"))
+        slack_del_low = str(r.get("slack_delivery_low", "—"))
+        slack_del_high = str(r.get("slack_delivery_high", "—"))
+        print(f"{r['preset']:<20} {r['status']:<12} {str(r.get('is_optimal', False)):<8} {obj:<12} {r['time_seconds']:<10} {tot_del:<15} {slack_cov:<18} {slack_units:<15} {slack_del_low:<18} {slack_del_high:<18}")
+    print("-" * 188)
 
     # Summary JSON
     out_dir = args.output_dir
@@ -352,24 +517,30 @@ def main() -> None:
 
     summary = {
         "snapshot_date": args.date,
-        "solver": args.solver,
-        "_note": "objective_value = minimized penalty (weighted slacks); total_shipments = sum of quantity in CSV",
+        "solver": solver_name,
+        "solver_options": solver_options,
         "presets": [
             {
                 "name": r["preset"],
-                "objective_value": r["objective_value"],
-                "total_shipments": r.get("total_shipments"),
                 "status": r["status"],
+                "is_optimal": r.get("is_optimal", False),
+                "is_feasible": r.get("is_feasible", False),
+                "objective_value": int(round(r["objective_value"])) if r["objective_value"] is not None else None,
                 "time_seconds": r["time_seconds"],
-                "l1_vs_first": r.get("l1_vs_first"),
+                "total_delivery": r.get("total_delivery"),
+                "slack_coverage": r.get("slack_coverage"),
+                "slack_units": r.get("slack_units"),
+                "slack_delivery_low": r.get("slack_delivery_low"),
+                "slack_delivery_high": r.get("slack_delivery_high"),
                 "settings": {
-                    "coverage_ratio": r["settings"].coverage_ratio,
+                    "coverage_ratio": int(round(r["settings"].coverage_ratio)),
                     "sales_window": r["settings"].sales_window,
                     "delivery_lower_bound": r["settings"].delivery_lower_bound,
                     "delivery_upper_bound": r["settings"].delivery_upper_bound,
-                    "weight_coverage": r["settings"].weight_coverage,
-                    "weight_target_units": r["settings"].weight_target_units,
-                    "weight_delivery": r["settings"].weight_delivery,
+                    "weight_coverage": int(round(r["settings"].weight_coverage)),
+                    "weight_target_units": int(round(r["settings"].weight_target_units)),
+                    "weight_delivery": int(round(r["settings"].weight_delivery)),
+                    "weight_shipment": int(round(r["settings"].weight_shipment)),
                 },
             }
             for r in results
