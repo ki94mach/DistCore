@@ -1,4 +1,4 @@
-"""Greedy heuristic solver -- proportional allocation by demand."""
+"""Greedy heuristic solver -- proportional allocation by target coverage."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from src.optimization.solvers._utils import greedy_allocate, set_slacks_for_feas
 
 
 class GreedySolver(BaseSolver):
-    """Fast baseline heuristic. Proportional allocation by coverage demand.
+    """Fast baseline heuristic. Proportional allocation by target coverage shortfall.
 
     No external dependencies. Accepts ``data`` either in the constructor
     (backward-compatible) or via the ``solve()`` keyword argument (preferred).
