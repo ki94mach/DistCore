@@ -68,6 +68,7 @@ print("=" * 60)
 print("\n1. Creating test data...")
 settings = OptimizationSettings(
     coverage_ratio=1.5,
+    target_coverage_ratio=1.5,
     sales_window=6,
     weight_coverage=1.0,
     weight_target_units=1.0

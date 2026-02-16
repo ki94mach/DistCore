@@ -50,7 +50,7 @@ def greedy_allocate(
     for var in decision_variables.values():
         variable_values[var] = 0.0
 
-    ratio = data.settings.coverage_ratio
+    ratio = data.settings.target_coverage_ratio
     for product in data.products:
         supply = data.factory_supply(product)
         if supply <= 0:

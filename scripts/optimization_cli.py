@@ -129,6 +129,7 @@ def configure_optimization_settings() -> OptimizationSettings:
 
     print_info("\nCurrent Optimization Parameters:")
     print(colorize(f"  - coverage_ratio: {settings.coverage_ratio}", Colors.WHITE))
+    print(colorize(f"  - target_coverage_ratio: {settings.target_coverage_ratio}", Colors.WHITE))
     print(colorize(f"  - sales_window: {settings.sales_window} months", Colors.WHITE))
     print(colorize(f"  - delivery_lower_bound: {settings.delivery_lower_bound}", Colors.WHITE))
     print(colorize(f"  - delivery_upper_bound: {settings.delivery_upper_bound}", Colors.WHITE))
@@ -168,9 +169,14 @@ def configure_optimization_settings() -> OptimizationSettings:
 
     print_info("\nEdit Optimization Parameters:")
     coverage_ratio = prompt_float(
-        "Coverage ratio",
+        "Distributor coverage ratio",
         settings.coverage_ratio,
-        "Multiplier for target coverage (e.g., 1.5 = 150% of demand)",
+        "Multiplier for distributor-product coverage (SC1) (e.g., 1.5 = 150% of demand)",
+    )
+    target_coverage_ratio = prompt_float(
+        "Target units coverage ratio",
+        settings.target_coverage_ratio,
+        "Multiplier for target units coverage (SC2) (e.g., 1.5 = 150% of target)",
     )
     sales_window = prompt_int(
         "Sales moving average window (months)",
@@ -219,6 +225,7 @@ def configure_optimization_settings() -> OptimizationSettings:
 
     return OptimizationSettings(
         coverage_ratio=coverage_ratio,
+        target_coverage_ratio=target_coverage_ratio,
         sales_window=sales_window,
         delivery_lower_bound=delivery_lower_bound,
         delivery_upper_bound=delivery_upper_bound,
@@ -540,7 +547,7 @@ def run_optimization(config: dict):
         # Confirm settings used (so parameter changes are visible)
         s = config["settings"]
         print_info(
-            f"Settings for this run: coverage_ratio={s.coverage_ratio}, sales_window={s.sales_window}, "
+            f"Settings for this run: coverage_ratio={s.coverage_ratio}, target_coverage_ratio={s.target_coverage_ratio}, sales_window={s.sales_window}, "
             f"delivery_bounds=[{s.delivery_lower_bound}, {s.delivery_upper_bound}], "
             f"weights=(coverage={s.weight_coverage}, target_units={s.weight_target_units}, delivery={s.weight_delivery})"
         )
@@ -607,7 +614,8 @@ def main():
             if date_config.get('snapshot_month'):
                 print_info(f"Snapshot Month: {date_config['snapshot_month']}")
             print_info(f"Database Type: {db_config['database_type']}")
-            print_info(f"Coverage Ratio: {settings.coverage_ratio}")
+            print_info(f"Distributor Coverage Ratio: {settings.coverage_ratio}")
+            print_info(f"Target Coverage Ratio: {settings.target_coverage_ratio}")
             print_info(f"Sales Window: {settings.sales_window} months")
             print_info(f"Coverage Weight: {settings.weight_coverage}")
             print_info(f"Target Units Weight: {settings.weight_target_units}")

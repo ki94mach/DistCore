@@ -10,7 +10,8 @@ These settings define the **LP problem** (constraints and objective weights). Th
 
 | Parameter | Default | Where used | Effect |
 |-----------|--------|------------|--------|
-| **coverage_ratio** | 1 | Distributor coverage (SC1), target units (SC2) | Target coverage = ratio × demand. Higher → ask for more stock at distributors. |
+| **coverage_ratio** | 1 | Distributor coverage (SC1) | Distributor coverage = ratio × demand. Higher → ask for more stock at distributors. |
+| **target_coverage_ratio** | 1 | Target units (SC2) | Target units coverage = ratio × remaining target. Higher → ask for more stock to meet targets. |
 | **sales_window** | 3 | Demand calculation | 3 or 6: use 3‑month or 6‑month moving average for demand. |
 | **delivery_lower_bound** | 0.9 | Delivery smoothing (SC5) | Min delivery vs 6‑month average (fraction). Lower → allow smaller deliveries. |
 | **delivery_upper_bound** | 1.2 | Delivery smoothing (SC5) | Max delivery vs 6‑month average (fraction). Higher → allow larger spikes. |
@@ -32,6 +33,7 @@ These settings define the **LP problem** (constraints and objective weights). Th
 
   settings = OptimizationSettings(
       coverage_ratio=1,
+      target_coverage_ratio=1,
       sales_window=3,
       weight_coverage=1.0,
       weight_target_units=2.0,
@@ -48,7 +50,7 @@ These settings define the **LP problem** (constraints and objective weights). Th
    Run with defaults; note objective value and feasibility (e.g. with `scripts/compare_solvers.py`).
 
 2. **One parameter at a time**  
-   Change a single setting (e.g. `coverage_ratio` or one weight), keep the rest fixed, then re-run and compare:
+   Change a single setting (e.g. `coverage_ratio`, `target_coverage_ratio`, or one weight), keep the rest fixed, then re-run and compare:
    - Objective value (lower is better for min).
    - Whether the solution stays feasible and acceptable for the business.
 

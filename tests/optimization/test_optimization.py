@@ -236,11 +236,13 @@ class TestOptimizationData(unittest.TestCase):
         """Test settings initialization."""
         settings = OptimizationSettings(
             coverage_ratio=1.5,
+            target_coverage_ratio=1.5,
             sales_window=6,
             weight_coverage=1.0,
             weight_target_units=2.0
         )
         self.assertEqual(settings.coverage_ratio, 1.5)
+        self.assertEqual(settings.target_coverage_ratio, 1.5)
         self.assertEqual(settings.sales_window, 6)
         self.assertEqual(settings.weight_coverage, 1.0)
         self.assertEqual(settings.weight_target_units, 2.0)
@@ -387,6 +389,7 @@ class TestConstraints(unittest.TestCase):
         """Set up test data."""
         self.settings = OptimizationSettings(
             coverage_ratio=1.5,
+            target_coverage_ratio=1.5,
             sales_window=6,
             weight_coverage=1.0,
             weight_target_units=1.0
@@ -565,6 +568,7 @@ class TestModelBuilder(unittest.TestCase):
         """Set up test data."""
         self.settings = OptimizationSettings(
             coverage_ratio=1.5,
+            target_coverage_ratio=1.5,
             sales_window=6,
             weight_coverage=1.0,
             weight_target_units=1.0
@@ -675,6 +679,7 @@ class TestEndToEnd(unittest.TestCase):
         # Create realistic test data
         settings = OptimizationSettings(
             coverage_ratio=1.5,
+            target_coverage_ratio=1.5,
             sales_window=6,
             weight_coverage=1.0,
             weight_target_units=2.0

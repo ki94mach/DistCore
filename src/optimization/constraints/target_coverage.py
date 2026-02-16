@@ -17,7 +17,7 @@ class ProductTargetUnitsConstraint(Constraint):
             x: dict[tuple[str, str], Variable]
             ) -> ConstraintResult:
         result = ConstraintResult()
-        ratio = data.settings.coverage_ratio
+        ratio = data.settings.target_coverage_ratio
         for product in data.products:
             slack = model.add_variable(
                 name=f"s_units_{product}",

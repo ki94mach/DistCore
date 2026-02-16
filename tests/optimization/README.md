@@ -82,10 +82,11 @@ Here's a template for creating test data:
 from src.optimization.data import OptimizationData, OptimizationSettings
 
 settings = OptimizationSettings(
-    coverage_ratio=1.5,      # Target 1.5x demand
-    sales_window=6,           # Use 6-month moving average
-    weight_coverage=1.0,     # Weight for coverage slack
-    weight_target_units=2.0  # Weight for target units slack
+    coverage_ratio=1.5,           # Distributor coverage: 1.5x demand
+    target_coverage_ratio=1.5,   # Target units coverage: 1.5x target
+    sales_window=6,               # Use 6-month moving average
+    weight_coverage=1.0,         # Weight for coverage slack
+    weight_target_units=2.0       # Weight for target units slack
 )
 
 data = OptimizationData(

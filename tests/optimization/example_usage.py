@@ -33,10 +33,11 @@ from src.optimization.constraints.target_coverage import ProductTargetUnitsConst
 def create_sample_data():
     """Create sample optimization data."""
     settings = OptimizationSettings(
-        coverage_ratio=1.5,      # Target 1.5x demand
-        sales_window=6,           # Use 6-month moving average
-        weight_coverage=1.0,     # Weight for coverage slack
-        weight_target_units=2.0  # Weight for target units slack (higher priority)
+        coverage_ratio=1.5,           # Distributor coverage: 1.5x demand
+        target_coverage_ratio=1.5,   # Target units coverage: 1.5x target
+        sales_window=6,               # Use 6-month moving average
+        weight_coverage=1.0,         # Weight for coverage slack
+        weight_target_units=2.0       # Weight for target units slack (higher priority)
     )
     
     data = OptimizationData(
@@ -189,7 +190,7 @@ def main():
     data = create_sample_data()
     print(f"   Distributors: {data.distributors}")
     print(f"   Products: {data.products}")
-    print(f"   Settings: coverage_ratio={data.settings.coverage_ratio}, "
+    print(f"   Settings: coverage_ratio={data.settings.coverage_ratio}, target_coverage_ratio={data.settings.target_coverage_ratio}, "
           f"sales_window={data.settings.sales_window}")
     
     # Create constraints

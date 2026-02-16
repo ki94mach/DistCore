@@ -5,8 +5,8 @@ Use this to compare different settings (coverage ratio, weights, bounds) on the 
 snapshot with a selected solver. Results are printed and optionally saved.
 
 Built-in presets (edit PRESETS in this file to change):
-  - default:      coverage_ratio=1.5, equal weights
-  - high_coverage: stiffer coverage (ratio 1.8, higher coverage weight)
+  - default:      coverage_ratio=1.5, target_coverage_ratio=1.5, equal weights
+  - high_coverage: stiffer coverage (ratio 1, higher coverage weight)
   - focus_targets: emphasize target units (higher weight_target_units)
 
 Usage:
@@ -64,6 +64,7 @@ CONSTRAINTS = [
 PRESETS: dict[str, OptimizationSettings] = {
     "default": OptimizationSettings(
         coverage_ratio=1.5,
+        target_coverage_ratio=1.5,
         sales_window=6,
         delivery_lower_bound=0.9,
         delivery_upper_bound=1.2,
@@ -74,6 +75,7 @@ PRESETS: dict[str, OptimizationSettings] = {
     ),
     "high_coverage": OptimizationSettings(
         coverage_ratio=1,
+        target_coverage_ratio=1,
         sales_window=3,
         delivery_lower_bound=0.9,
         delivery_upper_bound=1.2,
@@ -84,6 +86,7 @@ PRESETS: dict[str, OptimizationSettings] = {
     ),
     "focus_targets": OptimizationSettings(
         coverage_ratio=1,
+        target_coverage_ratio=1,
         sales_window=3,
         delivery_lower_bound=0.9,
         delivery_upper_bound=1.2,
@@ -135,6 +138,7 @@ def _settings_from_dict(d: dict[str, Any]) -> OptimizationSettings:
     """Build OptimizationSettings from a dict (e.g. from JSON)."""
     return OptimizationSettings(
         coverage_ratio=float(d.get("coverage_ratio", 1.5)),
+        target_coverage_ratio=float(d.get("target_coverage_ratio", 1.5)),
         sales_window=int(d.get("sales_window", 6)),
         delivery_lower_bound=float(d.get("delivery_lower_bound", 0.9)),
         delivery_upper_bound=float(d.get("delivery_upper_bound", 1.2)),
@@ -145,7 +149,7 @@ def _settings_from_dict(d: dict[str, Any]) -> OptimizationSettings:
 
 
 def load_presets(path: Path) -> dict[str, OptimizationSettings]:
-    """Load presets from JSON. Format: { "preset_name": { "coverage_ratio": 1.5, ... }, ... }."""
+    """Load presets from JSON. Format: { "preset_name": { "coverage_ratio": 1.5, "target_coverage_ratio": 1.5, ... }, ... }."""
     with open(path, encoding="utf-8") as f:
         raw = json.load(f)
     return {name: _settings_from_dict(v) for name, v in raw.items()}
@@ -534,6 +538,7 @@ def main() -> None:
                 "slack_delivery_high": r.get("slack_delivery_high"),
                 "settings": {
                     "coverage_ratio": int(round(r["settings"].coverage_ratio)),
+                    "target_coverage_ratio": int(round(r["settings"].target_coverage_ratio)),
                     "sales_window": r["settings"].sales_window,
                     "delivery_lower_bound": r["settings"].delivery_lower_bound,
                     "delivery_upper_bound": r["settings"].delivery_upper_bound,

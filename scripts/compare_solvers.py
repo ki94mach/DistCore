@@ -218,7 +218,13 @@ def main() -> None:
         "--coverage-ratio",
         type=float,
         default=None,
-        help="Coverage ratio multiplier (default: from OptimizationSettings)",
+        help="Distributor coverage ratio multiplier (SC1) (default: from OptimizationSettings)",
+    )
+    parser.add_argument(
+        "--target-coverage-ratio",
+        type=float,
+        default=None,
+        help="Target units coverage ratio multiplier (SC2) (default: from OptimizationSettings)",
     )
     parser.add_argument(
         "--sales-window",
@@ -281,6 +287,7 @@ def main() -> None:
     settings = None
     if any([
         args.coverage_ratio is not None,
+        args.target_coverage_ratio is not None,
         args.sales_window is not None,
         args.delivery_lower_bound is not None,
         args.delivery_upper_bound is not None,
@@ -293,6 +300,7 @@ def main() -> None:
         default_settings = OptimizationSettings()
         settings = OptimizationSettings(
             coverage_ratio=args.coverage_ratio if args.coverage_ratio is not None else default_settings.coverage_ratio,
+            target_coverage_ratio=args.target_coverage_ratio if args.target_coverage_ratio is not None else default_settings.target_coverage_ratio,
             sales_window=args.sales_window if args.sales_window is not None else default_settings.sales_window,
             delivery_lower_bound=args.delivery_lower_bound if args.delivery_lower_bound is not None else default_settings.delivery_lower_bound,
             delivery_upper_bound=args.delivery_upper_bound if args.delivery_upper_bound is not None else default_settings.delivery_upper_bound,
@@ -301,7 +309,7 @@ def main() -> None:
             weight_delivery=args.weight_delivery if args.weight_delivery is not None else default_settings.weight_delivery,
             weight_shipment=args.weight_shipment if args.weight_shipment is not None else default_settings.weight_shipment,
         )
-        print(f"Using custom settings: coverage_ratio={settings.coverage_ratio}, "
+        print(f"Using custom settings: coverage_ratio={settings.coverage_ratio}, target_coverage_ratio={settings.target_coverage_ratio}, "
               f"sales_window={settings.sales_window}, "
               f"weights=(coverage={settings.weight_coverage}, "
               f"target_units={settings.weight_target_units}, "

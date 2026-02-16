@@ -113,13 +113,15 @@ These constraints represent business expectations. Each soft constraint is model
 (Inv[d,p] + x[d,p]) + s_coverage[d,p] ≥ CoverageRatio × max(0, SalesMA_k[d,p] - SalesMTD[d,p])
 ```
 
-Where **k ∈ {3,6}** (configurable via `SalesWindow`). This constraint encourages each distributor's on-hand + deliveries to cover a multiple of remaining demand.
+Where **k ∈ {3,6}** (configurable via `SalesWindow`). This constraint encourages each distributor's on-hand + deliveries to cover a multiple of remaining demand. Uses `coverage_ratio` from `OptimizationSettings`.
 
 **SC2 – Total product coverage vs target (units)** (`ProductTargetUnitsConstraint`)
 
 ```
-Σ_d (Inv[d,p] + x[d,p]) + s_units[p] ≥ CoverageRatio × RemainingTargetUnits[p]
+Σ_d (Inv[d,p] + x[d,p]) + s_units[p] ≥ TargetCoverageRatio × RemainingTargetUnits[p]
 ```
+
+Uses `target_coverage_ratio` from `OptimizationSettings`.
 
 Where `RemainingTargetUnits[p] = max(0, TargetUnits[p] - TotalSalesMTD[p])`.
 
