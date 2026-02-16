@@ -15,7 +15,7 @@ These settings define the **LP problem** (constraints and objective weights). Th
 | **sales_window** | 3 | Demand calculation | 3 or 6: use 3‑month or 6‑month moving average for demand. |
 | **delivery_lower_bound** | 0.9 | Delivery smoothing (SC5) | Min delivery vs 6‑month average (fraction). Lower → allow smaller deliveries. |
 | **delivery_upper_bound** | 1.2 | Delivery smoothing (SC5) | Max delivery vs 6‑month average (fraction). Higher → allow larger spikes. |
-| **weight_coverage** | 1.0 | Objective | Penalty weight for coverage slack. Increase to prioritize filling coverage gaps. |
+| **weight_demand** | 1.0 | Objective | Penalty weight for demand coverage slack. Increase to prioritize filling demand coverage gaps. |
 | **weight_target_units** | 2.0 | Objective | Penalty weight for target‑units slack. Increase to prioritize hitting product targets. |
 | **weight_smoothing** | 1.0 | Objective | Penalty weight for delivery smoothing slack. Increase to prioritize stable deliveries. |
 | **weight_shipment** | 1.0 | Objective | Weight for decision variables (shipment regularization). Increase to discourage unnecessary shipping; decrease to allow more flexibility. |
@@ -35,7 +35,7 @@ These settings define the **LP problem** (constraints and objective weights). Th
       coverage_ratio=1,
       target_coverage_ratio=1,
       sales_window=3,
-      weight_coverage=1.0,
+      weight_demand=1.0,
       weight_target_units=2.0,
       weight_smoothing=1.0,
       weight_shipment=1.0,
@@ -55,7 +55,7 @@ These settings define the **LP problem** (constraints and objective weights). Th
    - Whether the solution stays feasible and acceptable for the business.
 
 3. **Weights**  
-   - Increase a weight if you want the model to care more about that term (e.g. `weight_coverage` if coverage shortfalls are the main concern).
+   - Increase a weight if you want the model to care more about that term (e.g. `weight_demand` if demand coverage shortfalls are the main concern).
    - `weight_shipment` controls how much the solver penalizes each unit shipped. Raise it to ship less; lower it to allow more shipping flexibility.
    - Relative weights matter; e.g. scaling all four weights by the same factor leaves the optimum unchanged.
 
@@ -131,7 +131,7 @@ Use `scripts/compare_solvers.py` with different SA options (via a small script t
 The objective minimized by all solvers is:
 
 ```
-min  weight_coverage     × Σ_{d,p} s_coverage[d,p]
+min  weight_demand     × Σ_{d,p} s_demand_coverage[d,p]
    + weight_target_units × Σ_p     s_units[p]
    + weight_smoothing     × Σ_{d,p} (s_delivery_low[d,p] + s_delivery_high[d,p])
    + weight_shipment     × Σ_{d,p} x[d,p]
@@ -139,7 +139,7 @@ min  weight_coverage     × Σ_{d,p} s_coverage[d,p]
 
 | Term | Type | Controlled by |
 |------|------|---------------|
-| Coverage penalty | Slack | `weight_coverage` |
+| Demand coverage penalty | Slack | `weight_demand` |
 | Target penalty | Slack | `weight_target_units` |
 | Delivery smoothing penalty | Slack | `weight_smoothing` |
 | Shipment regularization | Decision variable | `weight_shipment` |

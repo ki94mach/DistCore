@@ -90,7 +90,7 @@ settings = OptimizationSettings(
     coverage_ratio=1.5,
     target_coverage_ratio=1.5,
     sales_window=6,
-    weight_coverage=1.0,
+    weight_demand=1.0,
     weight_target_units=1.0
 )
 
@@ -179,7 +179,7 @@ settings = OptimizationSettings(
     coverage_ratio=1.5,           # Distributor coverage: 1.5x demand
     target_coverage_ratio=1.5,   # Target units coverage: 1.5x target
     sales_window=6,               # Use 6-month moving average
-    weight_coverage=1.0,         # Weight for coverage slack
+    weight_demand=1.0,         # Weight for demand coverage slack
     weight_target_units=2.0       # Weight for target units slack
 )
 

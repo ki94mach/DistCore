@@ -40,5 +40,5 @@ class DemandCoverageConstraint(Constraint):
                     name=f"demand_coverage_{distributor}_{product}",
                 )
                 result.slack_variables.append(slack)
-                result.objective_terms.append((slack, data.settings.weight_coverage))
+                result.objective_terms.append((slack, data.settings.weight_demand))
         return result

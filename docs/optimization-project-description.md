@@ -65,7 +65,7 @@ This phase focuses only on factory → distributor allocation (not distributor �
 | **SalesWindow** | 3 | Moving average window in months (3 or 6) |
 | **DeliveryLowerBound** | 0.9 | Min delivery as fraction of 6‑month delivery average |
 | **DeliveryUpperBound** | 1.2 | Max delivery as fraction of 6‑month delivery average |
-| **weight_coverage** | 1.0 | Objective weight for coverage slack (SC1) |
+| **weight_demand** | 1.0 | Objective weight for demand coverage slack (SC1) |
 | **weight_target_units** | 2.0 | Objective weight for target‑units slack (SC2) |
 | **weight_smoothing** | 1.0 | Objective weight for delivery smoothing slack (SC5) |
 | **weight_shipment** | 1.0 | Objective weight for decision variables — shipment regularization |
@@ -155,7 +155,7 @@ The lower bound is only activated when there is positive demand or remaining tar
 Minimize a weighted sum of slack penalties **plus** a direct shipment regularization term:
 
 ```
-min  Σ_{d,p} weight_coverage  · s_coverage[d,p]                          (SC1 penalty)
+min  Σ_{d,p} weight_demand  · s_demand_coverage[d,p]                          (SC1 penalty)
    + Σ_p     weight_target    · s_units[p]                               (SC2 penalty)
    + Σ_{d,p} weight_smoothing  · (s_delivery_low[d,p] + s_delivery_high[d,p])  (SC5 penalty)
    + Σ_{d,p} weight_shipment  · x[d,p]                                   (shipment regularization)
@@ -179,7 +179,7 @@ The first three terms penalize constraint violations (slack). The fourth term di
 
 **Weighting guidance**
 - Relative weights matter; e.g. doubling all four weights leaves the optimum unchanged.
-- Increase a weight to make the solver care more about that objective (e.g., raise `weight_coverage` to prioritize filling coverage gaps).
+- Increase a weight to make the solver care more about that objective (e.g., raise `weight_demand` to prioritize filling demand coverage gaps).
 - `weight_shipment` controls how aggressively the solver minimizes total shipping. A higher value biases toward less shipping; a lower value allows more flexibility.
 - Weights can be extended to vary by distributor/product to reflect importance (e.g., high-priority products get higher weights).
 
@@ -192,7 +192,7 @@ Recommended default priority:
 4. **SC2** – product-level targets
 5. **Shipment regularization** – tiebreaker among equally-feasible solutions
 
-Weights (`weight_coverage`, `weight_target_units`, `weight_smoothing`, `weight_shipment`) are configurable via `OptimizationSettings`.
+Weights (`weight_demand`, `weight_target_units`, `weight_smoothing`, `weight_shipment`) are configurable via `OptimizationSettings`.
 
 ## 9. Implementation Status
 

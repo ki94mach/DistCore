@@ -8,12 +8,12 @@ from typing import Mapping, Sequence, Tuple
 # Weight Fine Tuning:
 @dataclass(frozen=True)
 class OptimizationSettings:
-    coverage_ratio: float = 1  # Distributor coverage ratio (SC1)
-    target_coverage_ratio: float = 1  # Target units coverage ratio (SC2)
+    coverage_ratio: float = 1.5  # Distributor coverage ratio (SC1)
+    target_coverage_ratio: float = 1.5  # Target units coverage ratio (SC2)
     sales_window: int = 3
     delivery_lower_bound: float = 0.9
     delivery_upper_bound: float = 1.2
-    weight_coverage: float = 1.0
+    weight_demand: float = 1.0
     weight_target_units: float = 2.0
     weight_smoothing: float = 1.0
     weight_shipment: float = 1.0

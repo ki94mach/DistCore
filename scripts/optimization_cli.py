@@ -133,7 +133,7 @@ def configure_optimization_settings() -> OptimizationSettings:
     print(colorize(f"  - sales_window: {settings.sales_window} months", Colors.WHITE))
     print(colorize(f"  - delivery_lower_bound: {settings.delivery_lower_bound}", Colors.WHITE))
     print(colorize(f"  - delivery_upper_bound: {settings.delivery_upper_bound}", Colors.WHITE))
-    print(colorize(f"  - weight_coverage: {settings.weight_coverage}", Colors.WHITE))
+    print(colorize(f"  - weight_demand: {settings.weight_demand}", Colors.WHITE))
     print(colorize(f"  - weight_target_units: {settings.weight_target_units}", Colors.WHITE))
     print(colorize(f"  - weight_smoothing: {settings.weight_smoothing}", Colors.WHITE))
     print(colorize(f"  - weight_shipment: {settings.weight_shipment}", Colors.WHITE))
@@ -202,10 +202,10 @@ def configure_optimization_settings() -> OptimizationSettings:
         delivery_lower_bound = settings.delivery_lower_bound
         delivery_upper_bound = settings.delivery_upper_bound
 
-    weight_coverage = prompt_float(
-        "Coverage slack weight",
-        settings.weight_coverage,
-        "Weight for coverage constraint violations in objective",
+    weight_demand = prompt_float(
+        "Demand coverage weight",
+        settings.weight_demand,
+        "Weight for demand coverage constraint violations in objective",
     )
     weight_target_units = prompt_float(
         "Target units slack weight",
@@ -229,7 +229,7 @@ def configure_optimization_settings() -> OptimizationSettings:
         sales_window=sales_window,
         delivery_lower_bound=delivery_lower_bound,
         delivery_upper_bound=delivery_upper_bound,
-        weight_coverage=weight_coverage,
+        weight_demand=weight_demand,
         weight_target_units=weight_target_units,
         weight_smoothing=weight_smoothing,
         weight_shipment=weight_shipment,
@@ -549,7 +549,7 @@ def run_optimization(config: dict):
         print_info(
             f"Settings for this run: coverage_ratio={s.coverage_ratio}, target_coverage_ratio={s.target_coverage_ratio}, sales_window={s.sales_window}, "
             f"delivery_bounds=[{s.delivery_lower_bound}, {s.delivery_upper_bound}], "
-            f"weights=(coverage={s.weight_coverage}, target_units={s.weight_target_units}, smoothing={s.weight_smoothing})"
+            f"weights=(demand={s.weight_demand}, target_units={s.weight_target_units}, smoothing={s.weight_smoothing})"
         )
         
         # Build and solve (pass settings so optimization layer uses CLI parameters)
@@ -617,7 +617,7 @@ def main():
             print_info(f"Distributor Coverage Ratio: {settings.coverage_ratio}")
             print_info(f"Target Coverage Ratio: {settings.target_coverage_ratio}")
             print_info(f"Sales Window: {settings.sales_window} months")
-            print_info(f"Coverage Weight: {settings.weight_coverage}")
+            print_info(f"Demand Weight: {settings.weight_demand}")
             print_info(f"Target Units Weight: {settings.weight_target_units}")
             print_info(f"Solver: {solver}")
             if output_file:
