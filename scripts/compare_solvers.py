@@ -258,7 +258,7 @@ def main() -> None:
         help="Weight for target units slack in objective (default: from OptimizationSettings)",
     )
     parser.add_argument(
-        "--weight-delivery",
+        "--weight-smoothing",
         type=float,
         default=None,
         help="Weight for delivery smoothing slack in objective (default: from OptimizationSettings)",
@@ -293,7 +293,7 @@ def main() -> None:
         args.delivery_upper_bound is not None,
         args.weight_coverage is not None,
         args.weight_target_units is not None,
-        args.weight_delivery is not None,
+        args.weight_smoothing is not None,
         args.weight_shipment is not None,
     ]):
         # Start with defaults and override only provided values
@@ -306,14 +306,14 @@ def main() -> None:
             delivery_upper_bound=args.delivery_upper_bound if args.delivery_upper_bound is not None else default_settings.delivery_upper_bound,
             weight_coverage=args.weight_coverage if args.weight_coverage is not None else default_settings.weight_coverage,
             weight_target_units=args.weight_target_units if args.weight_target_units is not None else default_settings.weight_target_units,
-            weight_delivery=args.weight_delivery if args.weight_delivery is not None else default_settings.weight_delivery,
+            weight_smoothing=args.weight_smoothing if args.weight_smoothing is not None else default_settings.weight_smoothing,
             weight_shipment=args.weight_shipment if args.weight_shipment is not None else default_settings.weight_shipment,
         )
         print(f"Using custom settings: coverage_ratio={settings.coverage_ratio}, target_coverage_ratio={settings.target_coverage_ratio}, "
               f"sales_window={settings.sales_window}, "
               f"weights=(coverage={settings.weight_coverage}, "
               f"target_units={settings.weight_target_units}, "
-              f"delivery={settings.weight_delivery}, "
+              f"smoothing={settings.weight_smoothing}, "
               f"shipment={settings.weight_shipment})")
 
     print(f"Comparing solvers for snapshot date {snapshot_date} ({args.database_type} DB)")

@@ -135,7 +135,7 @@ def configure_optimization_settings() -> OptimizationSettings:
     print(colorize(f"  - delivery_upper_bound: {settings.delivery_upper_bound}", Colors.WHITE))
     print(colorize(f"  - weight_coverage: {settings.weight_coverage}", Colors.WHITE))
     print(colorize(f"  - weight_target_units: {settings.weight_target_units}", Colors.WHITE))
-    print(colorize(f"  - weight_delivery: {settings.weight_delivery}", Colors.WHITE))
+    print(colorize(f"  - weight_smoothing: {settings.weight_smoothing}", Colors.WHITE))
     print(colorize(f"  - weight_shipment: {settings.weight_shipment}", Colors.WHITE))
     print(colorize("  (Press Enter to edit; type 'n' to keep these and skip editing)", Colors.DIM))
 
@@ -212,9 +212,9 @@ def configure_optimization_settings() -> OptimizationSettings:
         settings.weight_target_units,
         "Weight for target units constraint violations in objective",
     )
-    weight_delivery = prompt_float(
-        "Delivery slack weight",
-        settings.weight_delivery,
+    weight_smoothing = prompt_float(
+        "Delivery smoothing weight",
+        settings.weight_smoothing,
         "Weight for delivery smoothing constraint violations in objective",
     )
     weight_shipment = prompt_float(
@@ -231,7 +231,7 @@ def configure_optimization_settings() -> OptimizationSettings:
         delivery_upper_bound=delivery_upper_bound,
         weight_coverage=weight_coverage,
         weight_target_units=weight_target_units,
-        weight_delivery=weight_delivery,
+        weight_smoothing=weight_smoothing,
         weight_shipment=weight_shipment,
     )
 
@@ -549,7 +549,7 @@ def run_optimization(config: dict):
         print_info(
             f"Settings for this run: coverage_ratio={s.coverage_ratio}, target_coverage_ratio={s.target_coverage_ratio}, sales_window={s.sales_window}, "
             f"delivery_bounds=[{s.delivery_lower_bound}, {s.delivery_upper_bound}], "
-            f"weights=(coverage={s.weight_coverage}, target_units={s.weight_target_units}, delivery={s.weight_delivery})"
+            f"weights=(coverage={s.weight_coverage}, target_units={s.weight_target_units}, smoothing={s.weight_smoothing})"
         )
         
         # Build and solve (pass settings so optimization layer uses CLI parameters)

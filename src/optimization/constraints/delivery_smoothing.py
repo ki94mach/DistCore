@@ -19,7 +19,7 @@ class DeliverySmoothingConstraint(Constraint):
         result = ConstraintResult()
         lower_bound = data.settings.delivery_lower_bound
         upper_bound = data.settings.delivery_upper_bound
-        weight = data.settings.weight_delivery
+        weight = data.settings.weight_smoothing
         for distributor in data.distributors:
             for product in data.products:
                 delivery_ma = data.delivery_moving_average(distributor, product)

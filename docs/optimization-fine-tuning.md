@@ -17,7 +17,7 @@ These settings define the **LP problem** (constraints and objective weights). Th
 | **delivery_upper_bound** | 1.2 | Delivery smoothing (SC5) | Max delivery vs 6‑month average (fraction). Higher → allow larger spikes. |
 | **weight_coverage** | 1.0 | Objective | Penalty weight for coverage slack. Increase to prioritize filling coverage gaps. |
 | **weight_target_units** | 2.0 | Objective | Penalty weight for target‑units slack. Increase to prioritize hitting product targets. |
-| **weight_delivery** | 1.0 | Objective | Penalty weight for delivery smoothing slack. Increase to prioritize stable deliveries. |
+| **weight_smoothing** | 1.0 | Objective | Penalty weight for delivery smoothing slack. Increase to prioritize stable deliveries. |
 | **weight_shipment** | 1.0 | Objective | Weight for decision variables (shipment regularization). Increase to discourage unnecessary shipping; decrease to allow more flexibility. |
 
 ### How to change
@@ -37,7 +37,7 @@ These settings define the **LP problem** (constraints and objective weights). Th
       sales_window=3,
       weight_coverage=1.0,
       weight_target_units=2.0,
-      weight_delivery=1.0,
+      weight_smoothing=1.0,
       weight_shipment=1.0,
   )
   # Pass settings to loader.load_optimization_data(..., settings=settings)
@@ -133,7 +133,7 @@ The objective minimized by all solvers is:
 ```
 min  weight_coverage     × Σ_{d,p} s_coverage[d,p]
    + weight_target_units × Σ_p     s_units[p]
-   + weight_delivery     × Σ_{d,p} (s_delivery_low[d,p] + s_delivery_high[d,p])
+   + weight_smoothing     × Σ_{d,p} (s_delivery_low[d,p] + s_delivery_high[d,p])
    + weight_shipment     × Σ_{d,p} x[d,p]
 ```
 
@@ -141,7 +141,7 @@ min  weight_coverage     × Σ_{d,p} s_coverage[d,p]
 |------|------|---------------|
 | Coverage penalty | Slack | `weight_coverage` |
 | Target penalty | Slack | `weight_target_units` |
-| Delivery smoothing penalty | Slack | `weight_delivery` |
+| Delivery smoothing penalty | Slack | `weight_smoothing` |
 | Shipment regularization | Decision variable | `weight_shipment` |
 
 The first three terms penalize soft-constraint violations. The fourth term penalizes each unit shipped, ensuring the solver does not ship more than needed.

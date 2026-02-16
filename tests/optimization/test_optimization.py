@@ -521,7 +521,7 @@ class TestConstraints(unittest.TestCase):
         settings = OptimizationSettings(
             delivery_lower_bound=0.9,
             delivery_upper_bound=1.2,
-            weight_delivery=1.5
+            weight_smoothing=1.5
         )
         data = OptimizationData(
             distributors=["D1", "D2"],

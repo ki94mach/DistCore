@@ -15,7 +15,7 @@ class OptimizationSettings:
     delivery_upper_bound: float = 1.2
     weight_coverage: float = 1.0
     weight_target_units: float = 2.0
-    weight_delivery: float = 1.0
+    weight_smoothing: float = 1.0
     weight_shipment: float = 1.0
 
 

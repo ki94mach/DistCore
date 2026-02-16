@@ -70,7 +70,7 @@ PRESETS: dict[str, OptimizationSettings] = {
         delivery_upper_bound=1.2,
         weight_coverage=1.0,
         weight_target_units=1.0,
-        weight_delivery=1.0,
+        weight_smoothing=1.0,
         weight_shipment=0.0,
     ),
     "high_coverage": OptimizationSettings(
@@ -81,7 +81,7 @@ PRESETS: dict[str, OptimizationSettings] = {
         delivery_upper_bound=1.2,
         weight_coverage=2.0,
         weight_target_units=1.0,
-        weight_delivery=1.0,
+        weight_smoothing=1.0,
         weight_shipment=1.0,
     ),
     "focus_targets": OptimizationSettings(
@@ -92,7 +92,7 @@ PRESETS: dict[str, OptimizationSettings] = {
         delivery_upper_bound=1.2,
         weight_coverage=1.0,
         weight_target_units=2.0,
-        weight_delivery=1.0,
+        weight_smoothing=1.0,
         weight_shipment=1.0,
     ),
 }
@@ -144,7 +144,7 @@ def _settings_from_dict(d: dict[str, Any]) -> OptimizationSettings:
         delivery_upper_bound=float(d.get("delivery_upper_bound", 1.2)),
         weight_coverage=float(d.get("weight_coverage", 1.0)),
         weight_target_units=float(d.get("weight_target_units", 1.0)),
-        weight_delivery=float(d.get("weight_delivery", 1.0)),
+        weight_smoothing=float(d.get("weight_smoothing", 1.0)),
     )
 
 
@@ -544,7 +544,7 @@ def main() -> None:
                     "delivery_upper_bound": r["settings"].delivery_upper_bound,
                     "weight_coverage": int(round(r["settings"].weight_coverage)),
                     "weight_target_units": int(round(r["settings"].weight_target_units)),
-                    "weight_delivery": int(round(r["settings"].weight_delivery)),
+                    "weight_smoothing": int(round(r["settings"].weight_smoothing)),
                     "weight_shipment": int(round(r["settings"].weight_shipment)),
                 },
             }
