@@ -50,7 +50,7 @@ def register(cls: Type[BaseSolver]) -> Type[BaseSolver]:
 # Register built-in solvers in priority order
 register(CBCSolver)
 register(GLPKSolver)
-register(ScipySolver)
+# register(ScipySolver)
 register(GreedySolver)
 register(SimulatedAnnealingSolver)
 
@@ -137,7 +137,7 @@ __all__ = [
     "CBCSolver",
     "GLPKSolver",
     "PuLPSolver",
-    "ScipySolver",
+    # "ScipySolver",
     "ScipyLinprogSolver",
     "GreedySolver",
     "SimulatedAnnealingSolver",
