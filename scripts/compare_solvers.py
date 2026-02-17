@@ -46,7 +46,13 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.optimization import ModelBuilder, OptimizationSettings, solve, SnapshotDataLoader
-from src.optimization.solvers import get_available_solver_names
+from src.optimization.solvers import (
+    get_available_solver_names,
+    get_default_settings,
+    get_available_presets,
+    get_preset_options,
+    get_default_options,
+)
 from src.optimization.constraints import (
     DeliveryHistoryConstraint,
     DeliverySmoothingConstraint,
@@ -94,10 +100,19 @@ def run_comparison(
     database_type: str = "test",
     config_path: str | None = None,
     settings: OptimizationSettings | None = None,
+    solver_options: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Load data once, build model once, run each available solver and collect metrics."""
+    """Load data once, build model once, run each available solver and collect metrics.
+    
+    Args:
+        snapshot_date: Date to use for snapshot
+        database_type: Database type ("test" or "source")
+        config_path: Optional path to database config file
+        settings: Optional OptimizationSettings (uses default if None)
+        solver_options: Optional solver-specific options dict (e.g., {"SimulatedAnnealing": {"max_iter": 10000}})
+    """
     if settings is None:
-        settings = OptimizationSettings()
+        settings = get_default_settings()
 
     factory = (
         DBConnectionFactory.from_config_file(Path(config_path))
@@ -117,11 +132,14 @@ def run_comparison(
     for solver_name in available:
         start = time.perf_counter()
         try:
+            # Get solver-specific options if provided
+            solver_opts = (solver_options or {}).get(solver_name) or {}
             solution = solve(
                 result.model,
                 result.decision_variables,
                 method=solver_name,
                 data=data,
+                solver_options={solver_name: solver_opts} if solver_opts else None,
             )
         except Exception as e:
             elapsed = time.perf_counter() - start
@@ -269,6 +287,12 @@ def main() -> None:
         default=None,
         help="Weight for shipment slack in objective (default: from OptimizationSettings)",
     )
+    parser.add_argument(
+        "--solver-preset",
+        type=str,
+        default=None,
+        help="Solver preset name to use for all solvers (e.g., 'fast', 'thorough' for SimulatedAnnealing)",
+    )
     args = parser.parse_args()
 
     try:
@@ -297,7 +321,7 @@ def main() -> None:
         args.weight_shipment is not None,
     ]):
         # Start with defaults and override only provided values
-        default_settings = OptimizationSettings()
+        default_settings = get_default_settings()
         settings = OptimizationSettings(
             coverage_ratio=args.coverage_ratio if args.coverage_ratio is not None else default_settings.coverage_ratio,
             target_coverage_ratio=args.target_coverage_ratio if args.target_coverage_ratio is not None else default_settings.target_coverage_ratio,
@@ -315,6 +339,25 @@ def main() -> None:
               f"target_units={settings.weight_target_units}, "
               f"smoothing={settings.weight_smoothing}, "
               f"shipment={settings.weight_shipment})")
+    
+    # Build solver options if preset specified
+    solver_options = None
+    if args.solver_preset:
+        # Apply the preset to all solvers that support it
+        solver_options = {}
+        available = get_available_solver_names()
+        for solver_name in available:
+            available_presets = get_available_presets(solver_name)
+            if args.solver_preset in available_presets:
+                preset_opts = get_preset_options(solver_name, args.solver_preset)
+                if preset_opts:
+                    solver_options[solver_name] = preset_opts
+                    print(f"Using '{args.solver_preset}' preset for {solver_name}")
+            else:
+                # Use defaults for solvers without this preset
+                default_opts = get_default_options(solver_name)
+                if default_opts:
+                    solver_options[solver_name] = default_opts
 
     print(f"Comparing solvers for snapshot date {snapshot_date} ({args.database_type} DB)")
     print("Loading data and building model...")
@@ -324,6 +367,7 @@ def main() -> None:
             database_type=args.database_type,
             config_path=args.config,
             settings=settings,
+            solver_options=solver_options,
         )
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

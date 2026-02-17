@@ -26,6 +26,25 @@ from src.optimization.solvers.scipy_solver import ScipyLinprogSolver, ScipySolve
 from src.optimization.solvers.greedy_solver import GreedySolver
 from src.optimization.solvers.simulated_annealing_solver import SimulatedAnnealingSolver
 
+# Presets and parameter management
+from src.optimization.solvers.param_presets import (
+    # Solver presets
+    SOLVER_PRESETS,
+    get_default_options,
+    get_available_presets,
+    get_preset_options,
+    merge_options,
+    get_solver_options_description,
+    # Constraint presets
+    CONSTRAINT_PRESETS,
+    get_default_settings,
+    get_available_constraint_presets,
+    get_constraint_preset,
+    merge_settings,
+    settings_from_dict,
+    get_constraint_settings_description,
+)
+
 # ---------------------------------------------------------------------------
 # Registry (insertion order = priority)
 # ---------------------------------------------------------------------------
@@ -149,4 +168,19 @@ __all__ = [
     "get_solver",
     "is_solver_available",
     "solve",
+    # Presets and parameter management (solver)
+    "SOLVER_PRESETS",
+    "get_default_options",
+    "get_available_presets",
+    "get_preset_options",
+    "merge_options",
+    "get_solver_options_description",
+    # Presets and parameter management (constraints)
+    "CONSTRAINT_PRESETS",
+    "get_default_settings",
+    "get_available_constraint_presets",
+    "get_constraint_preset",
+    "merge_settings",
+    "settings_from_dict",
+    "get_constraint_settings_description",
 ]

@@ -29,7 +29,19 @@ from src.optimization import (
     solve,
     SnapshotDataLoader,
 )
-from src.optimization.solvers import SOLVER_PRIORITY, get_available_solver_names
+from src.optimization.solvers import (
+    SOLVER_PRIORITY,
+    get_available_solver_names,
+    get_default_options,
+    get_available_presets,
+    get_preset_options,
+    merge_options,
+    get_solver_options_description,
+    get_available_constraint_presets,
+    get_constraint_preset,
+    merge_settings,
+    get_constraint_settings_description,
+)
 from src.optimization.constraints import (
     DeliveryHistoryConstraint,
     DeliverySmoothingConstraint,
@@ -236,8 +248,13 @@ def configure_optimization_settings() -> OptimizationSettings:
     )
 
 
-def configure_solver() -> str:
-    """Configure solver selection (priority order: exact LP first, then heuristics)."""
+def configure_solver() -> tuple[str, dict[str, Any]]:
+    """Configure solver selection and options.
+    
+    Returns:
+        Tuple of (solver_name, solver_options_dict)
+        solver_options_dict is in the format {solver_name: options_dict}
+    """
     print_header("Solver Configuration", Colors.BRIGHT_BLUE)
     available = get_available_solver_names()
 
@@ -266,7 +283,121 @@ def configure_solver() -> str:
     default = "1"
     prompt = f"Select solver (1-{len(SOLVER_PRIORITY)}, default={default}): "
     solver_choice = print_prompt(prompt).strip() or default
-    return solver_map.get(solver_choice, SOLVER_PRIORITY[0])
+    solver_name = solver_map.get(solver_choice, SOLVER_PRIORITY[0])
+    
+    # Configure solver options if the solver has tunable parameters
+    solver_options = configure_solver_options(solver_name)
+    
+    return solver_name, solver_options
+
+
+def configure_solver_options(solver_name: str) -> dict[str, Any]:
+    """Configure solver-specific options (presets or custom values).
+    
+    Args:
+        solver_name: Name of the selected solver
+        
+    Returns:
+        Dict in format {solver_name: options_dict} ready for solver_options parameter
+    """
+    default_opts = get_default_options(solver_name)
+    available_presets = get_available_presets(solver_name)
+    
+    # If solver has no tunable parameters, return empty dict
+    if not default_opts and not available_presets:
+        return {}
+    
+    print_header("Solver Options Configuration", Colors.BRIGHT_BLUE)
+    print_info(f"\nConfiguring options for {solver_name} solver")
+    
+    # Show current defaults
+    if default_opts:
+        print_info("\nCurrent default options:")
+        for key, value in sorted(default_opts.items()):
+            print(colorize(f"  - {key}: {value}", Colors.WHITE))
+    
+    # Option 1: Use preset
+    if available_presets:
+        print_info("\nAvailable presets:")
+        for i, preset_name in enumerate(available_presets, start=1):
+            print_menu_item(str(i), preset_name, Colors.BRIGHT_WHITE)
+        print_menu_item("c", "Custom (edit individual parameters)", Colors.WHITE)
+        
+        preset_choice = print_prompt(
+            f"Select preset (1-{len(available_presets)}) or 'c' for custom (default: 1): "
+        ).strip().lower() or "1"
+        
+        if preset_choice != "c" and preset_choice.isdigit():
+            preset_idx = int(preset_choice) - 1
+            if 0 <= preset_idx < len(available_presets):
+                preset_name = available_presets[preset_idx]
+                preset_opts = get_preset_options(solver_name, preset_name)
+                if preset_opts:
+                    print_success(f"Using preset '{preset_name}'")
+                    return {solver_name: preset_opts}
+        
+        # Custom: edit individual parameters
+        print_info("\nEditing individual parameters (press Enter to keep default):")
+        custom_opts = {}
+        option_descriptions = get_solver_options_description(solver_name)
+        
+        for key in sorted(default_opts.keys()):
+            default_val = default_opts[key]
+            desc = option_descriptions.get(key, {})
+            desc_text = desc.get("description", "")
+            opt_type = desc.get("type", "float")
+            
+            hint = f"  - {desc_text}" if desc_text else ""
+            if hint:
+                print(colorize(hint, Colors.DIM))
+            
+            value_str = print_prompt(f"{key} (default: {default_val}): ").strip()
+            if value_str:
+                try:
+                    if opt_type == "int":
+                        custom_opts[key] = int(value_str)
+                    else:
+                        custom_opts[key] = float(value_str)
+                except ValueError:
+                    print_warning(f"Invalid {opt_type}. Using default: {default_val}")
+                    custom_opts[key] = default_val
+            else:
+                custom_opts[key] = default_val
+        
+        print_success("Using custom parameters")
+        return {solver_name: custom_opts}
+    else:
+        # No presets but has options - edit directly
+        print_info("\nEditing parameters (press Enter to keep default):")
+        custom_opts = {}
+        option_descriptions = get_solver_options_description(solver_name)
+        
+        for key in sorted(default_opts.keys()):
+            default_val = default_opts[key]
+            desc = option_descriptions.get(key, {})
+            desc_text = desc.get("description", "")
+            opt_type = desc.get("type", "float")
+            
+            hint = f"  - {desc_text}" if desc_text else ""
+            if hint:
+                print(colorize(hint, Colors.DIM))
+            
+            value_str = print_prompt(f"{key} (default: {default_val}): ").strip()
+            if value_str:
+                try:
+                    if opt_type == "int":
+                        custom_opts[key] = int(value_str)
+                    else:
+                        custom_opts[key] = float(value_str)
+                except ValueError:
+                    print_warning(f"Invalid {opt_type}. Using default: {default_val}")
+                    custom_opts[key] = default_val
+            else:
+                custom_opts[key] = default_val
+        
+        return {solver_name: custom_opts}
+    
+    return {}
 
 
 def configure_output(snapshot_date: date, solver_name: str) -> dict[str, Any]:
@@ -364,8 +495,15 @@ def load_optimization_data(
         raise
 
 
-def build_and_solve_model(data, solver_name: str, settings=None):
-    """Build optimization model and solve. Pass settings to force their use in the model."""
+def build_and_solve_model(data, solver_name: str, settings=None, solver_options=None):
+    """Build optimization model and solve. Pass settings to force their use in the model.
+    
+    Args:
+        data: OptimizationData
+        solver_name: Name of the solver to use
+        settings: Optional OptimizationSettings to override defaults
+        solver_options: Optional dict in format {solver_name: options_dict}
+    """
     print_action("Building optimization model...")
     
     # Define constraints
@@ -391,12 +529,15 @@ def build_and_solve_model(data, solver_name: str, settings=None):
     
     # Solve
     print_action(f"Solving optimization problem with {solver_name} solver...")
+    if solver_options:
+        print_info(f"Solver options: {solver_options.get(solver_name, {})}")
     try:
         solution = solve(
             result.model,
             result.decision_variables,
             method=solver_name,
             data=data,
+            solver_options=solver_options,
         )
         print_success(f"Solution status: {solution.status}")
         return result, solution
@@ -552,9 +693,12 @@ def run_optimization(config: dict):
             f"weights=(demand={s.weight_demand}, target_units={s.weight_target_units}, smoothing={s.weight_smoothing})"
         )
         
-        # Build and solve (pass settings so optimization layer uses CLI parameters)
+        # Build and solve (pass settings and solver_options so optimization layer uses CLI parameters)
         result, solution = build_and_solve_model(
-            data, config['solver'], settings=config['settings']
+            data,
+            config['solver'],
+            settings=config['settings'],
+            solver_options=config.get('solver_options'),
         )
         
         # Format results
@@ -599,7 +743,7 @@ def main():
             date_config = configure_dates()
             db_config = configure_database()
             settings = configure_optimization_settings()
-            solver = configure_solver()
+            solver, solver_options = configure_solver()
             output_config = configure_output(
                 snapshot_date=date_config["snapshot_date"],
                 solver_name=solver,
@@ -620,6 +764,8 @@ def main():
             print_info(f"Demand Weight: {settings.weight_demand}")
             print_info(f"Target Units Weight: {settings.weight_target_units}")
             print_info(f"Solver: {solver}")
+            if solver_options and solver_options.get(solver):
+                print_info(f"Solver Options: {solver_options[solver]}")
             if output_file:
                 print_info(f"Output File (JSON): {output_file}")
             if csv_file:
@@ -639,6 +785,7 @@ def main():
                 **db_config,
                 'settings': settings,
                 'solver': solver,
+                'solver_options': solver_options,
                 'output_file': output_file,
                 'csv_file': csv_file,
                 'csv_include_variables': csv_include_variables,
