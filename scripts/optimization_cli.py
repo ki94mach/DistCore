@@ -37,6 +37,7 @@ from src.optimization.solvers import (
     get_preset_options,
     merge_options,
     get_solver_options_description,
+    get_default_settings,
     get_available_constraint_presets,
     get_constraint_preset,
     merge_settings,
@@ -134,10 +135,49 @@ def configure_database() -> dict:
 
 
 def configure_optimization_settings() -> OptimizationSettings:
-    """Configure optimization parameters."""
+    """Configure optimization parameters with preset selection and optional modification."""
     print_header("Optimization Settings", Colors.BRIGHT_BLUE)
 
-    settings = OptimizationSettings()
+    # Show available presets
+    available_presets = get_available_constraint_presets()
+    print_info("\nAvailable Constraint Presets:")
+    preset_map = {}
+    for i, preset_name in enumerate(available_presets, start=1):
+        preset = get_constraint_preset(preset_name)
+        if preset:
+            print_menu_item(
+                str(i),
+                f"{preset_name} (coverage={preset.coverage_ratio}, sales_window={preset.sales_window}, weights: demand={preset.weight_demand}, target={preset.weight_target_units})",
+                Colors.BRIGHT_WHITE,
+            )
+            preset_map[str(i)] = preset_name
+    
+    print_menu_item("c", "Custom (start from defaults)", Colors.WHITE)
+    print_menu_item("n", "Skip (use defaults)", Colors.DIM)
+    
+    preset_choice = print_prompt(
+        f"Select preset (1-{len(available_presets)}, 'c' for custom, 'n' to skip, default=1): "
+    ).strip().lower() or "1"
+    
+    # Determine initial settings
+    if preset_choice == "n":
+        return get_default_settings()
+    elif preset_choice == "c":
+        settings = get_default_settings()
+        preset_name = None
+    elif preset_choice in preset_map:
+        preset_name = preset_map[preset_choice]
+        settings = get_constraint_preset(preset_name)
+        if settings is None:
+            print_warning(f"Preset '{preset_name}' not found. Using defaults.")
+            settings = get_default_settings()
+            preset_name = None
+        else:
+            print_success(f"Selected preset: {preset_name}")
+    else:
+        print_warning("Invalid choice. Using defaults.")
+        settings = get_default_settings()
+        preset_name = None
 
     print_info("\nCurrent Optimization Parameters:")
     print(colorize(f"  - coverage_ratio: {settings.coverage_ratio}", Colors.WHITE))
@@ -149,9 +189,9 @@ def configure_optimization_settings() -> OptimizationSettings:
     print(colorize(f"  - weight_target_units: {settings.weight_target_units}", Colors.WHITE))
     print(colorize(f"  - weight_smoothing: {settings.weight_smoothing}", Colors.WHITE))
     print(colorize(f"  - weight_shipment: {settings.weight_shipment}", Colors.WHITE))
-    print(colorize("  (Press Enter to edit; type 'n' to keep these and skip editing)", Colors.DIM))
+    print(colorize("  (Press Enter to keep current value; type 'y' to modify)", Colors.DIM))
 
-    edit_choice = print_prompt("Edit these settings? (y/n, default=y): ").strip().lower()
+    edit_choice = print_prompt("Modify these settings? (y/n, default=n): ").strip().lower() or "n"
     if edit_choice in {"n", "no"}:
         return settings
 
@@ -179,21 +219,26 @@ def configure_optimization_settings() -> OptimizationSettings:
             print_error("Invalid number. Keeping current value.")
             return current
 
-    print_info("\nEdit Optimization Parameters:")
+    print_info("\nModify Optimization Parameters:")
+    print(colorize("  (Press Enter to keep current value from preset)", Colors.DIM))
+    
+    # Get descriptions for better prompts
+    param_descriptions = get_constraint_settings_description()
+    
     coverage_ratio = prompt_float(
         "Distributor coverage ratio",
         settings.coverage_ratio,
-        "Multiplier for distributor-product coverage (SC1) (e.g., 1.5 = 150% of demand)",
+        param_descriptions.get("coverage_ratio", {}).get("description", ""),
     )
     target_coverage_ratio = prompt_float(
         "Target units coverage ratio",
         settings.target_coverage_ratio,
-        "Multiplier for target units coverage (SC2) (e.g., 1.5 = 150% of target)",
+        param_descriptions.get("target_coverage_ratio", {}).get("description", ""),
     )
     sales_window = prompt_int(
         "Sales moving average window (months)",
         settings.sales_window,
-        "Allowed values: 3 or 6",
+        param_descriptions.get("sales_window", {}).get("description", ""),
     )
     if sales_window not in {3, 6}:
         print_warning("Unsupported sales window. Keeping current value.")
@@ -202,12 +247,12 @@ def configure_optimization_settings() -> OptimizationSettings:
     delivery_lower_bound = prompt_float(
         "Delivery lower bound",
         settings.delivery_lower_bound,
-        "Lower bound for delivery smoothing constraint (e.g., 0.9 = 90%)",
+        param_descriptions.get("delivery_lower_bound", {}).get("description", ""),
     )
     delivery_upper_bound = prompt_float(
         "Delivery upper bound",
         settings.delivery_upper_bound,
-        "Upper bound for delivery smoothing constraint (e.g., 1.2 = 120%)",
+        param_descriptions.get("delivery_upper_bound", {}).get("description", ""),
     )
     if delivery_lower_bound > delivery_upper_bound:
         print_warning("Lower bound exceeds upper bound. Keeping current values.")
@@ -217,35 +262,48 @@ def configure_optimization_settings() -> OptimizationSettings:
     weight_demand = prompt_float(
         "Demand coverage weight",
         settings.weight_demand,
-        "Weight for demand coverage constraint violations in objective",
+        param_descriptions.get("weight_demand", {}).get("description", ""),
     )
     weight_target_units = prompt_float(
         "Target units slack weight",
         settings.weight_target_units,
-        "Weight for target units constraint violations in objective",
+        param_descriptions.get("weight_target_units", {}).get("description", ""),
     )
     weight_smoothing = prompt_float(
         "Delivery smoothing weight",
         settings.weight_smoothing,
-        "Weight for delivery smoothing constraint violations in objective",
+        param_descriptions.get("weight_smoothing", {}).get("description", ""),
     )
     weight_shipment = prompt_float(
         "Shipment weight",
         settings.weight_shipment,
-        "Weight for decision variables in objective (penalizes unnecessary shipping)",
+        param_descriptions.get("weight_shipment", {}).get("description", ""),
     )
 
-    return OptimizationSettings(
-        coverage_ratio=coverage_ratio,
-        target_coverage_ratio=target_coverage_ratio,
-        sales_window=sales_window,
-        delivery_lower_bound=delivery_lower_bound,
-        delivery_upper_bound=delivery_upper_bound,
-        weight_demand=weight_demand,
-        weight_target_units=weight_target_units,
-        weight_smoothing=weight_smoothing,
-        weight_shipment=weight_shipment,
-    )
+    # Use merge_settings to combine preset with custom modifications
+    custom_settings = {
+        "coverage_ratio": coverage_ratio,
+        "target_coverage_ratio": target_coverage_ratio,
+        "sales_window": sales_window,
+        "delivery_lower_bound": delivery_lower_bound,
+        "delivery_upper_bound": delivery_upper_bound,
+        "weight_demand": weight_demand,
+        "weight_target_units": weight_target_units,
+        "weight_smoothing": weight_smoothing,
+        "weight_shipment": weight_shipment,
+    }
+    
+    # If a preset was selected, merge it with custom values
+    if preset_name:
+        final_settings = merge_settings(
+            preset_name=preset_name,
+            custom_settings=custom_settings,
+        )
+    else:
+        # No preset selected, use custom values directly
+        final_settings = OptimizationSettings(**custom_settings)
+    
+    return final_settings
 
 
 def configure_solver() -> tuple[str, dict[str, Any]]:
