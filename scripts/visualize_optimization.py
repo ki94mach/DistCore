@@ -7,11 +7,13 @@ This script creates visualizations showing:
 4. Optimal solution point
 
 Usage:
-    # Product-level view (all distributors)
+    # Product-level view (all distributors) - can use product ID or English name
     python scripts/visualize_optimization.py --product P1 --date 2026-02-17
+    python scripts/visualize_optimization.py --product "Product Name" --date 2026-02-17
     
-    # Distributor-product pair view
+    # Distributor-product pair view - can use product ID or English name
     python scripts/visualize_optimization.py --distributor D1 --product P1 --date 2026-02-17
+    python scripts/visualize_optimization.py --distributor D1 --product "Product Name" --date 2026-02-17
 """
 
 from __future__ import annotations
@@ -711,15 +713,52 @@ class EnhancedOptimizationVisualizer:
         plt.close()
 
 
+def resolve_product_id(product_identifier: str, data: Any) -> Optional[str]:
+    """
+    Resolve a product identifier (ID or English name) to a product ID.
+    
+    Args:
+        product_identifier: Either a product ID or an English product name
+        data: OptimizationData instance with product_names_en mapping
+        
+    Returns:
+        Product ID if found, None otherwise
+    """
+    # First check if it's a direct product ID match
+    if product_identifier in data.products:
+        return product_identifier
+    
+    # If not, try to find by English name (reverse lookup)
+    if hasattr(data, 'product_names_en') and data.product_names_en:
+        # Create reverse mapping: English name -> product ID
+        # Handle potential duplicates by taking the first match
+        name_to_id = {}
+        for pid, name in data.product_names_en.items():
+            if name and name not in name_to_id:  # Only add first occurrence
+                name_to_id[name] = pid
+        
+        if product_identifier in name_to_id:
+            return name_to_id[product_identifier]
+    
+    return None
+
+
+def get_product_display_name(product_id: str, data: Any) -> str:
+    """Get English display name for a product ID, or return the ID if name not available."""
+    if hasattr(data, 'product_names_en') and data.product_names_en:
+        return data.product_names_en.get(product_id, product_id)
+    return product_id
+
+
 def visualize_product_level(
-    product_id: str,
+    product_identifier: str,
     snapshot_date: date,
     database_type: str = "test",
     settings: Optional[OptimizationSettings] = None,
     output_dir: Optional[Path] = None,
 ) -> None:
     """Visualize optimization at product level showing all distributors."""
-    print_action(f"Loading data for product {product_id}...")
+    print_action(f"Loading data for product '{product_identifier}'...")
 
     # Initialize database
     factory = DBConnectionFactory()
@@ -736,11 +775,25 @@ def visualize_product_level(
         settings=settings,
     )
 
-    # Verify product exists
-    if product_id not in data.products:
-        print_error(f"Product '{product_id}' not found in data")
-        print_info(f"Available products: {', '.join(data.products)}")
+    # Resolve product identifier (ID or English name) to product ID
+    product_id = resolve_product_id(product_identifier, data)
+    if product_id is None:
+        print_error(f"Product '{product_identifier}' not found in data")
+        # Show available products with their English names
+        available_products = []
+        for pid in sorted(data.products):
+            display_name = get_product_display_name(pid, data)
+            if display_name != pid:
+                available_products.append(f"{display_name} (ID: {pid})")
+            else:
+                available_products.append(pid)
+        print_info(f"Available products: {', '.join(available_products)}")
         return
+    
+    # Show which product was resolved
+    display_name = get_product_display_name(product_id, data)
+    if display_name != product_identifier:
+        print_info(f"Resolved '{product_identifier}' to product ID: {product_id} ({display_name})")
 
     # Build and solve model
     print_action("Building and solving optimization model...")
@@ -790,14 +843,14 @@ def visualize_product_level(
 
 def visualize_single_run(
     distributor_id: str,
-    product_id: str,
+    product_identifier: str,
     snapshot_date: date,
     database_type: str = "test",
     settings: Optional[OptimizationSettings] = None,
     output_dir: Optional[Path] = None,
 ) -> None:
     """Run optimization and create visualization."""
-    print_action(f"Loading data for {distributor_id} × {product_id}...")
+    print_action(f"Loading data for {distributor_id} × '{product_identifier}'...")
 
     # Initialize database
     factory = DBConnectionFactory()
@@ -814,16 +867,31 @@ def visualize_single_run(
         settings=settings,
     )
 
-    # Verify distributor and product exist
+    # Verify distributor exists
     if distributor_id not in data.distributors:
         print_error(f"Distributor '{distributor_id}' not found in data")
         print_info(f"Available distributors: {', '.join(data.distributors)}")
         return
 
-    if product_id not in data.products:
-        print_error(f"Product '{product_id}' not found in data")
-        print_info(f"Available products: {', '.join(data.products)}")
+    # Resolve product identifier (ID or English name) to product ID
+    product_id = resolve_product_id(product_identifier, data)
+    if product_id is None:
+        print_error(f"Product '{product_identifier}' not found in data")
+        # Show available products with their English names
+        available_products = []
+        for pid in sorted(data.products):
+            display_name = get_product_display_name(pid, data)
+            if display_name != pid:
+                available_products.append(f"{display_name} (ID: {pid})")
+            else:
+                available_products.append(pid)
+        print_info(f"Available products: {', '.join(available_products)}")
         return
+    
+    # Show which product was resolved
+    display_name = get_product_display_name(product_id, data)
+    if display_name != product_identifier:
+        print_info(f"Resolved '{product_identifier}' to product ID: {product_id} ({display_name})")
 
     # Build and solve model
     print_action("Building and solving optimization model...")
@@ -885,7 +953,7 @@ def main():
         "--product",
         type=str,
         required=True,
-        help="Product ID to visualize",
+        help="Product ID or English product name to visualize",
     )
     parser.add_argument(
         "--date",

@@ -33,7 +33,8 @@ class OptimizationData:
     delivery_ma_6: Mapping[Tuple[str, str], float] = field(default_factory=dict)
     has_delivery_last_6m: Mapping[Tuple[str, str], bool] = field(default_factory=dict)
     distributor_names: Mapping[str, str] = field(default_factory=dict)
-    product_names: Mapping[str, str] = field(default_factory=dict)
+    product_names: Mapping[str, str] = field(default_factory=dict)  # Persian names for CSV
+    product_names_en: Mapping[str, str] = field(default_factory=dict)  # English names for terminal
 
     def inventory(self, distributor: str, product: str) -> float:
         return self.distributor_inventory.get((distributor, product), 0.0)

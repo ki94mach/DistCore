@@ -134,7 +134,8 @@ class SnapshotDataLoader:
 
         # Load dimension names from SQL Server (Analytics_Stage) for output display
         distributor_names = self._load_distributor_names(sorted(distributors))
-        product_names = self._load_product_names(sorted(products))
+        product_names = self._load_product_names(sorted(products))  # Persian names for CSV
+        product_names_en = self._load_product_names_en(sorted(products))  # English names for terminal
 
         return OptimizationData(
             distributors=sorted(distributors),
@@ -150,6 +151,7 @@ class SnapshotDataLoader:
             has_delivery_last_6m=has_delivery_last_6m_map,
             distributor_names=distributor_names,
             product_names=product_names,
+            product_names_en=product_names_en,
         )
 
     def _load_factory_inventory(self, snapshot_date: date) -> List[Dict[str, Any]]:
@@ -332,7 +334,7 @@ class SnapshotDataLoader:
             return {}
 
     def _load_product_names(self, product_ids: List[str]) -> Dict[str, str]:
-        """Load product ID -> name from [Analytics_Stage].[Data].[DimProduct]."""
+        """Load product ID -> Persian name from [Analytics_Stage].[Data].[DimProduct]."""
         if not product_ids:
             return {}
         try:
@@ -347,3 +349,18 @@ class SnapshotDataLoader:
         except Exception:
             return {}
 
+    def _load_product_names_en(self, product_ids: List[str]) -> Dict[str, str]:
+        """Load product ID -> English name from [Analytics_Stage].[Data].[DimProduct]."""
+        if not product_ids:
+            return {}
+        try:
+            placeholders = ",".join("?" * len(product_ids))
+            query = f"""
+            SELECT ID, ProductTitleEN
+            FROM [Analytics_Stage].[Data].[DimProduct]
+            WHERE ID IN ({placeholders})
+            """
+            rows = self._execute_parameterized_query(query, tuple(product_ids))
+            return {str(r["ID"]): (r["ProductTitleEN"] or "").strip() or str(r["ID"]) for r in rows}
+        except Exception:
+            return {}

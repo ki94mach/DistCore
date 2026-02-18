@@ -121,7 +121,12 @@ def _distributor_label(data: Any, distributor_id: str) -> str:
 
 
 def _product_label(data: Any, product_id: str) -> str:
-    """Display name for product (from dimension) or ID if not available."""
+    """Display name for product (English, for terminal) or ID if not available."""
+    return (getattr(data, "product_names_en", None) or {}).get(product_id, product_id)
+
+
+def _product_label_persian(data: Any, product_id: str) -> str:
+    """Display name for product (Persian, for CSV) or ID if not available."""
     return (getattr(data, "product_names", None) or {}).get(product_id, product_id)
 
 
@@ -156,7 +161,7 @@ def save_preset_csv(
         quantity = round(solution.variable_values.get(variable, 0.0), 2)
         row: dict[str, Any] = {
             "distributor": _distributor_label(data, distributor_id),
-            "product": _product_label(data, product_id),
+            "product": _product_label_persian(data, product_id),  # Use Persian names for CSV
             "quantity": quantity,
         }
         if include_variables:
