@@ -538,32 +538,45 @@ class EnhancedOptimizationVisualizer:
             color="red",
         )
 
-        # Target coverage constraint: total_shipment + total_inventory + slack >= target_coverage
-        # LHS = total_shipment + total_inventory
-        target_lhs = x_range + total_inventory
+        # Coverage constraints: LHS = total_shipment + total_inventory (same for both)
+        # So there is one sloped line (LHS) and two constant RHS lines (target and demand).
+        coverage_lhs = x_range + total_inventory
         ax1.plot(
             x_range,
-            target_lhs,
+            coverage_lhs,
             "b-",
             linewidth=2,
-            label=f"Total Coverage LHS: x + {total_inventory:.1f}",
+            label=f"Coverage LHS (both): x + {total_inventory:.1f}",
             alpha=0.7,
         )
-        # Target line
+        # Target coverage constraint RHS: constant (product target units)
         ax1.axhline(
             y=target_coverage,
             color="blue",
             linestyle=":",
             linewidth=2,
-            label=f"Target Coverage: {target_coverage:.1f}",
+            label=f"Target Coverage (RHS): {target_coverage:.1f}",
             alpha=0.7,
         )
-        # Feasible region (above target)
+        # Demand coverage: aggregated RHS (sum of per-distributor demand targets)
+        demand_target_sum = sum(
+            self.settings.coverage_ratio * self.data.coverage_demand(d, self.product_id)
+            for d in distributors
+        )
+        ax1.axhline(
+            y=demand_target_sum,
+            color="teal",
+            linestyle="--",
+            linewidth=1.5,
+            label=f"Demand Coverage (RHS): {demand_target_sum:.1f}",
+            alpha=0.7,
+        )
+        # Feasible region (LHS above target)
         ax1.fill_between(
             x_range,
             target_coverage,
             target_coverage + 100,
-            where=(target_lhs >= target_coverage),
+            where=(coverage_lhs >= target_coverage),
             alpha=0.1,
             color="blue",
         )
@@ -597,7 +610,7 @@ class EnhancedOptimizationVisualizer:
         ax1.legend(loc="upper left", fontsize=9)
         ax1.grid(True, alpha=0.3)
         ax1.set_xlim(0, x_max)
-        ax1.set_ylim(0, max(factory_supply, target_coverage) * 1.2)
+        ax1.set_ylim(0, max(factory_supply, target_coverage, demand_target_sum) * 1.2)
 
         # Add distributor allocation info
         dist_text = "Distributor Allocations:\n"
