@@ -12,9 +12,8 @@ Assumptions: T-SQL on SQL Server; staging table [Data].[stg_DistributorDeliverie
             snapshot table [Data].[snp_DistributorDeliveriesSnapshot] exists (see 034_snap_distributor_deliveries_snapshot.sql); 
             dimension tables [Analytics_Stage].[Data].[DimProduct], [Analytics_Stage].[Data].[DimDistrbutor], and [Analytics_Stage].[Data].[DimDate] exist and are populated.
 Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. 
-        It computes average delivery per event (SUM/COUNT) over the last 6 months and merges into the snapshot table. 
-        The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will update existing records if staging data has changed, 
-        or leave them unchanged if data is identical.
+        It clears the snapshot table (latest-only), then computes average delivery per event (SUM/COUNT) over the last 6 months and merges into the snapshot table. 
+        The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will replace the snapshot data.
 Parameters:
     @batch_id BIGINT - The batch identifier for the staging data to publish (must exist in [Data].[stg_DistributorDeliveries]).
     @snapshot_date DATE - Gregorian snapshot date to assign to published records. Moving averages are calculated up to this date.
@@ -67,6 +66,9 @@ BEGIN
         product_id INT,
         distributor_id INT
     );
+
+    -- Clear snapshot table (latest-only) before reloading
+    TRUNCATE TABLE [Data].[snp_DistributorDeliveriesSnapshot];
 
     -- Date range for last 6 months (excluding current month)
     DECLARE @six_months_ago DATE = DATEADD(MONTH, -6, @effective_snapshot_date);

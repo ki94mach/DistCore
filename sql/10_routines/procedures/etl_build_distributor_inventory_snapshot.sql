@@ -7,7 +7,7 @@ Aggregation Logic:
     - Result: Total inventory quantity per (product_id, distributor_id) combination for today's date
 Grain: One row per (snapshot_date, distributor_id, product_id) in the snapshot table. Quantities are summed across all centers.
 Assumptions: T-SQL on SQL Server; staging table [Data].[stg_DistributorInventory] exists (see 020_stg_distributor_inventory.sql); snapshot table [Data].[snp_DistributorInventorySnapshot] exists (see 030_snap_distributor_inventory_snapshot.sql).
-Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. It aggregates staging data by product_id for today's date only, summing on_hand_qty across all distributors, and merges into the snapshot table. The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will update existing records if staging data has changed, or leave them unchanged if data is identical. This allows safe reruns of the ETL pipeline without creating duplicate snapshots.
+Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. It clears the snapshot table (latest-only), then aggregates staging data by product_id for today's date only, summing on_hand_qty across all distributors, and merges into the snapshot table. The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will replace the snapshot data.
 Parameters:
     @batch_id BIGINT - The batch identifier for the staging data to publish (must exist in [Data].[stg_DistributorInventory]).
     @snapshot_date DATE - The snapshot date to assign to published records. Only records with as_of_datetime equal to today's date (CAST(GETDATE() AS DATE)) are included in the aggregation.
@@ -40,6 +40,9 @@ BEGIN
         product_id INT,
         distributor_id INT
     );
+    
+    -- Clear snapshot table (latest-only) before reloading
+    TRUNCATE TABLE [Data].[snp_DistributorInventorySnapshot];
     
     -- Get today's date for filtering staging data
     -- Only records with as_of_datetime equal to today's date are included in the snapshot

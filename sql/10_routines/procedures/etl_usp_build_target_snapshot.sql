@@ -7,7 +7,7 @@ Aggregation Logic:
     - Result: Target quantities per product, year, and month for the snapshot date
 Grain: One row per (snapshot_date, product_id, year, month) in the snapshot table.
 Assumptions: T-SQL on SQL Server; staging table [Data].[stg_Target] exists (see 023_stg_target.sql); snapshot table [Data].[snp_TargetSnapshot] exists (see 033_snap_target_snapshot.sql).
-Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. It clears the snapshot rows for @snapshot_date, then loads the staging data for the Jalali year/month resolved from [Analytics_Stage].[Data].[DimDate] using @snapshot_date. Re-running with the same @batch_id and @snapshot_date will replace the snapshot rows for that date.
+Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. It clears the snapshot table (latest-only), then loads the staging data for the Jalali year/month resolved from [Analytics_Stage].[Data].[DimDate] using @snapshot_date. Re-running with the same @batch_id and @snapshot_date will replace the snapshot data.
 Parameters:
     @batch_id BIGINT - The batch identifier for the staging data to publish (must exist in [Data].[stg_Target]).
     @snapshot_date DATE - The snapshot date to assign to published records (used to resolve Jalali year/month).
@@ -56,9 +56,8 @@ BEGIN
         month INT
     );
     
-    -- Clear snapshot rows for this snapshot date before reloading
-    DELETE FROM [Data].[snp_TargetSnapshot]
-    WHERE snapshot_date = @snapshot_date;
+    -- Clear snapshot table (latest-only) before reloading
+    TRUNCATE TABLE [Data].[snp_TargetSnapshot];
 
     -- Build source dataset: select staging data for the batch
     -- Filter out NULL keys to ensure snapshot grain integrity

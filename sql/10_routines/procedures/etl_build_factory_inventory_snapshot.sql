@@ -7,7 +7,7 @@ Aggregation Logic:
     - Result: Total inventory quantity per product across all factories for today's date
 Grain: One row per (snapshot_date, product_id) in the snapshot table. Quantities are summed across all factories.
 Assumptions: T-SQL on SQL Server; staging table [Data].[stg_FactoryInventory] exists (see 020_stg_factory_inventory.sql); snapshot table [Data].[snp_FactoryInventorySnapshot] exists (see 030_snap_factory_inventory_snapshot.sql).
-Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. It aggregates staging data by product_id for today's date only, summing on_hand_qty across all factories, and merges into the snapshot table. The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will update existing records if staging data has changed, or leave them unchanged if data is identical. This allows safe reruns of the ETL pipeline without creating duplicate snapshots.
+Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. It clears the snapshot table (latest-only), then aggregates staging data by product_id for today's date only, summing on_hand_qty across all factories, and merges into the snapshot table. The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will replace the snapshot data.
 Parameters:
     @batch_id BIGINT - The batch identifier for the staging data to publish (must exist in [Data].[stg_FactoryInventory]).
     @snapshot_date DATE - The snapshot date to assign to published records. Only records with as_of_datetime equal to today's date (CAST(GETDATE() AS DATE)) are included in the aggregation.
@@ -39,6 +39,9 @@ BEGIN
         snapshot_date DATE,
         product_id INT
     );
+    
+    -- Clear snapshot table (latest-only) before reloading
+    TRUNCATE TABLE [Data].[snp_FactoryInventorySnapshot];
     
     -- Get today's date for filtering staging data
     -- Only records with as_of_datetime equal to today's date are included in the snapshot
