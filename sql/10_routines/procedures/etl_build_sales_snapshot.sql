@@ -5,7 +5,7 @@ Aggregation Logic:
     - Calculates monthly sales totals and moving averages over monthly totals in Jalali months.
     - Moving averages exclude the current Jalali month (MA 3: 3 months ago to 1 month ago, MA 6: 6 months ago to 1 month ago).
     - Calculates month-to-date sales for the current Jalali month up to the snapshot date.
-Grain: One row per (snapshot_month, distributor_id, product_id) in the snapshot table.
+Grain: One row per (snapshot_month, distributor_id, product_id) in the snapshot table. Includes product-distributor pairs with no sales in the current month when they have prior-month sales (so moving averages are preserved; sales_mtd is 0).
 Assumptions: T-SQL on SQL Server; staging table [Data].[stg_Sales] exists (see 022_stg_sales.sql); snapshot table [Data].[snp_SalesSnapshot] exists (see 032_snap_sales_snapshot.sql).
 Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. It aggregates staging data by product_id and distributor_id by month, computes moving averages, and merges into the snapshot table. The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will update existing records if staging data has changed, or leave them unchanged if data is identical.
 Parameters:
@@ -101,6 +101,25 @@ BEGIN
             distributor_id,
             month_start.DateID
     ),
+    -- Include product-distributor pairs that have sales in prior months but none in current month (so they get a row with MA3/MA6, sales_mtd = 0)
+    ZeroCurrentMonth AS (
+        SELECT DISTINCT
+            mt.product_id,
+            mt.distributor_id
+        FROM MonthlyTotals AS mt
+        WHERE mt.snapshot_month < @snapshot_month
+        EXCEPT
+        SELECT product_id, distributor_id
+        FROM MonthlyTotals
+        WHERE snapshot_month = @snapshot_month
+    ),
+    MonthlyTotalsWithZeros AS (
+        SELECT product_id, distributor_id, snapshot_month, monthly_sales
+        FROM MonthlyTotals
+        UNION ALL
+        SELECT product_id, distributor_id, @snapshot_month AS snapshot_month, 0 AS monthly_sales
+        FROM ZeroCurrentMonth
+    ),
     MonthlyWithAverages AS (
         SELECT
             product_id,
@@ -117,7 +136,7 @@ BEGIN
                 ORDER BY snapshot_month
                 ROWS BETWEEN 6 PRECEDING AND 1 PRECEDING
             ) AS sales_ma_6
-        FROM MonthlyTotals
+        FROM MonthlyTotalsWithZeros
     ),
     SnapshotMonth AS (
         SELECT
@@ -147,7 +166,7 @@ BEGIN
             snapshot.distributor_id,
             @snapshot_jalali_year AS jalali_year,
             @snapshot_jalali_month AS jalali_month,
-            mtd.sales_mtd,
+            COALESCE(mtd.sales_mtd, 0) AS sales_mtd,
             snapshot.sales_ma_3,
             snapshot.sales_ma_6
         FROM SnapshotMonth AS snapshot
