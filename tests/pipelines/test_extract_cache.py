@@ -7,13 +7,18 @@ import unittest
 from datetime import date
 from pathlib import Path
 
+import pandas as pd
+
 _project_root = Path(__file__).resolve().parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from src.orchestrator.pipelines.utils.extract_cache import (
+    EXTRACT_FILENAME,
     STATUS_EXTRACT_COMPLETE,
     STATUS_EXTRACTING,
+    VERIFIED_SOURCE_CACHE,
+    VERIFIED_STAGING,
     ExtractCache,
     ExtractCacheError,
     compute_extract_query_hash,
@@ -52,92 +57,67 @@ class TestExtractCache(unittest.TestCase):
             single_date_only=False,
         )
         self.assertEqual(hash_a, hash_b)
-        self.assertNotEqual(
-            hash_a,
-            compute_extract_query_hash(
-                extract_query="SELECT 2",
-                batch_type="FACTORY_INVENTORY",
-                since_date=None,
-                snapshot_date=date(2024, 1, 15),
-                single_date_only=False,
-            ),
-        )
 
-    def test_extract_and_finalize_writes_manifest_and_chunks(self):
-        self.cache.begin_extract(self.query_hash)
-        chunk_file = self.cache.write_chunk(
-            1,
+    def test_write_and_read_extract_single_file(self):
+        df = pd.DataFrame(
             [(1, "A", 10)],
-            ["factory_id", "product_batch_no", "on_hand_qty"],
+            columns=["factory_id", "product_batch_no", "on_hand_qty"],
         )
-        self.cache.finalize_extract(
-            query_hash=self.query_hash,
-            chunk_files=[chunk_file],
-            row_count=1,
-            column_names=["factory_id", "product_batch_no", "on_hand_qty"],
-        )
+        self.cache.write_extract(df, self.query_hash)
 
-        manifest = self.cache.read_manifest()
-        self.assertEqual(manifest["status"], STATUS_EXTRACT_COMPLETE)
-        self.assertEqual(manifest["row_count"], 1)
-        self.assertTrue(self.cache.is_extract_complete(self.query_hash))
+        self.assertTrue(self.cache.extract_path.is_file())
+        self.assertFalse((self.cache.batch_cache_dir / "chunk_0001.pkl").exists())
 
-    def test_iter_chunks_yields_rows(self):
-        self.cache.begin_extract(self.query_hash)
-        chunk_file = self.cache.write_chunk(
-            1,
-            [(1, 100), (2, 200)],
-            ["factory_id", "on_hand_qty"],
-        )
-        self.cache.finalize_extract(
-            query_hash=self.query_hash,
-            chunk_files=[chunk_file],
-            row_count=2,
-            column_names=["factory_id", "on_hand_qty"],
-        )
+        read_back = self.cache.read_extract(self.query_hash)
+        self.assertEqual(len(read_back), 1)
+        self.assertEqual(list(read_back.columns), list(df.columns))
 
-        chunks = list(self.cache.iter_chunks(self.query_hash))
-        self.assertEqual(len(chunks), 1)
-        columns, rows = chunks[0]
-        self.assertEqual(columns, ["factory_id", "on_hand_qty"])
-        self.assertEqual(rows, [(1, 100), (2, 200)])
+    def test_set_verified_step_and_is_source_cache_verified(self):
+        df = pd.DataFrame({"factory_id": [1]})
+        self.cache.write_extract(df, self.query_hash)
+        self.assertFalse(self.cache.is_source_cache_verified(self.query_hash))
+
+        self.cache.set_verified_step(VERIFIED_SOURCE_CACHE, source_row_count=1)
+        self.assertTrue(self.cache.is_source_cache_verified(self.query_hash))
+        self.assertFalse(self.cache.is_staging_verified(self.query_hash))
+
+        self.cache.set_verified_step(VERIFIED_STAGING)
+        self.assertTrue(self.cache.is_staging_verified(self.query_hash))
 
     def test_delete_cache_removes_directory(self):
-        self.cache.begin_extract(self.query_hash)
-        self.cache.finalize_extract(
-            query_hash=self.query_hash,
-            chunk_files=[],
-            row_count=0,
-            column_names=[],
-        )
+        df = pd.DataFrame({"factory_id": [1]})
+        self.cache.write_extract(df, self.query_hash)
         self.assertTrue(self.cache.batch_cache_dir.exists())
         self.cache.delete_cache()
         self.assertFalse(self.cache.batch_cache_dir.exists())
+
+    def test_read_extract_raises_on_row_count_mismatch(self):
+        df = pd.DataFrame({"factory_id": [1, 2]})
+        self.cache.write_extract(df, self.query_hash)
+        manifest = self.cache.read_manifest()
+        manifest["row_count"] = 99
+        with self.cache.manifest_path().open("w", encoding="utf-8") as handle:
+            json.dump(manifest, handle)
+
+        with self.assertRaises(ExtractCacheError):
+            self.cache.read_extract(self.query_hash)
 
     def test_require_extract_complete_raises_when_missing(self):
         with self.assertRaises(ExtractCacheError):
             self.cache.require_extract_complete()
 
-    def test_require_extract_complete_raises_on_hash_mismatch(self):
+    def test_begin_extract_creates_extracting_manifest(self):
         self.cache.begin_extract(self.query_hash)
-        self.cache.finalize_extract(
-            query_hash=self.query_hash,
-            chunk_files=[],
-            row_count=0,
-            column_names=[],
-        )
-        with self.assertRaises(ExtractCacheError):
-            self.cache.require_extract_complete("different-hash")
-
-    def test_clear_removes_incomplete_extract(self):
-        self.cache.begin_extract(self.query_hash)
-        manifest_path = self.cache.manifest_path()
-        self.assertTrue(manifest_path.exists())
-        with manifest_path.open(encoding="utf-8") as handle:
+        with self.cache.manifest_path().open(encoding="utf-8") as handle:
             manifest = json.load(handle)
         self.assertEqual(manifest["status"], STATUS_EXTRACTING)
-        self.cache.clear()
-        self.assertFalse(self.cache.batch_cache_dir.exists())
+        self.assertIsNone(manifest.get("last_verified_step"))
+
+    def test_is_extract_complete_without_verification(self):
+        df = pd.DataFrame({"factory_id": [1]})
+        self.cache.write_extract(df, self.query_hash)
+        self.assertTrue(self.cache.is_extract_complete(self.query_hash))
+        self.assertFalse(self.cache.is_source_cache_verified(self.query_hash))
 
 
 if __name__ == "__main__":

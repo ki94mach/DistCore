@@ -5,6 +5,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+import pandas as pd
+
 from src.orchestrator.pipelines.pipeline_base import BasePipeline
 from src.orchestrator.pipelines.utils import (
     apply_date_equality_filter,
@@ -13,10 +15,19 @@ from src.orchestrator.pipelines.utils import (
     substitute_date_parameter,
 )
 from src.orchestrator.pipelines.utils.extract_cache import (
+    VERIFIED_SOURCE_CACHE,
+    VERIFIED_STAGING,
     ExtractCache,
     ExtractCacheError,
     compute_extract_query_hash,
     get_default_cache_root,
+)
+from src.orchestrator.pipelines.utils.stage_verification import (
+    StageVerificationError,
+    count_source_rows,
+    count_staging_rows,
+    verify_cache_staging_match,
+    verify_source_cache_match,
 )
 from src.orchestrator.services.sql_server_db.executors.sql_utils import (
     read_sql_file,
@@ -157,6 +168,7 @@ class TemplatePipeline(BasePipeline):
         force_extract: bool = False,
         extract_only: bool = False,
         load_from_cache_only: bool = False,
+        max_verification_retries: int = 3,
     ) -> None:
         with self._handle_batch_failure("Load stage failed: "):
             self._ensure_snapshot_date()
@@ -176,6 +188,7 @@ class TemplatePipeline(BasePipeline):
                 force_extract=force_extract,
                 extract_only=extract_only,
                 load_from_cache_only=load_from_cache_only,
+                max_verification_retries=max_verification_retries,
             )
 
     def _run_staged_load(
@@ -188,6 +201,7 @@ class TemplatePipeline(BasePipeline):
         force_extract: bool = False,
         extract_only: bool = False,
         load_from_cache_only: bool = False,
+        max_verification_retries: int = 3,
     ) -> None:
         query_hash = self._compute_query_hash(extract_query, since_date, single_date_only)
 
@@ -206,35 +220,130 @@ class TemplatePipeline(BasePipeline):
         cache = self._get_extract_cache()
 
         if load_from_cache_only:
-            try:
-                cache.require_extract_complete(query_hash)
-            except ExtractCacheError as exc:
-                raise ExtractCacheError(str(exc)) from exc
+            cache.require_source_cache_verified(query_hash)
         else:
-            need_extract = force_extract or not cache.is_extract_complete(query_hash)
-            if need_extract:
+            self._run_extract_with_verification(
+                extract_query=extract_query,
+                batch_size=batch_size,
+                query_hash=query_hash,
+                force_extract=force_extract,
+                max_verification_retries=max_verification_retries,
+            )
+            if extract_only:
+                return
+
+        self._run_load_with_verification(
+            extract_query=extract_query,
+            batch_size=batch_size,
+            query_hash=query_hash,
+            max_verification_retries=max_verification_retries,
+        )
+
+    def _run_extract_with_verification(
+        self,
+        extract_query: str,
+        batch_size: int,
+        query_hash: str,
+        force_extract: bool,
+        max_verification_retries: int,
+    ) -> None:
+        cache = self._get_extract_cache()
+        last_error: Optional[Exception] = None
+
+        for _attempt in range(max_verification_retries):
+            try:
+                if force_extract or not cache.is_source_cache_verified(query_hash):
+                    if force_extract:
+                        cache.clear()
+                    try:
+                        self._extract_to_cache(
+                            extract_query=extract_query,
+                            batch_size=batch_size,
+                            query_hash=query_hash,
+                        )
+                    except KeyboardInterrupt:
+                        cache.clear()
+                        raise
+
+                source_count = count_source_rows(self._connection_factory, extract_query)
+                cache_count = cache.get_manifest_row_count(query_hash)
+                verify_source_cache_match(
+                    source_count=source_count,
+                    cache_count=cache_count,
+                    step_label="Source vs cache",
+                )
+                cache.set_verified_step(
+                    VERIFIED_SOURCE_CACHE,
+                    source_row_count=source_count,
+                )
+                return
+            except (StageVerificationError, ExtractCacheError) as exc:
+                last_error = exc
+                cache.clear()
+
+        raise StageVerificationError(
+            f"Source/cache verification failed after {max_verification_retries} attempts: "
+            f"{last_error}"
+        ) from last_error
+
+    def _run_load_with_verification(
+        self,
+        extract_query: str,
+        batch_size: int,
+        query_hash: str,
+        max_verification_retries: int,
+    ) -> None:
+        cache = self._get_extract_cache()
+        last_error: Optional[Exception] = None
+
+        if not cache.is_source_cache_verified(query_hash):
+            self._run_extract_with_verification(
+                extract_query=extract_query,
+                batch_size=batch_size,
+                query_hash=query_hash,
+                force_extract=False,
+                max_verification_retries=max_verification_retries,
+            )
+
+        for _attempt in range(max_verification_retries):
+            try:
+                self._prepare_staging_table()
                 try:
-                    self._extract_to_cache(
+                    self._load_rows_from_cache(batch_size=batch_size, query_hash=query_hash)
+                except KeyboardInterrupt:
+                    self._cleanup_partial_staging_data()
+                    raise
+
+                cache_count = cache.get_manifest_row_count(query_hash)
+                staging_count = count_staging_rows(
+                    self._connection_factory,
+                    self.staging_table,
+                    self.batch_id,
+                )
+                verify_cache_staging_match(
+                    cache_count=cache_count,
+                    staging_count=staging_count,
+                    step_label="Cache vs staging",
+                )
+                cache.set_verified_step(VERIFIED_STAGING)
+                cache.delete_cache()
+                return
+            except (StageVerificationError, ExtractCacheError) as exc:
+                last_error = exc
+                self._cleanup_partial_staging_data()
+                if not cache.is_source_cache_verified(query_hash):
+                    self._run_extract_with_verification(
                         extract_query=extract_query,
                         batch_size=batch_size,
                         query_hash=query_hash,
-                        force_extract=force_extract,
+                        force_extract=True,
+                        max_verification_retries=max_verification_retries,
                     )
-                except KeyboardInterrupt:
-                    cache.clear()
-                    raise
-            elif extract_only:
-                return
 
-        if extract_only:
-            return
-
-        self._prepare_staging_table()
-        try:
-            self._load_cache_to_staging(batch_size=batch_size, query_hash=query_hash)
-        except KeyboardInterrupt:
-            self._cleanup_partial_staging_data()
-            raise
+        raise StageVerificationError(
+            f"Cache/staging verification failed after {max_verification_retries} attempts: "
+            f"{last_error}"
+        ) from last_error
 
     def _determine_date_filter(
         self, incremental: bool, single_date_only: bool
@@ -308,17 +417,11 @@ class TemplatePipeline(BasePipeline):
         extract_query: str,
         batch_size: int,
         query_hash: str,
-        force_extract: bool,
     ) -> None:
         cache = self._get_extract_cache()
-        if force_extract:
-            cache.clear()
-
         cache.begin_extract(query_hash)
-        chunk_files: List[str] = []
-        row_count = 0
+        all_rows: List[tuple] = []
         column_names: List[str] = []
-        chunk_index = 0
 
         try:
             with self._connection_factory.connection('source') as source_conn:
@@ -334,42 +437,33 @@ class TemplatePipeline(BasePipeline):
                     rows = source_cursor.fetchmany(batch_size)
                     if not rows:
                         break
+                    all_rows.extend(rows)
 
-                    chunk_index += 1
-                    chunk_files.append(
-                        cache.write_chunk(chunk_index, list(rows), column_names)
-                    )
-                    row_count += len(rows)
-
-            cache.finalize_extract(
-                query_hash=query_hash,
-                chunk_files=chunk_files,
-                row_count=row_count,
-                column_names=column_names,
-            )
+            df = pd.DataFrame(all_rows, columns=column_names)
+            cache.write_extract(df, query_hash)
         except Exception:
             cache.clear()
             raise
 
-    def _load_cache_to_staging(self, batch_size: int, query_hash: str) -> None:
+    def _load_rows_from_cache(self, batch_size: int, query_hash: str) -> None:
         cache = self._get_extract_cache()
+        df = cache.read_extract(query_hash)
+        columns = [str(col) for col in df.columns]
+        rows = [tuple(record) for record in df.itertuples(index=False, name=None)]
         insert_query = self._get_staging_insert_query()
         batch_number = 0
 
-        for columns, rows in cache.iter_chunks(query_hash):
-            for offset in range(0, len(rows), batch_size):
-                if self._interrupted:
-                    raise KeyboardInterrupt("Process interrupted by user")
+        for offset in range(0, len(rows), batch_size):
+            if self._interrupted:
+                raise KeyboardInterrupt("Process interrupted by user")
 
-                chunk_rows = rows[offset:offset + batch_size]
-                batch_data = [
-                    self.transform_row_to_staging_data(row, columns)
-                    for row in chunk_rows
-                ]
-                batch_number += 1
-                self._load_batch_to_staging(batch_data, insert_query, batch_number)
-
-        cache.delete_cache()
+            chunk_rows = rows[offset:offset + batch_size]
+            batch_data = [
+                self.transform_row_to_staging_data(row, columns)
+                for row in chunk_rows
+            ]
+            batch_number += 1
+            self._load_batch_to_staging(batch_data, insert_query, batch_number)
 
     def _extract_and_load_batches_inline(self, extract_query: str, batch_size: int) -> None:
         insert_query = self._get_staging_insert_query()

@@ -28,6 +28,7 @@ class SalesTemplatePipeline(TemplatePipeline):
         force_extract: bool = False,
         extract_only: bool = False,
         load_from_cache_only: bool = False,
+        max_verification_retries: int = 3,
     ) -> None:
         """
         Load sales staging data for a rolling seven-month window ending on snapshot_date.
@@ -56,6 +57,7 @@ class SalesTemplatePipeline(TemplatePipeline):
                     force_extract=force_extract,
                     extract_only=extract_only,
                     load_from_cache_only=load_from_cache_only,
+                    max_verification_retries=max_verification_retries,
                 )
             except KeyboardInterrupt:
                 if not extract_only:
