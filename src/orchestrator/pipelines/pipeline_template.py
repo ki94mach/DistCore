@@ -3,7 +3,7 @@ import sys
 from abc import abstractmethod
 from datetime import date, timedelta
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import pandas as pd
 
@@ -14,6 +14,7 @@ from src.orchestrator.pipelines.utils import (
     parse_select_statement,
     substitute_date_parameter,
 )
+from src.orchestrator.pipelines.utils.progress_bar import RowProgressBar
 from src.orchestrator.pipelines.utils.extract_cache import (
     VERIFIED_SOURCE_CACHE,
     VERIFIED_STAGING,
@@ -48,6 +49,8 @@ class TemplatePipeline(BasePipeline):
         triggered_by: str = 'PYTHON_PIPELINE',
         database_type: str = 'test',
         cache_dir: Optional[Path] = None,
+        log_fn: Optional[Callable[[str], None]] = None,
+        show_progress: bool = False,
     ):
         self._batch_id = batch_id
         self._snapshot_date = snapshot_date
@@ -57,6 +60,8 @@ class TemplatePipeline(BasePipeline):
         self._snapshot_date_detected = False
         self._interrupted = False
         self._cache_dir = cache_dir or get_default_cache_root(Path(__file__))
+        self._log_fn = log_fn
+        self._show_progress = show_progress
 
         signal.signal(signal.SIGINT, self._signal_handler)
         if sys.platform != 'win32':
@@ -101,6 +106,72 @@ class TemplatePipeline(BasePipeline):
     @abstractmethod
     def transform_row_to_staging_data(self, row: tuple, columns: List[str]) -> tuple:
         raise NotImplementedError
+
+    def _log(self, message: str) -> None:
+        if self._log_fn is not None:
+            self._log_fn(message)
+
+    def _staging_progress_label(self, suffix: str = "") -> str:
+        table = self.staging_table
+        if "." in table:
+            short = table.rsplit(".", 1)[-1].strip("[]")
+        else:
+            short = table
+        label = f"Load staging DB ({short})"
+        return f"{label} {suffix}".strip() if suffix else label
+
+    def _load_staging_from_rows(
+        self,
+        rows: List[tuple],
+        columns: List[str],
+        batch_size: int,
+        *,
+        progress_label: Optional[str] = None,
+    ) -> int:
+        """Insert transformed rows into the staging table with optional progress bar."""
+        insert_query = self._get_staging_insert_query()
+        total_rows = len(rows)
+        label = progress_label or self._staging_progress_label()
+        self._log(
+            f"Inserting {total_rows:,} rows into {self.staging_table} "
+            f"(batch_id={self.batch_id}, batch_size={batch_size:,})..."
+        )
+        progress = (
+            RowProgressBar(label, total=total_rows)
+            if self._show_progress
+            else None
+        )
+        batch_number = 0
+
+        try:
+            for offset in range(0, total_rows, batch_size):
+                if self._interrupted:
+                    raise KeyboardInterrupt("Process interrupted by user")
+
+                chunk_rows = rows[offset:offset + batch_size]
+                batch_data = [
+                    self.transform_row_to_staging_data(row, columns)
+                    for row in chunk_rows
+                ]
+                batch_number += 1
+                self._load_batch_to_staging(batch_data, insert_query, batch_number)
+                loaded = min(offset + len(chunk_rows), total_rows)
+                if progress is not None:
+                    progress.update(loaded, "inserting")
+                elif batch_number == 1 or batch_number % 10 == 0:
+                    self._log(f"  staged {loaded:,}/{total_rows:,} rows...")
+
+            if progress is not None:
+                progress.close("insert complete")
+        except Exception:
+            if progress is not None:
+                progress.close("failed")
+            raise
+
+        self._log(
+            f"Staging DB load complete: {total_rows:,} rows in {batch_number} batch(es)."
+        )
+        return batch_number
 
     def _get_extract_cache(self) -> ExtractCache:
         return ExtractCache(self._cache_dir, self.batch_type, self.batch_id)
@@ -250,11 +321,16 @@ class TemplatePipeline(BasePipeline):
         cache = self._get_extract_cache()
         last_error: Optional[Exception] = None
 
-        for _attempt in range(max_verification_retries):
+        for attempt in range(1, max_verification_retries + 1):
             try:
                 if force_extract or not cache.is_source_cache_verified(query_hash):
                     if force_extract:
+                        self._log("Clearing cache (force re-extract).")
                         cache.clear()
+                    self._log(
+                        f"Extract attempt {attempt}/{max_verification_retries}: "
+                        "querying source database..."
+                    )
                     try:
                         self._extract_to_cache(
                             extract_query=extract_query,
@@ -264,7 +340,13 @@ class TemplatePipeline(BasePipeline):
                     except KeyboardInterrupt:
                         cache.clear()
                         raise
+                else:
+                    self._log(
+                        f"Extract attempt {attempt}/{max_verification_retries}: "
+                        "using existing verified cache."
+                    )
 
+                self._log("Verifying source row count vs cache...")
                 source_count = count_source_rows(self._connection_factory, extract_query)
                 cache_count = cache.get_manifest_row_count(query_hash)
                 verify_source_cache_match(
@@ -276,9 +358,14 @@ class TemplatePipeline(BasePipeline):
                     VERIFIED_SOURCE_CACHE,
                     source_row_count=source_count,
                 )
+                self._log(
+                    f"Source/cache verified: {source_count:,} rows "
+                    f"(step={VERIFIED_SOURCE_CACHE})."
+                )
                 return
             except (StageVerificationError, ExtractCacheError) as exc:
                 last_error = exc
+                self._log(f"Source/cache verification failed: {exc}")
                 cache.clear()
 
         raise StageVerificationError(
@@ -297,6 +384,7 @@ class TemplatePipeline(BasePipeline):
         last_error: Optional[Exception] = None
 
         if not cache.is_source_cache_verified(query_hash):
+            self._log("Cache not source-verified; running extract first.")
             self._run_extract_with_verification(
                 extract_query=extract_query,
                 batch_size=batch_size,
@@ -305,8 +393,12 @@ class TemplatePipeline(BasePipeline):
                 max_verification_retries=max_verification_retries,
             )
 
-        for _attempt in range(max_verification_retries):
+        for attempt in range(1, max_verification_retries + 1):
             try:
+                self._log(
+                    f"Load attempt {attempt}/{max_verification_retries}: "
+                    f"preparing staging table {self.staging_table}..."
+                )
                 self._prepare_staging_table()
                 try:
                     self._load_rows_from_cache(batch_size=batch_size, query_hash=query_hash)
@@ -315,23 +407,50 @@ class TemplatePipeline(BasePipeline):
                     raise
 
                 cache_count = cache.get_manifest_row_count(query_hash)
+                self._log(
+                    f"Verifying cache vs staging DB ({self.staging_table}, "
+                    f"batch_id={self.batch_id})..."
+                )
+                verify_progress = (
+                    RowProgressBar(
+                        self._staging_progress_label("verify"),
+                        total=cache_count,
+                    )
+                    if self._show_progress
+                    else None
+                )
+                if verify_progress is not None:
+                    verify_progress.update(0, "counting")
                 staging_count = count_staging_rows(
                     self._connection_factory,
                     self.staging_table,
                     self.batch_id,
                 )
+                if verify_progress is not None:
+                    verify_progress.update(
+                        staging_count,
+                        "ok" if staging_count == cache_count else "mismatch",
+                    )
+                    verify_progress.close()
                 verify_cache_staging_match(
                     cache_count=cache_count,
                     staging_count=staging_count,
                     step_label="Cache vs staging",
                 )
                 cache.set_verified_step(VERIFIED_STAGING)
+                self._log(
+                    f"Cache/staging verified: {cache_count:,} rows loaded to staging "
+                    f"(batch_id={self.batch_id})."
+                )
                 cache.delete_cache()
+                self._log("Extract cache deleted after successful load.")
                 return
             except (StageVerificationError, ExtractCacheError) as exc:
                 last_error = exc
+                self._log(f"Cache/staging verification failed: {exc}")
                 self._cleanup_partial_staging_data()
                 if not cache.is_source_cache_verified(query_hash):
+                    self._log("Re-running extract after staging mismatch.")
                     self._run_extract_with_verification(
                         extract_query=extract_query,
                         batch_size=batch_size,
@@ -422,6 +541,7 @@ class TemplatePipeline(BasePipeline):
         cache.begin_extract(query_hash)
         all_rows: List[tuple] = []
         column_names: List[str] = []
+        progress = RowProgressBar("Extract from source") if self._show_progress else None
 
         try:
             with self._connection_factory.connection('source') as source_conn:
@@ -429,6 +549,10 @@ class TemplatePipeline(BasePipeline):
                 source_cursor.arraysize = batch_size
                 source_cursor.execute(extract_query)
                 column_names = [column[0] for column in source_cursor.description]
+                self._log(
+                    f"Reading from source ({len(column_names)} columns: "
+                    f"{', '.join(column_names)})..."
+                )
 
                 while True:
                     if self._interrupted:
@@ -437,11 +561,23 @@ class TemplatePipeline(BasePipeline):
                     rows = source_cursor.fetchmany(batch_size)
                     if not rows:
                         break
-                    all_rows.extend(rows)
+                    # Plain tuples: pyodbc.Row is not expanded correctly by pandas DataFrame.
+                    all_rows.extend(tuple(row) for row in rows)
+                    if progress is not None:
+                        progress.update(len(all_rows), "fetching")
+                    elif len(all_rows) <= batch_size or len(all_rows) % (batch_size * 10) < batch_size:
+                        self._log(f"  fetched {len(all_rows):,} rows from source...")
 
+            if progress is not None:
+                progress.close("fetch complete")
+
+            self._log(f"Writing {len(all_rows):,} rows to extract cache...")
             df = pd.DataFrame(all_rows, columns=column_names)
             cache.write_extract(df, query_hash)
+            self._log(f"Cache written: {cache.extract_path}")
         except Exception:
+            if progress is not None:
+                progress.close("failed")
             cache.clear()
             raise
 
@@ -450,47 +586,71 @@ class TemplatePipeline(BasePipeline):
         df = cache.read_extract(query_hash)
         columns = [str(col) for col in df.columns]
         rows = [tuple(record) for record in df.itertuples(index=False, name=None)]
-        insert_query = self._get_staging_insert_query()
-        batch_number = 0
-
-        for offset in range(0, len(rows), batch_size):
-            if self._interrupted:
-                raise KeyboardInterrupt("Process interrupted by user")
-
-            chunk_rows = rows[offset:offset + batch_size]
-            batch_data = [
-                self.transform_row_to_staging_data(row, columns)
-                for row in chunk_rows
-            ]
-            batch_number += 1
-            self._load_batch_to_staging(batch_data, insert_query, batch_number)
+        self._log(f"Loading {len(rows):,} rows from cache into staging database...")
+        self._load_staging_from_rows(
+            rows,
+            columns,
+            batch_size,
+            progress_label=self._staging_progress_label("from cache"),
+        )
 
     def _extract_and_load_batches_inline(self, extract_query: str, batch_size: int) -> None:
         insert_query = self._get_staging_insert_query()
         batch_count = 0
+        rows_loaded = 0
+        columns: List[str] = []
+        progress = (
+            RowProgressBar(
+                self._staging_progress_label("from source"),
+                total=None,
+            )
+            if self._show_progress
+            else None
+        )
 
-        with self._connection_factory.connection('source') as source_conn:
-            source_cursor = source_conn.cursor()
-            source_cursor.arraysize = batch_size
-            source_cursor.execute(extract_query)
+        self._log(
+            f"Streaming from source into staging DB {self.staging_table} "
+            f"(batch_id={self.batch_id})..."
+        )
 
-            columns = [column[0] for column in source_cursor.description]
+        try:
+            with self._connection_factory.connection('source') as source_conn:
+                source_cursor = source_conn.cursor()
+                source_cursor.arraysize = batch_size
+                source_cursor.execute(extract_query)
+                columns = [column[0] for column in source_cursor.description]
 
-            while True:
-                if self._interrupted:
-                    raise KeyboardInterrupt("Process interrupted by user")
+                while True:
+                    if self._interrupted:
+                        raise KeyboardInterrupt("Process interrupted by user")
 
-                rows = source_cursor.fetchmany(batch_size)
-                if not rows:
-                    break
+                    rows = source_cursor.fetchmany(batch_size)
+                    if not rows:
+                        break
 
-                batch_data = [
-                    self.transform_row_to_staging_data(row, columns)
-                    for row in rows
-                ]
+                    batch_data = [
+                        self.transform_row_to_staging_data(tuple(row), columns)
+                        for row in rows
+                    ]
 
-                batch_count += 1
-                self._load_batch_to_staging(batch_data, insert_query, batch_count)
+                    batch_count += 1
+                    self._load_batch_to_staging(batch_data, insert_query, batch_count)
+                    rows_loaded += len(rows)
+                    if progress is not None:
+                        progress.update(rows_loaded, "inserting")
+                    elif batch_count == 1 or batch_count % 10 == 0:
+                        self._log(f"  staged {rows_loaded:,} rows...")
+
+            if progress is not None:
+                progress.close("insert complete")
+        except Exception:
+            if progress is not None:
+                progress.close("failed")
+            raise
+
+        self._log(
+            f"Staging DB load complete: {rows_loaded:,} rows in {batch_count} batch(es)."
+        )
 
     def _cleanup_partial_staging_data(self) -> None:
         delete_query = f"DELETE FROM {self.staging_table} WHERE batch_id = ?"

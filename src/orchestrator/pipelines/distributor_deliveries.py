@@ -121,7 +121,6 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
 
         self._dropbox_shared_link = shared_link
         self._dropbox_client = DropboxClient(shared_link=shared_link)
-        self._log_fn = log_fn
 
         super().__init__(
             batch_id=batch_id,
@@ -129,6 +128,8 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
             connection_factory=connection_factory,
             triggered_by=triggered_by,
             database_type=database_type,
+            log_fn=log_fn,
+            show_progress=log_fn is not None,
         )
     
     # TemplatePipeline required properties
@@ -239,19 +240,50 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
     
     def _load_staging_rows_in_batches(self, staging_rows: List[tuple], batch_size: int) -> None:
         """Load staging rows in batches using simple INSERT."""
+        from src.orchestrator.pipelines.utils.progress_bar import RowProgressBar
+
         insert_query = self._get_staging_insert_query()
+        total_rows = len(staging_rows)
+        self._log(
+            f"Inserting {total_rows:,} rows into {self.staging_table} "
+            f"(batch_id={self.batch_id})..."
+        )
+        progress = (
+            RowProgressBar(self._staging_progress_label(), total=total_rows)
+            if self._show_progress
+            else None
+        )
 
         try:
-            for i in range(0, len(staging_rows), batch_size):
+            for i in range(0, total_rows, batch_size):
                 if self._interrupted:
                     raise KeyboardInterrupt("Process interrupted by user")
 
                 batch = staging_rows[i:i + batch_size]
                 batch_number = (i // batch_size) + 1
                 self._load_batch_to_staging(batch, insert_query, batch_number)
+                loaded = min(i + len(batch), total_rows)
+                if progress is not None:
+                    progress.update(loaded, "inserting")
+                elif batch_number == 1 or batch_number % 10 == 0:
+                    self._log(f"  staged {loaded:,}/{total_rows:,} rows...")
+
+            if progress is not None:
+                progress.close("insert complete")
         except KeyboardInterrupt:
+            if progress is not None:
+                progress.close("failed")
             self._cleanup_partial_staging_data()
             raise
+        except Exception:
+            if progress is not None:
+                progress.close("failed")
+            raise
+
+        self._log(
+            f"Staging DB load complete: {total_rows:,} rows in "
+            f"{(total_rows + batch_size - 1) // batch_size} batch(es)."
+        )
     
     def _load_batch_to_staging(self, batch_data: List[tuple], insert_query: str, batch_number: int) -> None:
         """Load batch to staging using simple INSERT."""
