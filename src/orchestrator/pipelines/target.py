@@ -63,6 +63,10 @@ class TargetPipeline(TemplatePipeline):
         return '[Data].[stg_Target]'
 
     @property
+    def snapshot_table(self) -> str:
+        return '[Data].[snp_TargetSnapshot]'
+
+    @property
     def staging_columns(self) -> List[str]:
         return [
             'batch_id',
@@ -93,15 +97,5 @@ class TargetPipeline(TemplatePipeline):
             test_conn.commit()
 
     def publish(self) -> None:
-        with self._handle_batch_failure("Publish failed: "):
-            self._ensure_snapshot_date()
-            self._ensure_batch_created()
-            self.execute_procedure(
-                self.publish_procedure,
-                parameters={
-                    'batch_id': self.batch_id,
-                    'snapshot_date': self.snapshot_date,
-                },
-                database_type=self._database_type,
-            )
+        super().publish()
 

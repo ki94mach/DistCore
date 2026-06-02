@@ -50,8 +50,11 @@ class TestFactoryInventoryPipeline(unittest.TestCase):
         self.assertIn('extract_query', kwargs)
         self.assertTrue(kwargs['force_extract'])
 
+    @patch(
+        "src.orchestrator.pipelines.pipeline_template.reconcile_before_publish",
+    )
     @patch.object(FactoryInventoryPipeline, 'execute_procedure')
-    def test_publish(self, mock_execute):
+    def test_publish(self, mock_execute, _mock_reconcile):
         """Test publish method."""
         self.pipeline.publish()
 

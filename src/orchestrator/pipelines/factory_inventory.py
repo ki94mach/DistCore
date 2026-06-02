@@ -33,6 +33,10 @@ class FactoryInventoryPipeline(TemplatePipeline):
         return '[Data].[stg_FactoryInventory]'
 
     @property
+    def snapshot_table(self) -> str:
+        return '[Data].[snp_FactoryInventorySnapshot]'
+
+    @property
     def staging_columns(self) -> List[str]:
         return [
             'batch_id',

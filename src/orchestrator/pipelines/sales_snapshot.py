@@ -35,6 +35,10 @@ class SalesSnapshotPipeline(SalesTemplatePipeline):
         return '[Data].[stg_Sales]'
 
     @property
+    def snapshot_table(self) -> str:
+        return '[Data].[snp_SalesSnapshot]'
+
+    @property
     def staging_columns(self) -> List[str]:
         return [
             'batch_id',

@@ -23,6 +23,10 @@ from src.orchestrator.pipelines.utils.extract_cache import (
     compute_extract_query_hash,
     get_default_cache_root,
 )
+from src.orchestrator.pipelines.utils.batch_reconciliation import (
+    reconcile_before_publish,
+    reconcile_before_staging_load,
+)
 from src.orchestrator.pipelines.utils.stage_verification import (
     StageVerificationError,
     count_source_rows,
@@ -93,6 +97,11 @@ class TemplatePipeline(BasePipeline):
     @abstractmethod
     def staging_table(self) -> str:
         raise NotImplementedError
+
+    @property
+    def snapshot_table(self) -> Optional[str]:
+        """Snapshot table for batch-scoped publish cleanup; None if not applicable."""
+        return None
 
     @property
     @abstractmethod
@@ -291,6 +300,17 @@ class TemplatePipeline(BasePipeline):
         cache = self._get_extract_cache()
 
         if load_from_cache_only:
+            reconcile_before_staging_load(
+                connection_factory=self._connection_factory,
+                batch_id=self.batch_id,
+                batch_type=self.batch_type,
+                staging_table=self.staging_table,
+                snapshot_table=self.snapshot_table,
+                cache=cache,
+                query_hash=query_hash,
+                log_fn=self._log,
+                database_type=self._database_type,
+            )
             cache.require_source_cache_verified(query_hash)
         else:
             self._run_extract_with_verification(
@@ -392,6 +412,18 @@ class TemplatePipeline(BasePipeline):
                 force_extract=False,
                 max_verification_retries=max_verification_retries,
             )
+
+        reconcile_before_staging_load(
+            connection_factory=self._connection_factory,
+            batch_id=self.batch_id,
+            batch_type=self.batch_type,
+            staging_table=self.staging_table,
+            snapshot_table=self.snapshot_table,
+            cache=cache,
+            query_hash=query_hash,
+            log_fn=self._log,
+            database_type=self._database_type,
+        )
 
         for attempt in range(1, max_verification_retries + 1):
             try:
@@ -667,6 +699,22 @@ class TemplatePipeline(BasePipeline):
         with self._handle_batch_failure("Publish failed: "):
             self._ensure_snapshot_date()
             self._ensure_batch_created()
+
+            cache = self._get_extract_cache()
+            manifest = cache.read_manifest()
+            query_hash = manifest.get("extract_query_hash") if manifest else None
+            reconcile_before_publish(
+                connection_factory=self._connection_factory,
+                batch_id=self.batch_id,
+                batch_type=self.batch_type,
+                staging_table=self.staging_table,
+                snapshot_table=self.snapshot_table,
+                cache=cache if cache.exists else None,
+                query_hash=query_hash,
+                log_fn=self._log,
+                database_type=self._database_type,
+            )
+
             self.execute_procedure(
                 self.publish_procedure,
                 parameters={
