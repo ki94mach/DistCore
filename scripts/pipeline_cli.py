@@ -155,39 +155,86 @@ def print_kv(label: str, value: str, indent: int = 2) -> None:
     print(colorize(f"{prefix}{label}: ", Colors.DIM) + colorize(str(value), Colors.WHITE))
 
 
+STAGING_MODE_LABELS = {
+    'full': 'Full staging (extract → cache → load → verify)',
+    'extract_only': 'Extract to cache only',
+    'load_from_cache': 'Load staging from cache',
+}
+
+
 def staging_mode_label(staging_mode: str) -> str:
-    return {
-        'full': 'Full (extract + verify + load staging + verify)',
-        'extract_only': 'Extract to cache only',
-        'load_from_cache': 'Load staging from cache only',
-    }.get(staging_mode, staging_mode)
+    return STAGING_MODE_LABELS.get(staging_mode, staging_mode)
 
 
-def print_staging_config_summary(pipeline_info, config: dict, staging_mode: str) -> None:
-    print_header("Run configuration", Colors.BRIGHT_BLUE)
+def prompt_snapshot_date() -> Optional[date]:
+    """Ask for snapshot date; Enter means today (None → pipeline default)."""
+    print_info("Snapshot date (used for filters and publish):")
+    print(colorize("  Enter = today", Colors.DIM))
+    raw = print_prompt("  YYYY-MM-DD or Enter: ").strip()
+    if not raw:
+        return None
+    try:
+        year, month, day = map(int, raw.split('-'))
+        return date(year, month, day)
+    except ValueError:
+        print_warning("Invalid date — using today.")
+        return None
+
+
+def print_run_plan(
+    pipeline_info,
+    *,
+    operation: str,
+    batch_id: Optional[int] = None,
+    snapshot_date: Optional[date] = None,
+    config: Optional[dict] = None,
+    staging_mode: Optional[str] = None,
+) -> None:
+    """Single pre-run summary (avoids repeated headers)."""
+    print_header("Ready to run", Colors.BRIGHT_BLUE)
     print_kv("Pipeline", pipeline_info['name'])
-    print_kv("Operation", staging_mode_label(staging_mode))
-    snapshot = config.get('snapshot_date') or date.today()
-    print_kv("Snapshot date", snapshot.isoformat())
-    print_kv("Batch size", f"{config.get('batch_size', 10000):,}")
-    if is_sql_source_pipeline(pipeline_info):
-        print_kv("Progress bars", "enabled (extract, staging DB load, verify)")
-        print_kv("Force re-extract", "yes" if config.get('force_extract') else "no")
-        if pipeline_info['name'] in ('Factory Inventory', 'Distributor Inventory', 'Target'):
-            if config.get('single_date_only'):
-                mode = "Single date only"
-            elif config.get('incremental'):
-                mode = "Incremental"
-            else:
-                mode = "Full load"
-            print_kv("Load mode", mode)
+    print_kv("Operation", operation)
+    if batch_id is not None:
+        print_kv("Batch ID", batch_id)
+    snap = snapshot_date or (config or {}).get('snapshot_date') or date.today()
+    print_kv("Snapshot date", snap.isoformat() if hasattr(snap, 'isoformat') else snap)
+
+    if config and staging_mode:
+        print_kv("Batch size", f"{config.get('batch_size', 10000):,}")
+        if is_sql_source_pipeline(pipeline_info):
+            print_kv("Verify retries", str(config.get('max_verification_retries', 3)))
+            if staging_mode != 'load_from_cache':
+                print_kv(
+                    "Re-extract from source",
+                    "yes" if config.get('force_extract') else "no (use cache if valid)",
+                )
+            if pipeline_info['name'] in ('Factory Inventory', 'Distributor Inventory'):
+                if config.get('single_date_only'):
+                    load_mode = "Single date only"
+                elif config.get('incremental'):
+                    load_mode = "Incremental"
+                else:
+                    load_mode = "Full load"
+                print_kv("Data window", load_mode)
+            elif pipeline_info['name'] == 'Sales Snapshot':
+                print_kv("Data window", "Rolling ~6 months to snapshot date")
+            elif pipeline_info['name'] == 'Target':
+                print_kv("Data window", "Current Jalali year")
     print()
 
 
 def get_cache_for_pipeline(pipeline, batch_id: int) -> ExtractCache:
-    cache_dir = getattr(pipeline, '_cache_dir', get_default_cache_root(
-        Path(__file__).resolve().parent.parent / 'src' / 'orchestrator' / 'pipelines'
-    ))
+    cache_dir = getattr(
+        pipeline,
+        '_cache_dir',
+        get_default_cache_root(
+            Path(__file__).resolve().parent.parent
+            / 'src'
+            / 'orchestrator'
+            / 'pipelines'
+            / 'pipeline_template.py'
+        ),
+    )
     return ExtractCache(cache_dir, pipeline.batch_type, batch_id)
 
 
@@ -229,28 +276,35 @@ def print_cache_status(pipeline, batch_id: Optional[int] = None) -> None:
     print()
 
 
-def print_run_result(
+def print_run_footer(
     pipeline_info,
     pipeline,
-    staging_mode: str,
+    staging_mode: Optional[str],
     elapsed: float,
     success: bool,
 ) -> None:
-    print_header("Run summary", Colors.BRIGHT_GREEN if success else Colors.BRIGHT_RED)
-    print_kv("Pipeline", pipeline_info['name'])
-    print_kv("Batch ID", getattr(pipeline, 'batch_id', '—'))
-    print_kv("Operation", staging_mode_label(staging_mode))
-    print_kv("Elapsed", format_duration(elapsed))
-    print_kv("Outcome", "SUCCESS" if success else "FAILED")
+    """Short result line plus cache hints only when useful."""
+    outcome = colorize("OK", Colors.BRIGHT_GREEN) if success else colorize("FAILED", Colors.BRIGHT_RED)
+    batch_id = getattr(pipeline, 'batch_id', '—')
+    op = staging_mode_label(staging_mode) if staging_mode else "Publish"
+    print()
+    print(
+        colorize(f"  {outcome}", Colors.WHITE)
+        + colorize(f"  |  batch {batch_id}  |  {format_duration(elapsed)}  |  {op}", Colors.DIM)
+    )
 
-    if success and is_sql_source_pipeline(pipeline_info):
-        if staging_mode == 'extract_only':
-            print_cache_status(pipeline)
-        elif staging_mode in ('full', 'load_from_cache'):
-            print_info(
-                "Extract cache was removed after a successful staging load "
-                "(expected when load + verify completes)."
-            )
+    if not is_sql_source_pipeline(pipeline_info) or not staging_mode:
+        print()
+        return
+
+    if success and staging_mode == 'extract_only':
+        print_info("Cache written for this batch (details below).")
+        print_cache_status(pipeline)
+    elif success and staging_mode in ('full', 'load_from_cache'):
+        print_info("Cache cleared after successful load (normal).")
+    elif not success and getattr(pipeline, 'batch_id', None):
+        print_warning("Cache may remain — use menu «Load staging from cache» with the same batch ID.")
+        print_cache_status(pipeline)
     print()
 
 
@@ -289,6 +343,16 @@ def build_load_stage_kwargs(pipeline_info, config, staging_mode: str) -> dict:
         kwargs['force_extract'] = config.get('force_extract', False)
 
     return kwargs
+
+
+def invoke_load_stage(pipeline_info, pipeline, config, staging_mode: str = 'full') -> None:
+    """Call load_stage with the correct kwargs for each pipeline type."""
+    if is_sql_source_pipeline(pipeline_info):
+        pipeline.load_stage(**build_load_stage_kwargs(pipeline_info, config, staging_mode))
+    elif pipeline_info['name'] == 'Distributor Deliveries':
+        pipeline.load_stage(batch_size=config['batch_size'])
+    else:
+        pipeline.load_stage()
 
 
 def start_new_batch(batch_type: str, triggered_by: str = 'MANUAL_TEST', database_type: str = 'test', pipeline_name: str = None) -> int:
@@ -331,100 +395,98 @@ def select_pipeline():
     return PIPELINES.get(choice)
 
 
-def select_layer(pipeline_info):
-    """Second layer: Select a layer/operation."""
-    print_header(f"{pipeline_info['name']} - Available Layers", Colors.BRIGHT_CYAN)
+def select_operation(pipeline_info):
+    """Choose what to run for the selected pipeline."""
+    print_header(f"{pipeline_info['name']}", Colors.BRIGHT_CYAN)
     if is_sql_source_pipeline(pipeline_info):
-        print_menu_item('1', 'Load Stage (extract + staging)', Colors.BRIGHT_WHITE)
-        print_menu_item('4', 'Extract to cache only', Colors.BRIGHT_WHITE)
-        print_menu_item('5', 'Load staging from cache', Colors.BRIGHT_WHITE)
-        print_menu_item('6', 'View extract cache status', Colors.BRIGHT_WHITE)
+        print(colorize("  Staging", Colors.DIM))
+        print_menu_item('1', 'Full staging (extract + load + verify)', Colors.BRIGHT_WHITE)
+        print_menu_item('2', 'Extract to cache only', Colors.BRIGHT_WHITE)
+        print_menu_item('3', 'Load staging from cache', Colors.BRIGHT_WHITE)
+        print_menu_item('4', 'View cache for a batch', Colors.BRIGHT_WHITE)
+        print()
+        print(colorize("  Publish", Colors.DIM))
+        print_menu_item('5', 'Publish snapshot only', Colors.BRIGHT_WHITE)
+        print_menu_item('6', 'Full pipeline (staging + publish)', Colors.BRIGHT_WHITE)
     else:
-        print_menu_item('1', 'Load Stage (staging layer)', Colors.BRIGHT_WHITE)
-    print_menu_item('2', 'Publish (publish layer)', Colors.BRIGHT_WHITE)
-    print_menu_item('3', 'Run Full Pipeline (load_stage + publish)', Colors.BRIGHT_WHITE)
-    print_menu_item('b', 'Back to pipelines', Colors.BRIGHT_YELLOW)
+        print_menu_item('1', 'Load staging', Colors.BRIGHT_WHITE)
+        print_menu_item('2', 'Publish snapshot', Colors.BRIGHT_WHITE)
+        print_menu_item('3', 'Full pipeline (staging + publish)', Colors.BRIGHT_WHITE)
+    print()
+    print_menu_item('b', 'Back', Colors.BRIGHT_YELLOW)
     print_menu_item('q', 'Quit', Colors.BRIGHT_YELLOW)
-    
-    choice = print_prompt("\nSelect layer: ").strip().lower()
-    return choice
+
+    return print_prompt("\nChoice: ").strip().lower()
 
 
-def configure_staging(pipeline_info):
-    """Configure staging layer parameters (date control)."""
-    print_header("Staging Layer Configuration", Colors.BRIGHT_BLUE)
-    
-    # Date configuration
-    print_info("\nSnapshot Date:")
-    print(colorize("  - Press Enter to use today's date", Colors.DIM))
-    print(colorize("  - Enter a date (YYYY-MM-DD) to use a specific date", Colors.DIM))
-    snapshot_date_str = print_prompt("Enter snapshot date (YYYY-MM-DD) or press Enter for today: ").strip()
-    
-    snapshot_date = None
-    if snapshot_date_str:
-        try:
-            year, month, day = map(int, snapshot_date_str.split('-'))
-            snapshot_date = date(year, month, day)
-        except ValueError:
-            print_error("Invalid date format. Using today's date.")
-            snapshot_date = None
-    
-    # Additional staging parameters for FactoryInventoryPipeline
+def configure_staging(pipeline_info, staging_mode: str = 'full'):
+    """Staging options; questions depend on the operation."""
+    print_header("Options", Colors.BRIGHT_BLUE)
+
+    snapshot_date = prompt_snapshot_date()
+
     batch_size = 10000
     incremental = True
     single_date_only = False
-    
-    if pipeline_info['name'] == 'Factory Inventory' or pipeline_info['name'] == 'Distributor Inventory':
-        print_info("\nBatch Size:")
-        print(colorize("  - Press Enter for default (10000)", Colors.DIM))
-        batch_size_str = print_prompt("Enter batch size (default: 10000): ").strip()
+
+    ask_load_window = (
+        staging_mode in ('full', 'extract_only')
+        and pipeline_info['name'] in ('Factory Inventory', 'Distributor Inventory')
+    )
+    ask_batch_size = (
+        staging_mode in ('full', 'extract_only')
+        and pipeline_info['name'] in (
+            'Factory Inventory',
+            'Distributor Inventory',
+            'Sales Snapshot',
+            'Target',
+            'Distributor Deliveries',
+        )
+    )
+
+    if ask_batch_size and pipeline_info['name'] in ('Factory Inventory', 'Distributor Inventory'):
+        batch_size_str = print_prompt("Insert batch size (default 10000): ").strip()
         if batch_size_str:
             try:
                 batch_size = int(batch_size_str)
             except ValueError:
-                print_error("Invalid batch size. Using default (10000).")
-        
-        print_info("\nLoad Mode:")
-        print_menu_item('1', 'Incremental (load data after latest date in staging)', Colors.WHITE)
-        print_menu_item('2', 'Single date only (load only snapshot_date)', Colors.WHITE)
-        print_menu_item('3', 'Full load (load all data)', Colors.WHITE)
-        mode_choice = print_prompt("Select mode (1/2/3, default=1): ").strip() or "1"
-        
+                print_warning("Invalid — using 10000.")
+
+    if ask_load_window:
+        print_info("Data window:")
+        print_menu_item('1', 'Incremental (after latest date in staging)', Colors.WHITE)
+        print_menu_item('2', 'Single snapshot date only', Colors.WHITE)
+        print_menu_item('3', 'Full reload (all source rows)', Colors.WHITE)
+        mode_choice = print_prompt("  1/2/3 (default 1): ").strip() or "1"
         if mode_choice == "2":
             incremental = False
             single_date_only = True
         elif mode_choice == "3":
             incremental = False
             single_date_only = False
-    elif pipeline_info['name'] == 'Sales Snapshot':
-        print_info("\nLoad Mode:")
-        print(colorize(
-            "  - Sales snapshots load a rolling six-month window ending on the snapshot date.",
-            Colors.DIM
-        ))
+    elif pipeline_info['name'] == 'Sales Snapshot' and staging_mode != 'load_from_cache':
+        print_info("Data window: rolling ~6 months ending on snapshot date (fixed).")
         incremental = False
         single_date_only = False
-    elif pipeline_info['name'] == 'Target':
-        print_info("\nLoad Mode:")
-        print(colorize(
-            "  - Target pipeline loads data for the current Jalali year only.",
-            Colors.DIM
-        ))
+    elif pipeline_info['name'] == 'Target' and staging_mode != 'load_from_cache':
+        print_info("Data window: current Jalali year (fixed).")
         incremental = False
         single_date_only = False
 
     force_extract = False
     max_verification_retries = 3
     if is_sql_source_pipeline(pipeline_info):
-        force_extract = prompt_force_extract()
-        retries_str = print_prompt(
-            "Max verification retries per step (default=3): "
-        ).strip()
+        if staging_mode in ('full', 'extract_only'):
+            force_extract = prompt_force_extract()
+        if staging_mode != 'load_from_cache':
+            retries_str = print_prompt("Verify retries if counts mismatch (default 3): ").strip()
+        else:
+            retries_str = print_prompt("Verify retries for cache↔staging (default 3): ").strip()
         if retries_str:
             try:
                 max_verification_retries = max(1, int(retries_str))
             except ValueError:
-                print_error("Invalid value. Using default (3).")
+                print_warning("Invalid — using 3.")
 
     return {
         'snapshot_date': snapshot_date,
@@ -437,185 +499,132 @@ def configure_staging(pipeline_info):
 
 
 def configure_publish(pipeline_info):
-    """Configure publish layer parameters."""
-    print_header("Publish Layer Configuration", Colors.BRIGHT_BLUE)
-    
-    # Date configuration (needed for publish too)
-    print_info("\nSnapshot Date:")
-    print(colorize("  - Press Enter to use today's date", Colors.DIM))
-    print(colorize("  - Enter a date (YYYY-MM-DD) to use a specific date", Colors.DIM))
-    snapshot_date_str = print_prompt("Enter snapshot date (YYYY-MM-DD) or press Enter for today: ").strip()
-    
-    snapshot_date = None
-    if snapshot_date_str:
-        try:
-            year, month, day = map(int, snapshot_date_str.split('-'))
-            snapshot_date = date(year, month, day)
-        except ValueError:
-            print_error("Invalid date format. Using today's date.")
-            snapshot_date = None
-    
-    # Additional publish parameters can be added here for future pipelines
-    publish_params = {}
-    
-    if pipeline_info['name'] == 'Factory Inventory' or pipeline_info['name'] == 'Distributor Inventory':
-        # Currently FactoryInventoryPipeline.publish() doesn't take additional parameters
-        # But we can add them here for future extensibility
-        pass
-    
-    return {
-        'snapshot_date': snapshot_date,
-        **publish_params
-    }
+    print_header("Publish options", Colors.BRIGHT_BLUE)
+    return {'snapshot_date': prompt_snapshot_date()}
 
 
-def configure_batch(pipeline_info):
-    """Configure batch options."""
-    print_header("Batch Configuration", Colors.BRIGHT_BLUE)
-    print_menu_item('1', 'Create new batch automatically (recommended)', Colors.BRIGHT_WHITE)
-    print_menu_item('2', 'Use existing batch ID', Colors.WHITE)
-    print_menu_item('3', 'Let pipeline create batch automatically', Colors.WHITE)
-    
-    choice = print_prompt("\nSelect option (1/2/3, default=1): ").strip() or "1"
-    
-    batch_id = None
-    if choice == "1":
-        print_action("Creating new batch...")
-        batch_id = start_new_batch(
-            batch_type=pipeline_info['batch_type'],
-            triggered_by='MANUAL_TEST',
-            database_type='test',
-            pipeline_name=pipeline_info['name']
-        )
-    elif choice == "2":
-        batch_id_str = print_prompt("\nEnter existing batch ID: ").strip()
+def configure_batch(pipeline_info, staging_mode: Optional[str] = None) -> Optional[int]:
+    """Pick or create the batch ID for this run."""
+    print_header("Batch", Colors.BRIGHT_BLUE)
+
+    if staging_mode == 'load_from_cache':
+        print_info("Use the batch that already has extract.pkl on disk.")
+        batch_id_str = print_prompt("Batch ID: ").strip()
         try:
-            batch_id = int(batch_id_str)
+            return int(batch_id_str)
         except ValueError:
-            print_error("Invalid batch ID. Will create new batch automatically.")
-            batch_id = None
-    else:  # choice == "3"
-        print_action("Pipeline will create batch automatically...")
-        batch_id = None
-    
-    return batch_id
+            print_error("A numeric batch ID is required.")
+            raise ValueError("batch_id is required for load_from_cache")
+
+    print_menu_item('1', 'Create new batch (recommended)', Colors.BRIGHT_WHITE)
+    print_menu_item('2', 'Reuse existing batch ID', Colors.WHITE)
+    choice = print_prompt("  1 or 2 (default 1): ").strip() or "1"
+
+    if choice == "2":
+        batch_id_str = print_prompt("Batch ID: ").strip()
+        try:
+            return int(batch_id_str)
+        except ValueError:
+            print_error("Invalid batch ID.")
+            raise ValueError("invalid batch_id")
+
+    print_action("Creating batch...")
+    return start_new_batch(
+        batch_type=pipeline_info['batch_type'],
+        triggered_by='MANUAL_TEST',
+        database_type='test',
+        pipeline_name=pipeline_info['name'],
+    )
 
 
 def run_staging(pipeline_info, config, staging_mode: str = 'full'):
     """Run the staging layer."""
-    mode_labels = {
-        'full': 'Running Staging Layer',
-        'extract_only': 'Extracting to Cache',
-        'load_from_cache': 'Loading Staging from Cache',
-    }
-    print_header(mode_labels.get(staging_mode, 'Running Staging Layer'), Colors.BRIGHT_GREEN)
-    print_staging_config_summary(pipeline_info, config, staging_mode)
+    batch_id = configure_batch(pipeline_info, staging_mode)
+    print_run_plan(
+        pipeline_info,
+        operation=staging_mode_label(staging_mode),
+        batch_id=batch_id,
+        config=config,
+        staging_mode=staging_mode,
+    )
 
-    batch_id = configure_batch(pipeline_info)
     pipeline = pipeline_info['class'](
         **build_pipeline_kwargs(pipeline_info, batch_id, config['snapshot_date'])
     )
 
-    if is_sql_source_pipeline(pipeline_info) and batch_id:
-        print_cache_status(pipeline, batch_id)
+    if staging_mode == 'load_from_cache' and is_sql_source_pipeline(pipeline_info):
+        print_cache_status(pipeline)
 
     started = time.monotonic()
-    print_action("Starting pipeline work...")
+    print_action("Running...")
     try:
-        if is_sql_source_pipeline(pipeline_info):
-            pipeline.load_stage(**build_load_stage_kwargs(pipeline_info, config, staging_mode))
-        elif pipeline_info['name'] == 'Distributor Deliveries':
-            pipeline.load_stage(batch_size=config['batch_size'])
-        else:
-            pipeline.load_stage()
-
+        invoke_load_stage(pipeline_info, pipeline, config, staging_mode)
         elapsed = time.monotonic() - started
-        print_run_result(pipeline_info, pipeline, staging_mode, elapsed, success=True)
-        success_labels = {
-            'full': 'Load stage completed successfully!',
-            'extract_only': 'Extract to cache completed successfully!',
-            'load_from_cache': 'Load staging from cache completed successfully!',
-        }
-        print_success(
-            f"[{pipeline_info['name']}] {success_labels.get(staging_mode, 'Load stage completed successfully!')}"
-        )
+        print_run_footer(pipeline_info, pipeline, staging_mode, elapsed, success=True)
         return pipeline
     except Exception as e:
         elapsed = time.monotonic() - started
-        print_run_result(pipeline_info, pipeline, staging_mode, elapsed, success=False)
-        if is_sql_source_pipeline(pipeline_info) and isinstance(e, StageVerificationError):
-            print_warning(
-                "Verification failed. If extract cache still exists, use menu option "
-                "'5 — Load staging from cache' with the same batch ID."
-            )
-            if getattr(pipeline, 'batch_id', None):
-                print_cache_status(pipeline)
-        print_error(f"Error: {str(e)}")
+        print_run_footer(pipeline_info, pipeline, staging_mode, elapsed, success=False)
+        if isinstance(e, StageVerificationError):
+            print_warning("Retry: menu option 3 «Load staging from cache» with the same batch ID.")
         raise
 
 
 def run_publish(pipeline_info, config):
     """Run the publish layer."""
-    print_header("Running Publish Layer", Colors.BRIGHT_GREEN)
-    print_kv("Pipeline", pipeline_info['name'])
-    snapshot = config.get('snapshot_date') or date.today()
-    print_kv("Snapshot date", snapshot.isoformat())
-    print()
-
     batch_id = configure_batch(pipeline_info)
+    print_run_plan(
+        pipeline_info,
+        operation="Publish snapshot",
+        batch_id=batch_id,
+        snapshot_date=config.get('snapshot_date'),
+    )
+
     pipeline = pipeline_info['class'](
         **build_pipeline_kwargs(pipeline_info, batch_id, config['snapshot_date'], log=False)
     )
-    print_kv("Batch ID", getattr(pipeline, 'batch_id', batch_id))
 
     started = time.monotonic()
-    print_action("Publishing to snapshot...")
+    print_action("Publishing...")
     try:
         pipeline.publish()
         elapsed = time.monotonic() - started
-        print_kv("Elapsed", format_duration(elapsed))
-        print_success(f"[{pipeline_info['name']}] Publish completed successfully!")
+        print_run_footer(pipeline_info, pipeline, None, elapsed, success=True)
         return pipeline
-    except Exception as e:
-        print_error(f"Error: {str(e)}")
+    except Exception:
+        elapsed = time.monotonic() - started
+        print_run_footer(pipeline_info, pipeline, None, elapsed, success=False)
         raise
 
 
 def run_full_pipeline(pipeline_info):
     """Run the full pipeline."""
-    print_header("Running Full Pipeline", Colors.BRIGHT_GREEN)
+    staging_config = configure_staging(pipeline_info, staging_mode='full')
+    batch_id = configure_batch(pipeline_info, staging_mode='full')
+    print_run_plan(
+        pipeline_info,
+        operation="Full pipeline (staging + publish)",
+        batch_id=batch_id,
+        config=staging_config,
+        staging_mode='full',
+    )
 
-    staging_config = configure_staging(pipeline_info)
-    print_staging_config_summary(pipeline_info, staging_config, 'full')
-
-    batch_id = configure_batch(pipeline_info)
     pipeline = pipeline_info['class'](
         **build_pipeline_kwargs(pipeline_info, batch_id, staging_config['snapshot_date'])
     )
 
     started = time.monotonic()
     try:
-        print_header("Step 1/2 — Load stage", Colors.BRIGHT_CYAN)
-        if is_sql_source_pipeline(pipeline_info):
-            pipeline.load_stage(
-                **build_load_stage_kwargs(pipeline_info, staging_config, 'full')
-            )
-        elif pipeline_info['name'] == 'Distributor Deliveries':
-            pipeline.load_stage(batch_size=staging_config['batch_size'])
-        else:
-            pipeline.load_stage()
-        print_success("Load stage finished.")
-
-        print_header("Step 2/2 — Publish", Colors.BRIGHT_CYAN)
+        print_action("Step 1/2 — Staging...")
+        invoke_load_stage(pipeline_info, pipeline, staging_config, 'full')
+        print_action("Step 2/2 — Publish...")
         pipeline.publish()
-        print_success("Publish finished.")
 
         if hasattr(pipeline, 'batch_id') and pipeline.batch_id:
             pipeline.finish_batch(pipeline.batch_id, 'SUCCESS', 'OK')
 
         elapsed = time.monotonic() - started
-        print_run_result(pipeline_info, pipeline, 'full', elapsed, success=True)
-        print_success(f"[{pipeline_info['name']}] Full pipeline completed successfully!")
+        print_run_footer(pipeline_info, pipeline, 'full', elapsed, success=True)
         return pipeline
     except Exception as e:
         if hasattr(pipeline, 'batch_id') and pipeline.batch_id:
@@ -624,14 +633,9 @@ def run_full_pipeline(pipeline_info):
             except Exception:
                 pass
         elapsed = time.monotonic() - started
-        print_run_result(pipeline_info, pipeline, 'full', elapsed, success=False)
-        if is_sql_source_pipeline(pipeline_info) and isinstance(e, StageVerificationError):
-            print_warning(
-                "Try 'Load staging from cache' (option 5) with the same batch ID after fixing the issue."
-            )
-            if getattr(pipeline, 'batch_id', None):
-                print_cache_status(pipeline)
-        print_error(f"Error: {str(e)}")
+        print_run_footer(pipeline_info, pipeline, 'full', elapsed, success=False)
+        if isinstance(e, StageVerificationError):
+            print_warning("Retry: option 3 «Load staging from cache», then option 5 «Publish».")
         raise
 
 
@@ -675,24 +679,15 @@ def run_full_automate_pipeline():
 
             # --- Load stage ---
             print_action(f"[{pipeline_name}] Loading stage...")
-            if pipeline_name in ('Factory Inventory', 'Distributor Inventory'):
-                pipeline.load_stage(
-                    batch_size=10000,
-                    incremental=True,
-                    single_date_only=False
-                )
-            elif pipeline_name == 'Sales Snapshot':
-                pipeline.load_stage(batch_size=10000)
-            elif pipeline_name == 'Target':
-                pipeline.load_stage(
-                    batch_size=10000,
-                    incremental=True,
-                    single_date_only=False
-                )
-            elif pipeline_name == 'Distributor Deliveries':
-                pipeline.load_stage(batch_size=10000)
-            else:
-                pipeline.load_stage()
+            auto_config = {
+                'snapshot_date': None,
+                'batch_size': 10000,
+                'incremental': pipeline_name in ('Factory Inventory', 'Distributor Inventory'),
+                'single_date_only': False,
+                'force_extract': False,
+                'max_verification_retries': 3,
+            }
+            invoke_load_stage(pipeline_info, pipeline, auto_config, 'full')
 
             # --- Publish ---
             print_action(f"[{pipeline_name}] Publishing...")
@@ -734,11 +729,10 @@ def run_full_automate_pipeline():
 
 
 def handle_error(e):
-    """Handle errors with helpful messages."""
+    """Handle errors with helpful messages (caller already showed a short footer)."""
     error_msg = str(e)
-    print_error(f"Error: {error_msg}")
-    
-    # Check if it's a procedure not found error
+    print_error(error_msg)
+
     if "Could not find stored procedure" in error_msg or "2812" in error_msg:
         print_header("PROCEDURE NOT FOUND", Colors.BRIGHT_RED)
         print(colorize("The stored procedure has not been deployed to the database yet.", Colors.YELLOW))
@@ -752,28 +746,21 @@ def handle_error(e):
         print(colorize("  (where <database_type> is 'source' or 'test')", Colors.DIM))
     
     if isinstance(e, StageVerificationError):
-        print_warning(
-            "Row-count verification failed between source, cache, and/or staging. "
-            "Check the progress log above for attempt details."
-        )
-
-    import traceback
-    traceback.print_exc()
+        print_warning("Row counts did not match — see log lines above for source/cache/staging details.")
 
 
 def view_cache_status_interactive(pipeline_info):
-    """Prompt for batch ID and show extract cache status."""
-    print_header("View Extract Cache Status", Colors.BRIGHT_CYAN)
-    batch_id_str = print_prompt("Enter batch ID: ").strip()
+    """Show extract cache for a batch (no pipeline run)."""
+    print_header("Cache status", Colors.BRIGHT_CYAN)
+    batch_id_str = print_prompt("Batch ID: ").strip()
     try:
         batch_id = int(batch_id_str)
     except ValueError:
         print_error("Invalid batch ID.")
         return
 
-    snapshot_date = None
     pipeline = pipeline_info['class'](
-        **build_pipeline_kwargs(pipeline_info, batch_id, snapshot_date, log=False)
+        **build_pipeline_kwargs(pipeline_info, batch_id, None, log=False)
     )
     print_cache_status(pipeline, batch_id)
 
@@ -798,56 +785,45 @@ def main():
                 handle_error(e)
             continue
         
-        # Second layer: Select layer/operation
         while True:
-            layer_choice = select_layer(pipeline_info)
-            
-            if layer_choice == 'b':
+            choice = select_operation(pipeline_info)
+
+            if choice == 'b':
                 break
-            elif layer_choice == 'q':
+            elif choice == 'q':
                 print()
                 print_info("Goodbye!")
                 sys.exit(0)
-            elif layer_choice == '1':
-                # Staging layer (full extract + load for SQL pipelines)
-                try:
-                    config = configure_staging(pipeline_info)
+
+            sql = is_sql_source_pipeline(pipeline_info)
+
+            try:
+                if sql and choice == '1':
+                    config = configure_staging(pipeline_info, staging_mode='full')
                     run_staging(pipeline_info, config, staging_mode='full')
-                except Exception as e:
-                    handle_error(e)
-            elif layer_choice == '4' and is_sql_source_pipeline(pipeline_info):
-                try:
-                    config = configure_staging(pipeline_info)
+                elif sql and choice == '2':
+                    config = configure_staging(pipeline_info, staging_mode='extract_only')
                     run_staging(pipeline_info, config, staging_mode='extract_only')
-                except Exception as e:
-                    handle_error(e)
-            elif layer_choice == '5' and is_sql_source_pipeline(pipeline_info):
-                try:
-                    config = configure_staging(pipeline_info)
-                    config['force_extract'] = False
+                elif sql and choice == '3':
+                    config = configure_staging(pipeline_info, staging_mode='load_from_cache')
                     run_staging(pipeline_info, config, staging_mode='load_from_cache')
-                except Exception as e:
-                    handle_error(e)
-            elif layer_choice == '6' and is_sql_source_pipeline(pipeline_info):
-                try:
+                elif sql and choice == '4':
                     view_cache_status_interactive(pipeline_info)
-                except Exception as e:
-                    handle_error(e)
-            elif layer_choice == '2':
-                # Publish layer
-                try:
+                elif (sql and choice == '5') or (not sql and choice == '2'):
                     config = configure_publish(pipeline_info)
                     run_publish(pipeline_info, config)
-                except Exception as e:
-                    handle_error(e)
-            elif layer_choice == '3':
-                # Full pipeline
-                try:
+                elif (sql and choice == '6') or (not sql and choice == '3'):
                     run_full_pipeline(pipeline_info)
-                except Exception as e:
-                    handle_error(e)
-            else:
-                print_error("Invalid choice. Please try again.")
+                elif not sql and choice == '1':
+                    config = configure_staging(pipeline_info, staging_mode='full')
+                    run_staging(pipeline_info, config, staging_mode='full')
+                else:
+                    print_error("Invalid choice.")
+                    continue
+            except Exception as e:
+                handle_error(e)
+                import traceback
+                traceback.print_exc()
             
             # Ask if user wants to continue with this pipeline
             continue_choice = print_prompt("\nContinue with this pipeline? (y/n, default=y): ").strip().lower()
