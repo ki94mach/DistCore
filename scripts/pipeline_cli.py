@@ -94,6 +94,41 @@ PIPELINES = {
     }
 }
 
+SQL_SOURCE_PIPELINES = frozenset({
+    'Factory Inventory',
+    'Distributor Inventory',
+    'Sales Snapshot',
+    'Target',
+})
+
+
+def is_sql_source_pipeline(pipeline_info) -> bool:
+    return pipeline_info['name'] in SQL_SOURCE_PIPELINES
+
+
+def prompt_force_extract() -> bool:
+    choice = print_prompt("Force re-extract from source? (y/N): ").strip().lower()
+    return choice == 'y'
+
+
+def build_load_stage_kwargs(pipeline_info, config, staging_mode: str) -> dict:
+    """Build load_stage keyword arguments for a pipeline and staging mode."""
+    kwargs = {'batch_size': config['batch_size']}
+
+    if pipeline_info['name'] in ('Factory Inventory', 'Distributor Inventory', 'Target'):
+        kwargs['incremental'] = config['incremental']
+        kwargs['single_date_only'] = config['single_date_only']
+
+    if staging_mode == 'extract_only':
+        kwargs['extract_only'] = True
+        kwargs['force_extract'] = config.get('force_extract', False)
+    elif staging_mode == 'load_from_cache':
+        kwargs['load_from_cache_only'] = True
+    elif staging_mode == 'full' and is_sql_source_pipeline(pipeline_info):
+        kwargs['force_extract'] = config.get('force_extract', False)
+
+    return kwargs
+
 
 def start_new_batch(batch_type: str, triggered_by: str = 'MANUAL_TEST', database_type: str = 'test', pipeline_name: str = None) -> int:
     """Start a new batch and return the batch_id."""
@@ -138,7 +173,12 @@ def select_pipeline():
 def select_layer(pipeline_info):
     """Second layer: Select a layer/operation."""
     print_header(f"{pipeline_info['name']} - Available Layers", Colors.BRIGHT_CYAN)
-    print_menu_item('1', 'Load Stage (staging layer)', Colors.BRIGHT_WHITE)
+    if is_sql_source_pipeline(pipeline_info):
+        print_menu_item('1', 'Load Stage (extract + staging)', Colors.BRIGHT_WHITE)
+        print_menu_item('4', 'Extract to cache only', Colors.BRIGHT_WHITE)
+        print_menu_item('5', 'Load staging from cache', Colors.BRIGHT_WHITE)
+    else:
+        print_menu_item('1', 'Load Stage (staging layer)', Colors.BRIGHT_WHITE)
     print_menu_item('2', 'Publish (publish layer)', Colors.BRIGHT_WHITE)
     print_menu_item('3', 'Run Full Pipeline (load_stage + publish)', Colors.BRIGHT_WHITE)
     print_menu_item('b', 'Back to pipelines', Colors.BRIGHT_YELLOW)
@@ -210,12 +250,17 @@ def configure_staging(pipeline_info):
         ))
         incremental = False
         single_date_only = False
+
+    force_extract = False
+    if is_sql_source_pipeline(pipeline_info):
+        force_extract = prompt_force_extract()
     
     return {
         'snapshot_date': snapshot_date,
         'batch_size': batch_size,
         'incremental': incremental,
-        'single_date_only': single_date_only
+        'single_date_only': single_date_only,
+        'force_extract': force_extract,
     }
 
 
@@ -284,9 +329,14 @@ def configure_batch(pipeline_info):
     return batch_id
 
 
-def run_staging(pipeline_info, config):
+def run_staging(pipeline_info, config, staging_mode: str = 'full'):
     """Run the staging layer."""
-    print_header("Running Staging Layer", Colors.BRIGHT_GREEN)
+    mode_labels = {
+        'full': 'Running Staging Layer',
+        'extract_only': 'Extracting to Cache',
+        'load_from_cache': 'Loading Staging from Cache',
+    }
+    print_header(mode_labels.get(staging_mode, 'Running Staging Layer'), Colors.BRIGHT_GREEN)
     
     # Configure batch
     batch_id = configure_batch(pipeline_info)
@@ -303,29 +353,28 @@ def run_staging(pipeline_info, config):
 
     pipeline = pipeline_info['class'](**pipeline_kwargs)
 
-    # Run load_stage with configured parameters
-    print_action("Loading stage...")
+    action_labels = {
+        'full': 'Loading stage...',
+        'extract_only': 'Extracting to cache...',
+        'load_from_cache': 'Loading staging from cache...',
+    }
+    print_action(action_labels.get(staging_mode, 'Loading stage...'))
     try:
-        if pipeline_info['name'] == 'Factory Inventory' or pipeline_info['name'] == 'Distributor Inventory':
-            pipeline.load_stage(
-                batch_size=config['batch_size'],
-                incremental=config['incremental'],
-                single_date_only=config['single_date_only']
-            )
-        elif pipeline_info['name'] == 'Sales Snapshot':
-            pipeline.load_stage(
-                batch_size=config['batch_size']
-            )
-        elif pipeline_info['name'] == 'Target':
-            pipeline.load_stage(
-                batch_size=config['batch_size'],
-                incremental=config['incremental'],
-                single_date_only=config['single_date_only']
-            )
+        if is_sql_source_pipeline(pipeline_info):
+            pipeline.load_stage(**build_load_stage_kwargs(pipeline_info, config, staging_mode))
+        elif pipeline_info['name'] == 'Distributor Deliveries':
+            pipeline.load_stage(batch_size=config['batch_size'])
         else:
             pipeline.load_stage()
 
-        print_success(f"[{pipeline_info['name']}] Load stage completed successfully!")
+        success_labels = {
+            'full': 'Load stage completed successfully!',
+            'extract_only': 'Extract to cache completed successfully!',
+            'load_from_cache': 'Load staging from cache completed successfully!',
+        }
+        print_success(
+            f"[{pipeline_info['name']}] {success_labels.get(staging_mode, 'Load stage completed successfully!')}"
+        )
         return pipeline
     except Exception as e:
         print_error(f"Error: {str(e)}")
@@ -387,21 +436,9 @@ def run_full_pipeline(pipeline_info):
     try:
         # Run load_stage with configured parameters
         print_action("Loading stage...")
-        if pipeline_info['name'] == 'Factory Inventory' or pipeline_info['name'] == 'Distributor Inventory':
+        if is_sql_source_pipeline(pipeline_info):
             pipeline.load_stage(
-                batch_size=staging_config['batch_size'],
-                incremental=staging_config['incremental'],
-                single_date_only=staging_config['single_date_only']
-            )
-        elif pipeline_info['name'] == 'Sales Snapshot':
-            pipeline.load_stage(
-                batch_size=staging_config['batch_size']
-            )
-        elif pipeline_info['name'] == 'Target':
-            pipeline.load_stage(
-                batch_size=staging_config['batch_size'],
-                incremental=staging_config['incremental'],
-                single_date_only=staging_config['single_date_only']
+                **build_load_stage_kwargs(pipeline_info, staging_config, 'full')
             )
         elif pipeline_info['name'] == 'Distributor Deliveries':
             pipeline.load_stage(
@@ -585,10 +622,23 @@ def main():
                 print_info("Goodbye!")
                 sys.exit(0)
             elif layer_choice == '1':
-                # Staging layer
+                # Staging layer (full extract + load for SQL pipelines)
                 try:
                     config = configure_staging(pipeline_info)
-                    run_staging(pipeline_info, config)
+                    run_staging(pipeline_info, config, staging_mode='full')
+                except Exception as e:
+                    handle_error(e)
+            elif layer_choice == '4' and is_sql_source_pipeline(pipeline_info):
+                try:
+                    config = configure_staging(pipeline_info)
+                    run_staging(pipeline_info, config, staging_mode='extract_only')
+                except Exception as e:
+                    handle_error(e)
+            elif layer_choice == '5' and is_sql_source_pipeline(pipeline_info):
+                try:
+                    config = configure_staging(pipeline_info)
+                    config['force_extract'] = False
+                    run_staging(pipeline_info, config, staging_mode='load_from_cache')
                 except Exception as e:
                     handle_error(e)
             elif layer_choice == '2':

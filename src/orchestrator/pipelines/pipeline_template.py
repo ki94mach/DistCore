@@ -12,6 +12,12 @@ from src.orchestrator.pipelines.utils import (
     parse_select_statement,
     substitute_date_parameter,
 )
+from src.orchestrator.pipelines.utils.extract_cache import (
+    ExtractCache,
+    ExtractCacheError,
+    compute_extract_query_hash,
+    get_default_cache_root,
+)
 from src.orchestrator.services.sql_server_db.executors.sql_utils import (
     read_sql_file,
     resolve_sql_file_path,
@@ -30,6 +36,7 @@ class TemplatePipeline(BasePipeline):
         connection_factory=None,
         triggered_by: str = 'PYTHON_PIPELINE',
         database_type: str = 'test',
+        cache_dir: Optional[Path] = None,
     ):
         self._batch_id = batch_id
         self._snapshot_date = snapshot_date
@@ -38,6 +45,7 @@ class TemplatePipeline(BasePipeline):
         self._batch_created = False
         self._snapshot_date_detected = False
         self._interrupted = False
+        self._cache_dir = cache_dir or get_default_cache_root(Path(__file__))
 
         signal.signal(signal.SIGINT, self._signal_handler)
         if sys.platform != 'win32':
@@ -82,6 +90,23 @@ class TemplatePipeline(BasePipeline):
     @abstractmethod
     def transform_row_to_staging_data(self, row: tuple, columns: List[str]) -> tuple:
         raise NotImplementedError
+
+    def _get_extract_cache(self) -> ExtractCache:
+        return ExtractCache(self._cache_dir, self.batch_type, self.batch_id)
+
+    def _compute_query_hash(
+        self,
+        extract_query: str,
+        since_date: Optional[date],
+        single_date_only: bool,
+    ) -> str:
+        return compute_extract_query_hash(
+            extract_query=extract_query,
+            batch_type=self.batch_type,
+            since_date=since_date,
+            snapshot_date=self.snapshot_date,
+            single_date_only=single_date_only,
+        )
 
     def _ensure_snapshot_date(self) -> None:
         if self._snapshot_date_detected:
@@ -128,6 +153,10 @@ class TemplatePipeline(BasePipeline):
         batch_size: int = 10000,
         incremental: bool = True,
         single_date_only: bool = False,
+        use_cache: bool = True,
+        force_extract: bool = False,
+        extract_only: bool = False,
+        load_from_cache_only: bool = False,
     ) -> None:
         with self._handle_batch_failure("Load stage failed: "):
             self._ensure_snapshot_date()
@@ -138,13 +167,74 @@ class TemplatePipeline(BasePipeline):
             )
 
             extract_query = self._build_extract_query(since_date, use_equality_filter)
-            self._prepare_staging_table()
+            self._run_staged_load(
+                extract_query=extract_query,
+                batch_size=batch_size,
+                since_date=since_date,
+                single_date_only=single_date_only,
+                use_cache=use_cache,
+                force_extract=force_extract,
+                extract_only=extract_only,
+                load_from_cache_only=load_from_cache_only,
+            )
 
+    def _run_staged_load(
+        self,
+        extract_query: str,
+        batch_size: int,
+        since_date: Optional[date],
+        single_date_only: bool,
+        use_cache: bool = True,
+        force_extract: bool = False,
+        extract_only: bool = False,
+        load_from_cache_only: bool = False,
+    ) -> None:
+        query_hash = self._compute_query_hash(extract_query, since_date, single_date_only)
+
+        if load_from_cache_only and extract_only:
+            raise ValueError("extract_only and load_from_cache_only cannot both be True.")
+
+        if not use_cache:
+            self._prepare_staging_table()
             try:
-                self._extract_and_load_batches(extract_query, batch_size)
+                self._extract_and_load_batches_inline(extract_query, batch_size)
             except KeyboardInterrupt:
                 self._cleanup_partial_staging_data()
                 raise
+            return
+
+        cache = self._get_extract_cache()
+
+        if load_from_cache_only:
+            try:
+                cache.require_extract_complete(query_hash)
+            except ExtractCacheError as exc:
+                raise ExtractCacheError(str(exc)) from exc
+        else:
+            need_extract = force_extract or not cache.is_extract_complete(query_hash)
+            if need_extract:
+                try:
+                    self._extract_to_cache(
+                        extract_query=extract_query,
+                        batch_size=batch_size,
+                        query_hash=query_hash,
+                        force_extract=force_extract,
+                    )
+                except KeyboardInterrupt:
+                    cache.clear()
+                    raise
+            elif extract_only:
+                return
+
+        if extract_only:
+            return
+
+        self._prepare_staging_table()
+        try:
+            self._load_cache_to_staging(batch_size=batch_size, query_hash=query_hash)
+        except KeyboardInterrupt:
+            self._cleanup_partial_staging_data()
+            raise
 
     def _determine_date_filter(
         self, incremental: bool, single_date_only: bool
@@ -213,7 +303,75 @@ class TemplatePipeline(BasePipeline):
                     f"Failed to load batch {batch_number} into staging: {str(e)}"
                 ) from e
 
-    def _extract_and_load_batches(self, extract_query: str, batch_size: int) -> None:
+    def _extract_to_cache(
+        self,
+        extract_query: str,
+        batch_size: int,
+        query_hash: str,
+        force_extract: bool,
+    ) -> None:
+        cache = self._get_extract_cache()
+        if force_extract:
+            cache.clear()
+
+        cache.begin_extract(query_hash)
+        chunk_files: List[str] = []
+        row_count = 0
+        column_names: List[str] = []
+        chunk_index = 0
+
+        try:
+            with self._connection_factory.connection('source') as source_conn:
+                source_cursor = source_conn.cursor()
+                source_cursor.arraysize = batch_size
+                source_cursor.execute(extract_query)
+                column_names = [column[0] for column in source_cursor.description]
+
+                while True:
+                    if self._interrupted:
+                        raise KeyboardInterrupt("Process interrupted by user")
+
+                    rows = source_cursor.fetchmany(batch_size)
+                    if not rows:
+                        break
+
+                    chunk_index += 1
+                    chunk_files.append(
+                        cache.write_chunk(chunk_index, list(rows), column_names)
+                    )
+                    row_count += len(rows)
+
+            cache.finalize_extract(
+                query_hash=query_hash,
+                chunk_files=chunk_files,
+                row_count=row_count,
+                column_names=column_names,
+            )
+        except Exception:
+            cache.clear()
+            raise
+
+    def _load_cache_to_staging(self, batch_size: int, query_hash: str) -> None:
+        cache = self._get_extract_cache()
+        insert_query = self._get_staging_insert_query()
+        batch_number = 0
+
+        for columns, rows in cache.iter_chunks(query_hash):
+            for offset in range(0, len(rows), batch_size):
+                if self._interrupted:
+                    raise KeyboardInterrupt("Process interrupted by user")
+
+                chunk_rows = rows[offset:offset + batch_size]
+                batch_data = [
+                    self.transform_row_to_staging_data(row, columns)
+                    for row in chunk_rows
+                ]
+                batch_number += 1
+                self._load_batch_to_staging(batch_data, insert_query, batch_number)
+
+        cache.delete_cache()
+
+    def _extract_and_load_batches_inline(self, extract_query: str, batch_size: int) -> None:
         insert_query = self._get_staging_insert_query()
         batch_count = 0
 

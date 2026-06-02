@@ -24,6 +24,10 @@ class SalesTemplatePipeline(TemplatePipeline):
         batch_size: int = 10000,
         incremental: bool = False,
         single_date_only: bool = False,
+        use_cache: bool = True,
+        force_extract: bool = False,
+        extract_only: bool = False,
+        load_from_cache_only: bool = False,
     ) -> None:
         """
         Load sales staging data for a rolling seven-month window ending on snapshot_date.
@@ -41,12 +45,21 @@ class SalesTemplatePipeline(TemplatePipeline):
 
             start_date = self._six_month_window_start(self.snapshot_date)
             extract_query = self._build_extract_query_for_window(start_date, self.snapshot_date)
-            self._prepare_staging_table()
 
             try:
-                self._extract_and_load_batches(extract_query, batch_size)
+                self._run_staged_load(
+                    extract_query=extract_query,
+                    batch_size=batch_size,
+                    since_date=start_date,
+                    single_date_only=False,
+                    use_cache=use_cache,
+                    force_extract=force_extract,
+                    extract_only=extract_only,
+                    load_from_cache_only=load_from_cache_only,
+                )
             except KeyboardInterrupt:
-                self._cleanup_partial_staging_data()
+                if not extract_only:
+                    self._cleanup_partial_staging_data()
                 raise
 
     def _prepare_staging_table(self) -> None:
@@ -75,20 +88,15 @@ class SalesTemplatePipeline(TemplatePipeline):
 
         end_date_str = end_date.strftime("'%Y-%m-%d'")
         trimmed = query.rstrip().rstrip(';')
-        
-        # Insert the end date condition into the WHERE clause, before GROUP BY/ORDER BY
-        # Find the position before GROUP BY or ORDER BY (case-insensitive)
+
         group_by_match = re.search(r'\bGROUP\s+BY\b', trimmed, re.IGNORECASE)
         order_by_match = re.search(r'\bORDER\s+BY\b', trimmed, re.IGNORECASE)
-        
+
         if group_by_match:
-            # Insert before GROUP BY
             insert_pos = group_by_match.start()
             return f"{trimmed[:insert_pos].rstrip()}\n  AND [FKDate] <= {end_date_str}\n{trimmed[insert_pos:]}"
         elif order_by_match:
-            # Insert before ORDER BY
             insert_pos = order_by_match.start()
             return f"{trimmed[:insert_pos].rstrip()}\n  AND [FKDate] <= {end_date_str}\n{trimmed[insert_pos:]}"
         else:
-            # No GROUP BY or ORDER BY, append to the end
             return f"{trimmed}\n  AND [FKDate] <= {end_date_str}"

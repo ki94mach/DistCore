@@ -22,3 +22,6 @@
 *.out
 *.env
 *.pyc
+
+# ETL extract cache (SQL pipeline staging checkpoints)
+data/etl_cache/
