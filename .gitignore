@@ -23,5 +23,8 @@
 *.env
 *.pyc
 
+# Cursor IDE local files
+.cursor/
+
 # ETL extract cache (SQL pipeline staging checkpoints)
 data/etl_cache/
