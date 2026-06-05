@@ -148,7 +148,33 @@ class TestReconcileBeforeStagingLoad(unittest.TestCase):
             )
 
         mock_cleanup.assert_called_once()
-        self.assertFalse(cache.batch_cache_dir.exists())
+        self.assertTrue(cache.batch_cache_dir.exists())
+
+
+class TestCacheQueryHashForLoad(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.cache_root = Path(self.temp_dir.name)
+        self.pipeline = FactoryInventoryPipeline(
+            batch_id=10202,
+            snapshot_date=date.today(),
+            cache_dir=self.cache_root,
+        )
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_load_from_cache_uses_manifest_hash(self):
+        cache = ExtractCache(self.cache_root, "FACTORY_INVENTORY", 10202)
+        cache.write_extract(pd.DataFrame({"factory_id": range(5)}), "manifest_hash")
+        cache.set_verified_step("source_cache", source_row_count=5)
+
+        resolved = self.pipeline._cache_query_hash_for_load(
+            cache,
+            "different_run_hash",
+            load_from_cache_only=True,
+        )
+        self.assertEqual(resolved, "manifest_hash")
 
 
 class TestPipelineReconcileIntegration(unittest.TestCase):

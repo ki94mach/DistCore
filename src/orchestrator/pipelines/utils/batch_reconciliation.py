@@ -222,10 +222,10 @@ def reconcile_before_staging_load(
     _log(log_fn, f"Batch reconcile: cleanup complete for batch_id {batch_id}.")
 
     if _query_hash_mismatch(reasons):
-        cache.clear()
         raise ExtractCacheError(
             f"Extract cache for {batch_type} batch {batch_id} does not match the "
-            "current run parameters. Re-run extract to cache before loading staging."
+            "current run parameters (snapshot date or load mode). "
+            "Use the same staging options as extract, or re-run extract to cache."
         )
 
 
@@ -288,8 +288,6 @@ def reconcile_before_publish(
     _log(log_fn, f"Batch reconcile: cleanup complete for batch_id {batch_id}.")
 
     if _query_hash_mismatch(reasons):
-        if cache is not None:
-            cache.clear()
         raise ExtractCacheError(
             f"Cannot publish {batch_type} batch {batch_id}: cache parameters changed. "
             "Re-run extract and load staging before publishing."

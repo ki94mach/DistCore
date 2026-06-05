@@ -303,8 +303,18 @@ def print_run_footer(
     elif success and staging_mode in ('full', 'load_from_cache'):
         print_info("Cache cleared after successful load (normal).")
     elif not success and getattr(pipeline, 'batch_id', None):
-        print_warning("Cache may remain — use menu «Load staging from cache» with the same batch ID.")
-        print_cache_status(pipeline)
+        cache = get_cache_for_pipeline(pipeline, pipeline.batch_id)
+        if cache.batch_cache_dir.is_dir():
+            print_warning(
+                "Extract cache may still exist — retry menu «Load staging from cache» "
+                "with the same batch ID."
+            )
+            print_cache_status(pipeline)
+        else:
+            print_warning(
+                "Extract cache is missing for this batch. Re-run «Extract to cache only» "
+                "before loading staging."
+            )
     print()
 
 

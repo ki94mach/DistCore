@@ -298,6 +298,9 @@ class TemplatePipeline(BasePipeline):
             return
 
         cache = self._get_extract_cache()
+        cache_query_hash = self._cache_query_hash_for_load(
+            cache, query_hash, load_from_cache_only=load_from_cache_only
+        )
 
         if load_from_cache_only:
             reconcile_before_staging_load(
@@ -307,11 +310,11 @@ class TemplatePipeline(BasePipeline):
                 staging_table=self.staging_table,
                 snapshot_table=self.snapshot_table,
                 cache=cache,
-                query_hash=query_hash,
+                query_hash=cache_query_hash,
                 log_fn=self._log,
                 database_type=self._database_type,
             )
-            cache.require_source_cache_verified(query_hash)
+            cache.require_source_cache_verified(cache_query_hash)
         else:
             self._run_extract_with_verification(
                 extract_query=extract_query,
@@ -326,9 +329,31 @@ class TemplatePipeline(BasePipeline):
         self._run_load_with_verification(
             extract_query=extract_query,
             batch_size=batch_size,
-            query_hash=query_hash,
+            query_hash=cache_query_hash,
             max_verification_retries=max_verification_retries,
         )
+
+    def _cache_query_hash_for_load(
+        self,
+        cache: ExtractCache,
+        run_query_hash: str,
+        *,
+        load_from_cache_only: bool,
+    ) -> str:
+        """Hash used for cache I/O; load-from-cache always uses the manifest hash."""
+        manifest = cache.read_manifest()
+        if not manifest or not manifest.get("extract_query_hash"):
+            raise ExtractCacheError(
+                f"No extract cache found for {self.batch_type} batch {self.batch_id}. "
+                "Run extract to cache first."
+            )
+        cache_hash = str(manifest["extract_query_hash"])
+        if load_from_cache_only and cache_hash != run_query_hash:
+            self._log(
+                "Load-from-cache: using extract parameters stored in cache "
+                "(CLI snapshot/load options may differ from when extract ran)."
+            )
+        return cache_hash if load_from_cache_only else run_query_hash
 
     def _run_extract_with_verification(
         self,
