@@ -1,5 +1,5 @@
 /*
-Purpose: Create staging landing table for historical distributor deliveries from Dropbox files.
+Purpose: Create staging landing table for historical distributor deliveries from DMS files.
 Assumptions: T-SQL on SQL Server; [Data] schema already exists; requires permissions to create tables and indexes.
 How to run: Execute in SSMS or via sqlcmd against the target database; script is idempotent.
 Note: Staging accepts imperfect rows (nullable keys) to enable snapshot transformation before the snapshot layer. Snapshot tables enforce constraints.
@@ -34,7 +34,7 @@ BEGIN
         company_name NVARCHAR(200) NULL,
         description NVARCHAR(1000) NULL,
         source_file NVARCHAR(500) NULL,
-        source_system NVARCHAR(50) NULL CONSTRAINT DF_DistributorDeliveries_source_system DEFAULT N'Dropbox',
+        source_system NVARCHAR(50) NULL CONSTRAINT DF_DistributorDeliveries_source_system DEFAULT N'DMS',
         source_table NVARCHAR(128) NULL CONSTRAINT DF_DistributorDeliveries_source_table DEFAULT N'DeliveryFiles',
         row_hash VARBINARY(32) NULL
     );

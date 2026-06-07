@@ -21,7 +21,7 @@ Usage: This stored procedure is typically called as part of an ETL pipeline afte
         It clears the snapshot table (latest-only), then computes average delivery per event (SUM/COUNT) over the last 6 months and merges into the snapshot table. 
         The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will replace the snapshot data.
 Parameters:
-    @batch_id BIGINT - The batch identifier for the staging data to publish (must exist in [Data].[stg_DistributorDeliveries]).
+    @batch_id BIGINT - The batch identifier stamped on published snapshot rows. Staging is read in full (all rows).
     @snapshot_date DATE - Gregorian snapshot date to assign to published records. Moving averages are calculated up to this date.
     @snapshot_jalali_yyyymm INT - Optional Jalali year-month (YYYYMM) for the *current/snapshot* month. If provided, it is
         converted to Gregorian date using [Analytics_Stage].[Data].[DimDate] (ShamsiDay=1) and overrides @snapshot_date.
@@ -110,8 +110,7 @@ BEGIN
             ON dp.ProductTitle = sd.product_name
         INNER JOIN [Analytics_Stage].[Data].[DimDistrbutor] AS dd
             ON dd.DistrbutorTitle = sd.distributor_name
-        WHERE sd.batch_id = @batch_id
-          AND sd.product_name IS NOT NULL
+        WHERE sd.product_name IS NOT NULL
           AND sd.distributor_name IS NOT NULL
           AND sd.[month] IS NOT NULL
           AND sd.delivered_quantity IS NOT NULL

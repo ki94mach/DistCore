@@ -120,6 +120,13 @@ def prompt_force_extract() -> bool:
     return choice == 'y'
 
 
+def prompt_force_historical_reload() -> bool:
+    choice = print_prompt(
+        "Force reload historical 1404 files (full staging erase)? (y/N): "
+    ).strip().lower()
+    return choice == 'y'
+
+
 def format_duration(seconds: float) -> str:
     if seconds < 60:
         return f"{seconds:.1f}s"
@@ -216,6 +223,11 @@ def print_run_plan(
                 else:
                     load_mode = "Full load"
                 print_kv("Data window", load_mode)
+            elif pipeline_info['name'] == 'Distributor Deliveries':
+                print_kv(
+                    "Reload historical 1404",
+                    "yes" if config.get('force_historical_reload') else "no (keep cached 1404)",
+                )
             elif pipeline_info['name'] == 'Sales Snapshot':
                 print_kv("Data window", "Rolling ~6 months to snapshot date")
             elif pipeline_info['name'] == 'Target':
@@ -360,7 +372,10 @@ def invoke_load_stage(pipeline_info, pipeline, config, staging_mode: str = 'full
     if is_sql_source_pipeline(pipeline_info):
         pipeline.load_stage(**build_load_stage_kwargs(pipeline_info, config, staging_mode))
     elif pipeline_info['name'] == 'Distributor Deliveries':
-        pipeline.load_stage(batch_size=config['batch_size'])
+        pipeline.load_stage(
+            batch_size=config['batch_size'],
+            force_historical_reload=config.get('force_historical_reload', False),
+        )
     else:
         pipeline.load_stage()
 
@@ -484,7 +499,10 @@ def configure_staging(pipeline_info, staging_mode: str = 'full'):
         single_date_only = False
 
     force_extract = False
+    force_historical_reload = False
     max_verification_retries = 3
+    if pipeline_info['name'] == 'Distributor Deliveries' and staging_mode == 'full':
+        force_historical_reload = prompt_force_historical_reload()
     if is_sql_source_pipeline(pipeline_info):
         if staging_mode in ('full', 'extract_only'):
             force_extract = prompt_force_extract()
@@ -504,6 +522,7 @@ def configure_staging(pipeline_info, staging_mode: str = 'full'):
         'incremental': incremental,
         'single_date_only': single_date_only,
         'force_extract': force_extract,
+        'force_historical_reload': force_historical_reload,
         'max_verification_retries': max_verification_retries,
     }
 

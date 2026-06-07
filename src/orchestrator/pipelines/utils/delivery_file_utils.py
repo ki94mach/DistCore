@@ -1,27 +1,18 @@
-"""Dropbox and Excel file processing utilities for pipelines."""
+"""DMS and Excel file processing utilities for distributor deliveries pipeline."""
 
 import io
 import re
 import unicodedata
-from datetime import date
 from typing import Callable, List, Optional, Tuple
 import pandas as pd
 import openpyxl
 
 from src.orchestrator.pipelines.utils.excel_utils import parse_excel_date, safe_int
-from src.orchestrator.services.dropbox import DropboxClient
+from src.orchestrator.services.dms import DmsClient
 
 
 def extract_factory_name_from_filename(filename: str) -> Optional[str]:
-    """
-    Extract factory name from filename pattern: "دیتابیس تحویل به پخش ها - [Factory Name] - 1404.xlsx"
-    
-    Args:
-        filename: Excel file name
-        
-    Returns:
-        Factory name or None if pattern doesn't match
-    """
+    """Extract factory name from filename pattern: ... - [Factory Name] - 1404.xlsx"""
     pattern = r'دیتابیس تحویل به پخش ها\s*-\s*([^-]+?)\s*-\s*\d+\.(xlsx|xls)$'
     match = re.search(pattern, filename)
     if match:
@@ -30,175 +21,106 @@ def extract_factory_name_from_filename(filename: str) -> Optional[str]:
 
 
 def find_matching_table(
-    dropbox_client: DropboxClient,
+    dms_client: DmsClient,
     file_info: dict,
     factory_name: str,
-    shared_link: str
+    folder_url: str,
 ) -> Optional[Tuple[str, str]]:
-    """
-    Find the Excel table (ListObject) in an Excel file that matches the factory name.
-    
-    Args:
-        dropbox_client: DropboxClient instance
-        file_info: File info dictionary from list_files
-        factory_name: Factory name to match
-        shared_link: Dropbox shared link
-        
-    Returns:
-        Tuple of (sheet_name, table_name) if found, None otherwise
-    """
-    file_content = dropbox_client.download_file(file_info['path'], shared_link=shared_link)
-    # Load workbook without read_only to access tables (tables are not available in read-only mode)
+    """Find the Excel table (ListObject) matching the factory name."""
+    file_content = dms_client.download_file(
+        file_info['path'],
+        folder_url=folder_url,
+    )
     workbook = openpyxl.load_workbook(io.BytesIO(file_content), read_only=False)
     available_sheets = workbook.sheetnames
-    
-    # Normalize factory name
+
     factory_stripped = factory_name.strip()
-    
-    # Remove zero-width characters from factory name
-    factory_cleaned = ''.join(c for c in factory_stripped if unicodedata.category(c) != 'Cf')
-    
-    # Try to find matching table across all sheets
+    factory_cleaned = ''.join(
+        char for char in factory_stripped if unicodedata.category(char) != 'Cf'
+    )
+
     for sheet_name in available_sheets:
         worksheet = workbook[sheet_name]
-        
-        # Access tables from worksheet (available in read/write mode)
         if not worksheet.tables:
             continue
-        
-        # Check all tables in this sheet
-        for table_name, table in worksheet.tables.items():
+
+        for table_name in worksheet.tables.keys():
             table_stripped = table_name.strip()
-            
-            # Remove zero-width characters from table name
-            table_cleaned = ''.join(c for c in table_stripped if unicodedata.category(c) != 'Cf')
-            
-            # Strategy 1: Exact match without normalization (fastest, most likely to work)
+            table_cleaned = ''.join(
+                char for char in table_stripped if unicodedata.category(char) != 'Cf'
+            )
+
             if table_stripped == factory_stripped:
                 workbook.close()
                 return (sheet_name, table_name)
-            
-            # Strategy 2: Exact match with cleaned versions (no zero-width chars)
+
             if table_cleaned == factory_cleaned:
                 workbook.close()
                 return (sheet_name, table_name)
-            
-            # Strategy 2.5: Match after removing spaces (handles cases like "اسپاد فارمد" vs "اسپادفارمد")
+
             table_no_spaces = table_cleaned.replace(' ', '').replace('\u200C', '').replace('\u200D', '')
             factory_no_spaces = factory_cleaned.replace(' ', '').replace('\u200C', '').replace('\u200D', '')
             if table_no_spaces == factory_no_spaces:
                 workbook.close()
                 return (sheet_name, table_name)
-            
-            # Strategy 3: Try different normalization forms
+
             for norm_form in ['NFC', 'NFD', 'NFKC', 'NFKD']:
                 normalized_table = unicodedata.normalize(norm_form, table_stripped)
                 normalized_factory = unicodedata.normalize(norm_form, factory_stripped)
-                
-                # Exact match
+
                 if normalized_table == normalized_factory:
                     workbook.close()
                     return (sheet_name, table_name)
-                
-                # Substring match (factory in table or table in factory)
+
                 if normalized_factory in normalized_table or normalized_table in normalized_factory:
                     workbook.close()
                     return (sheet_name, table_name)
-            
-            # Strategy 4: Substring match with cleaned versions
+
             if factory_cleaned in table_cleaned or table_cleaned in factory_cleaned:
                 workbook.close()
                 return (sheet_name, table_name)
-            
-            # Strategy 5: Case-insensitive comparison (though Persian doesn't have case)
+
             if table_cleaned.lower() == factory_cleaned.lower():
                 workbook.close()
                 return (sheet_name, table_name)
-    
-    # If no match found, print debug information before closing
-    print(f"  [DEBUG] Available tables in file:")
-    for sheet_name in available_sheets:
-        worksheet = workbook[sheet_name]
-        if worksheet.tables:
-            for table_name in worksheet.tables.keys():
-                print(f"    - Sheet '{sheet_name}', Table '{table_name}' (repr: {repr(table_name)})")
-        else:
-            print(f"    - Sheet '{sheet_name}': No tables found")
-    print(f"  [DEBUG] Looking for factory name: '{factory_name}' (repr: {repr(factory_name)})")
-    
-    # Close workbook
+
     workbook.close()
-    
     return None
 
 
 def normalize_dataframe_columns(df: pd.DataFrame, expected_columns: List[str]) -> pd.DataFrame:
-    """
-    Normalize column names and map to expected columns.
-    
-    Args:
-        df: DataFrame with potentially unnormalized column names
-        expected_columns: List of expected column names
-        
-    Returns:
-        DataFrame with normalized and mapped column names
-    """
-    # Normalize column names
     column_mapping = {}
     for col in df.columns:
         normalized = unicodedata.normalize('NFC', str(col).strip())
         column_mapping[col] = normalized
-    
+
     df = df.rename(columns=column_mapping)
-    
-    # Map to expected columns
+
     for expected_col in expected_columns:
         if expected_col not in df.columns:
             for actual_col in df.columns:
-                if unicodedata.normalize('NFC', actual_col.strip()) == unicodedata.normalize('NFC', expected_col.strip()):
+                if (
+                    unicodedata.normalize('NFC', actual_col.strip())
+                    == unicodedata.normalize('NFC', expected_col.strip())
+                ):
                     df = df.rename(columns={actual_col: expected_col})
                     break
-    
+
     return df
 
 
 def validate_dataframe_columns(df: pd.DataFrame, expected_columns: List[str]) -> None:
-    """
-    Validate that DataFrame contains all expected columns.
-    
-    Args:
-        df: DataFrame to validate
-        expected_columns: List of expected column names
-        
-    Raises:
-        ValueError: If required columns are missing
-    """
     missing_columns = [col for col in expected_columns if col not in df.columns]
-    
     if missing_columns:
-        print(f"\n[ERROR] Missing expected columns ({len(missing_columns)}):")
-        for col in missing_columns:
-            print(f"  - '{col}'")
-        print("\n[INFO] Available columns:")
-        for col in df.columns:
-            print(f"  - '{col}'")
-        raise ValueError(f"Missing {len(missing_columns)} expected column(s). See output above.")
+        raise ValueError(
+            f"Missing {len(missing_columns)} expected column(s): {missing_columns}"
+        )
 
 
 def validate_dataframe_has_data(df: pd.DataFrame, data_columns: List[str]) -> None:
-    """
-    Validate that DataFrame has non-null data.
-    
-    Args:
-        df: DataFrame to validate
-        data_columns: List of data column names to check
-        
-    Raises:
-        ValueError: If DataFrame is empty or has no data
-    """
     if df.empty:
         raise ValueError("DataFrame is empty after loading Excel files.")
-    
+
     if data_columns:
         non_null_count = df[data_columns].notna().any(axis=1).sum()
         if non_null_count == 0:
@@ -206,38 +128,17 @@ def validate_dataframe_has_data(df: pd.DataFrame, data_columns: List[str]) -> No
 
 
 def filter_empty_rows(df: pd.DataFrame, data_columns: List[str]) -> pd.DataFrame:
-    """
-    Filter out rows where all data columns are null/empty.
-    
-    Args:
-        df: DataFrame to filter
-        data_columns: List of data column names to check
-        
-    Returns:
-        Filtered DataFrame
-    """
     if not data_columns:
         return df
-    
+
     has_data_mask = df[data_columns].notna().any(axis=1)
     for col in data_columns:
         has_data_mask = has_data_mask | (df[col].astype(str).str.strip() != '')
-    
+
     return df[has_data_mask].copy()
 
 
 def safe_get_column(row: pd.Series, column_name: str, default=None):
-    """
-    Safely get a column value from a pandas Series, handling missing columns and NaN values.
-    
-    Args:
-        row: pandas Series (DataFrame row)
-        column_name: Column name to access
-        default: Default value if column is missing or NaN
-        
-    Returns:
-        Column value or default
-    """
     if column_name not in row.index:
         return default
     value = row[column_name]
@@ -249,46 +150,37 @@ def safe_get_column(row: pd.Series, column_name: str, default=None):
 def transform_distributor_delivery_row(
     row: pd.Series,
     batch_id: int,
-    persian_columns: List[str]
+    persian_columns: List[str],
 ) -> tuple:
-    """
-    Transform a single DataFrame row to staging tuple for distributor deliveries.
-    
-    Args:
-        row: DataFrame row with Persian column names
-        batch_id: Batch ID for the row
-        persian_columns: List of Persian column names (for validation)
-        
-    Returns:
-        Tuple ready for insertion into staging table
-    """
     request_date = parse_excel_date(safe_get_column(row, 'تاریخ درخواست'))
     expiry_date = parse_excel_date(safe_get_column(row, 'تاریخ انقضاء'))
     release_date = parse_excel_date(safe_get_column(row, 'تاریخ ریلیز'))
     delivery_date = parse_excel_date(safe_get_column(row, 'تاریخ تحویل'))
-    
+
     delivered_qty = safe_int(safe_get_column(row, 'تعداد تحویلی'))
     delivered_qty_round_up = safe_int(safe_get_column(row, 'تعداد تحویلی رند بالا'))
     delivered_qty_round_down = safe_int(safe_get_column(row, 'تعداد تحویلی رند پایین'))
     warehouse_exit_qty = safe_int(safe_get_column(row, 'تعداد خروج از انبار'))
     routine_delivery_qty = safe_int(safe_get_column(row, 'تعداد تحویل روتین'))
     supply_chain_request_qty = safe_int(safe_get_column(row, 'تعداد درخواست زنجیره تامین'))
-    days_between_delivery_release = safe_int(safe_get_column(row, 'تعداد روز بین تاریخ تحویلی و ریلیز'))
-    
+    days_between_delivery_release = safe_int(
+        safe_get_column(row, 'تعداد روز بین تاریخ تحویلی و ریلیز')
+    )
+
     month = safe_get_column(row, 'ماه')
     if month is not None:
         try:
             month = int(month)
-        except:
+        except (TypeError, ValueError):
             month = None
-    
+
     source_file = safe_get_column(row, 'source_file', '')
-    
+
     def safe_str(val, default=''):
         if val is None or pd.isna(val):
             return default
         return str(val)
-    
+
     return (
         batch_id,
         safe_str(safe_get_column(row, 'کد دارو')),
@@ -311,80 +203,69 @@ def transform_distributor_delivery_row(
         routine_delivery_qty,
         supply_chain_request_qty,
         safe_str(safe_get_column(row, 'کارخانه')),
-        None,  # company_name
+        None,
         safe_str(safe_get_column(row, 'توضیحات')),
         source_file,
-        None,  # row_hash - no longer needed for deduplication
+        None,
     )
 
 
-def load_excel_files_from_dropbox(
-    dropbox_client: DropboxClient,
-    shared_link: str,
+def load_excel_files_from_dms(
+    dms_client: DmsClient,
+    folder_url: str,
     file_pattern: str,
     expected_files: List[str],
     ignored_files: List[str],
     persian_columns: List[str],
     header_row: int = 7,
     log_fn: Optional[Callable[[str], None]] = None,
+    log_label: str = "files",
 ) -> pd.DataFrame:
     """
-    Load and concatenate Excel files from Dropbox, matching factory names to Excel table names.
+    Load and concatenate Excel files from a DMS folder.
 
-    When log_fn is provided, only a single summary line is emitted: expected vs loaded file count.
-
-    Args:
-        dropbox_client: DropboxClient instance
-        shared_link: Dropbox shared link
-        file_pattern: Regex pattern to match files
-        expected_files: List of expected file names
-        ignored_files: List of files to ignore
-        persian_columns: List of expected Persian column names
-        header_row: Row number (0-indexed) to use as header
-        log_fn: Optional callback for progress/summary (e.g. one line: expected vs loaded file count)
-
-    Returns:
-        Concatenated DataFrame with all data
+    When log_fn is provided, emits a summary line: expected vs loaded file count.
     """
-    files = dropbox_client.list_files(shared_link=shared_link, pattern=file_pattern)
+    del header_row  # table-based read ignores header row
 
+    files = dms_client.list_files(folder_url=folder_url, pattern=file_pattern)
     if not files:
-        raise ValueError(f"No files found in Dropbox shared folder matching pattern '{file_pattern}'")
+        raise ValueError(
+            f"No files found in DMS folder matching pattern '{file_pattern}'"
+        )
 
-    # Filter ignored files
-    files_to_process = [f for f in files if f['name'] not in (ignored_files or [])]
-
+    files_to_process = [file_info for file_info in files if file_info['name'] not in (ignored_files or [])]
     if not files_to_process:
         raise ValueError("No files to process after filtering ignored files")
 
-    # Process each file (no per-file logging)
     dataframes = []
     skipped_files = []
 
     for file_info in files_to_process:
         file_name = file_info['name']
-
         try:
             factory_name = extract_factory_name_from_filename(file_name)
             if not factory_name:
                 skipped_files.append(file_name)
                 continue
 
-            file_shared_link = file_info.get('_shared_link') if file_info.get('_is_shared') else shared_link
-            matching_table = find_matching_table(dropbox_client, file_info, factory_name, file_shared_link)
-
+            matching_table = find_matching_table(
+                dms_client,
+                file_info,
+                factory_name,
+                folder_url,
+            )
             if not matching_table:
                 skipped_files.append(file_name)
                 continue
 
             sheet_name, table_name = matching_table
-
-            df = dropbox_client.read_excel_table(
+            df = dms_client.read_excel_table(
                 file_info['path'],
                 sheet_name=sheet_name,
                 table_name=table_name,
-                shared_link=file_shared_link,
-                file_name=file_name
+                folder_url=folder_url,
+                file_name=file_name,
             )
 
             if df.empty or len(df) == 0:
@@ -403,8 +284,10 @@ def load_excel_files_from_dropbox(
             f"Total files found: {len(files)}, Skipped: {len(skipped_files)}"
         )
 
-    non_empty_dataframes = [df for df in dataframes if not df.empty and len(df) > 0]
-
+    non_empty_dataframes = [
+        dataframe for dataframe in dataframes
+        if not dataframe.empty and len(dataframe) > 0
+    ]
     if not non_empty_dataframes:
         raise ValueError(
             f"No valid data found in Excel files. "
@@ -412,8 +295,6 @@ def load_excel_files_from_dropbox(
         )
 
     df = pd.concat(non_empty_dataframes, ignore_index=True, sort=False)
-
-    # Normalize and validate
     df = normalize_dataframe_columns(df, persian_columns)
     validate_dataframe_columns(df, persian_columns)
     validate_dataframe_has_data(df, persian_columns)
@@ -427,7 +308,7 @@ def load_excel_files_from_dropbox(
     loaded_files = df['source_file'].unique().tolist() if 'source_file' in df.columns else []
     expected_count = len(expected_files) if expected_files else 0
     if log_fn is not None:
-        log_fn(f"Expected {expected_count} files, loaded {len(loaded_files)} files")
+        log_fn(f"Expected {expected_count} {log_label}, loaded {len(loaded_files)} {log_label}")
 
     return df
 
@@ -435,35 +316,26 @@ def load_excel_files_from_dropbox(
 def transform_dataframe_to_staging_rows(
     df: pd.DataFrame,
     batch_id: int,
-    persian_columns: List[str]
+    persian_columns: List[str],
 ) -> List[tuple]:
-    """
-    Transform DataFrame rows to staging table tuples.
-    
-    Args:
-        df: DataFrame with Persian column names
-        batch_id: Batch ID for the rows
-        persian_columns: List of Persian column names
-        
-    Returns:
-        List of tuples ready for insertion into staging table
-    """
     missing_cols = [col for col in persian_columns if col not in df.columns]
     if missing_cols:
         raise ValueError(f"Missing required columns in DataFrame: {missing_cols}")
-    
+
     staging_rows = []
     total_rows = len(df)
     progress_interval = max(1000, total_rows // 10)
-    
+
     for idx, (_, row) in enumerate(df.iterrows(), 1):
         if idx % progress_interval == 0 or idx == total_rows:
-            print(f"  Transforming row {idx}/{total_rows} ({idx*100//total_rows}%)...", end='\r', flush=True)
-        
+            print(
+                f"  Transforming row {idx}/{total_rows} ({idx * 100 // total_rows}%)...",
+                end='\r',
+                flush=True,
+            )
+
         staging_row = transform_distributor_delivery_row(row, batch_id, persian_columns)
         staging_rows.append(staging_row)
-    
-    print(" " * 60, end='\r', flush=True)
-    
-    return staging_rows
 
+    print(" " * 60, end='\r', flush=True)
+    return staging_rows
