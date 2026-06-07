@@ -52,6 +52,7 @@ from src.optimization.constraints import (
     ShipmentMinimizationConstraint,
 )
 from src.orchestrator.services.sql_server_db import DBConnectionFactory, SQLExecutor
+from src.orchestrator.services.vpn import ensure_vpn_connected
 from src.orchestrator.ui.terminal_ui import (
     Colors,
     print_header,
@@ -799,7 +800,10 @@ def run_optimization(config: dict):
 def main():
     """Main interactive CLI function."""
     print_header("Optimization CLI - Production", Colors.BRIGHT_CYAN)
-    
+
+    # SQL Server is behind the corporate VPN — make sure it is up.
+    ensure_vpn_connected(log_fn=print_info, prompt_fn=print_prompt)
+
     while True:
         try:
             # Configure all parameters

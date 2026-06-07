@@ -60,6 +60,7 @@ from src.orchestrator.pipelines.utils.extract_cache import (
 from src.orchestrator.pipelines.utils.stage_verification import StageVerificationError
 from src.orchestrator.services.sql_server_db.factory import DBConnectionFactory
 from src.orchestrator.services.sql_server_db.executors.sql_executor import SQLExecutor
+from src.orchestrator.services.vpn import ensure_vpn_connected
 from src.orchestrator.ui.terminal_ui import (
     Colors,
     print_header,
@@ -797,7 +798,10 @@ def view_cache_status_interactive(pipeline_info):
 def main():
     """Main terminal interface for pipeline access."""
     print_header("ETL Pipeline Terminal Access", Colors.BRIGHT_CYAN)
-    
+
+    # SQL Server and DMS are behind the corporate VPN — make sure it is up.
+    ensure_vpn_connected(log_fn=print_info, prompt_fn=print_prompt)
+
     while True:
         # First layer: Select pipeline
         pipeline_info = select_pipeline()

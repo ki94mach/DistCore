@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.orchestrator.services.sql_server_db.factory import DBConnectionFactory
 from src.orchestrator.services.sql_server_db.executors.sql_executor import SQLExecutor
+from src.orchestrator.services.vpn import ensure_vpn_connected
 
 
 def check_migrations_run(factory: DBConnectionFactory, database_type: str) -> Tuple[bool, List[str]]:
@@ -36,6 +37,9 @@ def check_migrations_run(factory: DBConnectionFactory, database_type: str) -> Tu
 
 def main():
     """Deploy all stored procedures from sql/10_routines/procedures."""
+    # SQL Server is behind the corporate VPN — make sure it is up.
+    ensure_vpn_connected()
+
     # Allow database type to be specified via command line argument
     database_type = 'test'  # Default to 'test' to match procedure execution defaults
     if len(sys.argv) > 1:

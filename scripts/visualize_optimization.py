@@ -46,6 +46,7 @@ from src.optimization.constraints import (
 )
 from src.optimization.solvers import get_default_settings, get_constraint_preset
 from src.orchestrator.services.sql_server_db import DBConnectionFactory, SQLExecutor
+from src.orchestrator.services.vpn import ensure_vpn_connected
 from src.orchestrator.ui.terminal_ui import (
     Colors,
     print_header,
@@ -993,6 +994,9 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # SQL Server is behind the corporate VPN — make sure it is up.
+    ensure_vpn_connected()
 
     try:
         snapshot_date = date.fromisoformat(args.date)

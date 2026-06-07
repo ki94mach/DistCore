@@ -33,6 +33,7 @@ from typing import List, Optional, Dict, Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.orchestrator.services.sql_server_db.factory import DBConnectionFactory
+from src.orchestrator.services.vpn import ensure_vpn_connected
 
 
 class DimensionTableMigrator:
@@ -693,6 +694,9 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # SQL Server is behind the corporate VPN — make sure it is up.
+    ensure_vpn_connected()
 
     migrator = DimensionTableMigrator()
 

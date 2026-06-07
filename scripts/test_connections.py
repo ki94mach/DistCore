@@ -113,25 +113,8 @@ def ensure_vpn(out: Reporter, skip: bool) -> bool:
     if skip:
         out.warn("Skipping VPN check (--no-vpn).")
         return True
-    try:
-        from src.orchestrator.services.vpn import VpnClient
-        client = VpnClient(log_fn=out.info)
-    except Exception as exc:  # config missing, non-Windows, etc.
-        out.warn(f"VPN automation unavailable: {exc}")
-        out.info("Continuing — assuming the network is already reachable.")
-        return True
-
-    try:
-        if client.is_connected():
-            out.ok(f"VPN already connected ({client.settings.host}).")
-            return True
-        out.action(f"Connecting to {client.settings.host}...")
-        client.connect()
-        out.ok("VPN connected.")
-        return True
-    except Exception as exc:
-        out.fail(f"VPN connect failed: {exc}")
-        return False
+    from src.orchestrator.services.vpn import ensure_vpn_connected
+    return ensure_vpn_connected(log_fn=out.info)
 
 
 def test_sql_database(out: Reporter, factory: DBConnectionFactory, database_type: str) -> bool:

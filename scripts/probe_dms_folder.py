@@ -10,6 +10,8 @@ from requests_negotiate_sspi import HttpNegotiateAuth
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from src.orchestrator.services.vpn import ensure_vpn_connected
+
 FOLDER_1405 = (
     "https://dms.orchidpharmed.com/OneDrive/Supply%20Chain/"
     "Supply%20Chain%20Team_DMS/%D8%AA%D8%AD%D9%88%DB%8C%D9%84%20%D8%A8%D9%87%20%"
@@ -19,6 +21,9 @@ BASE = "https://dms.orchidpharmed.com"
 
 
 def main() -> None:
+    # DMS is behind the corporate VPN — make sure it is up.
+    ensure_vpn_connected()
+
     auth = HttpNegotiateAuth()
 
     rest_candidates = [
