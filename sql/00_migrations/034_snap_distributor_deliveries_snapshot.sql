@@ -6,10 +6,10 @@ Usage: This table stores point-in-time snapshots of distributor delivery metrics
 How to run: Execute in SSMS or via sqlcmd against the target database; script is idempotent.
 */
 
--- Create [Data].[snp_DistributorDeliveriesSnapshot] if missing
-IF OBJECT_ID(N'[Data].[snp_DistributorDeliveriesSnapshot]', 'U') IS NULL
+-- Create [$(prod_schema)].[snp_DistributorDeliveriesSnapshot] if missing
+IF OBJECT_ID(N'[$(prod_schema)].[snp_DistributorDeliveriesSnapshot]', 'U') IS NULL
 BEGIN
-    CREATE TABLE [Data].[snp_DistributorDeliveriesSnapshot] (
+    CREATE TABLE [$(prod_schema)].[snp_DistributorDeliveriesSnapshot] (
         snapshot_date DATE NOT NULL,
         product_id INT NOT NULL,
         distributor_id INT NOT NULL,
@@ -26,12 +26,12 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[snp_DistributorDeliveriesSnapshot]', 'U')
+    WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[snp_DistributorDeliveriesSnapshot]', 'U')
       AND i.name = N'IX_DistributorDeliveriesSnapshot_SnapshotDate'
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_DistributorDeliveriesSnapshot_SnapshotDate
-        ON [Data].[snp_DistributorDeliveriesSnapshot] (snapshot_date DESC);
+        ON [$(prod_schema)].[snp_DistributorDeliveriesSnapshot] (snapshot_date DESC);
 END;
 GO
 
@@ -39,12 +39,12 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[snp_DistributorDeliveriesSnapshot]', 'U')
+    WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[snp_DistributorDeliveriesSnapshot]', 'U')
       AND i.name = N'IX_DistributorDeliveriesSnapshot_Product_Distributor'
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_DistributorDeliveriesSnapshot_Product_Distributor
-        ON [Data].[snp_DistributorDeliveriesSnapshot] (product_id, distributor_id);
+        ON [$(prod_schema)].[snp_DistributorDeliveriesSnapshot] (product_id, distributor_id);
 END;
 GO
 

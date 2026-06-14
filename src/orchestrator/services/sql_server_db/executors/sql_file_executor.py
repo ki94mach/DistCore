@@ -9,8 +9,10 @@ from .sql_utils import (
     resolve_sql_file_path,
     read_sql_file,
     substitute_parameters,
+    find_unsubstituted_variables,
     split_sql_statements
 )
+from ..sql_config import build_sql_substitution_vars
 from .result_formatter import format_result_set
 
 if TYPE_CHECKING:
@@ -57,7 +59,7 @@ class SQLFileExecutor:
     def execute(
         self,
         sql_file_path: Union[str, Path],
-        database_type: str = 'test',
+        database_type: str = 'prod',
         parameters: Optional[Dict[str, str]] = None
     ) -> Optional[List[Dict[str, Any]]]:
         """
@@ -65,7 +67,7 @@ class SQLFileExecutor:
         
         Args:
             sql_file_path: Path to SQL file (relative to sql folder or absolute)
-            database_type: Database type ('source' or 'test')
+            database_type: Database type ('source' or 'prod')
             parameters: Optional dictionary for parameter substitution
             
         Returns:
@@ -77,10 +79,21 @@ class SQLFileExecutor:
         """
         sql_path = resolve_sql_file_path(sql_file_path, self._sql_folder)
         sql_content = read_sql_file(sql_path)
-        
-        # Substitute parameters if provided
-        if parameters:
-            sql_content = substitute_parameters(sql_content, parameters)
+
+        config_vars = build_sql_substitution_vars(
+            self._connection_factory,
+            database_type,
+        )
+        merged_parameters = {**config_vars, **(parameters or {})}
+        sql_content = substitute_parameters(sql_content, merged_parameters)
+
+        remaining = find_unsubstituted_variables(sql_content)
+        if remaining:
+            raise ValueError(
+                f"Unresolved SQL placeholders in {sql_path.name}: "
+                f"{', '.join(f'$({name})' for name in remaining)}. "
+                f"Available from db.yml: {', '.join(sorted(config_vars))}."
+            )
         
         # Split into individual statements
         statements = split_sql_statements(sql_content)

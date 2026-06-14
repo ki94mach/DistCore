@@ -13,7 +13,7 @@ DECLARE @since_date DATE = DATEADD(DAY, -@days_ago, CAST(GETDATE() AS DATE));
 SELECT 
     [FKDate] AS fk_date,
     COUNT(*) AS row_count
-FROM [DWOrchid].[dbo].[FactInventory]
+FROM [$(source_database)].[dbo].[FactInventory]
 WHERE [FKDate] IS NOT NULL
   AND [FKDate] >= @since_date
 GROUP BY [FKDate]
@@ -27,7 +27,7 @@ SELECT
     MAX([FKDate]) AS max_fk_date,
     @since_date AS filter_since_date,
     @days_ago AS days_ago_filter
-FROM [DWOrchid].[dbo].[FactInventory]
+FROM [$(source_database)].[dbo].[FactInventory]
 WHERE [FKDate] IS NOT NULL
   AND [FKDate] >= @since_date;
 

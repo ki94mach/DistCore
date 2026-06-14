@@ -17,6 +17,7 @@ from .schema import (
     qualify_cross_db,
     qualify_object,
 )
+from .config import DEFAULT_DATABASE_TYPE
 
 if TYPE_CHECKING:
     from .context import ConnectionContextManager
@@ -139,14 +140,14 @@ class DBConnectionFactory:
     
     def get_connection(
         self,
-        database_type: str = 'test',
+        database_type: str = DEFAULT_DATABASE_TYPE,
         use_pool: bool = True
     ) -> pyodbc.Connection:
         """
         Get a database connection for the specified database type.
         
         Args:
-            database_type: Type of database ('source' or 'test')
+            database_type: Type of database ('source' or 'prod')
             use_pool: If True, reuse connections from pool. If False, create new connection.
             
         Returns:
@@ -293,9 +294,9 @@ class DBConnectionFactory:
         """Get a connection to the source database."""
         return self.get_connection('source')
     
-    def get_test_connection(self) -> pyodbc.Connection:
-        """Get a connection to the test database."""
-        return self.get_connection('test')
+    def get_prod_connection(self) -> pyodbc.Connection:
+        """Get a connection to the prod (DistCore operational) database."""
+        return self.get_connection(DEFAULT_DATABASE_TYPE)
     
     def get_config(self) -> Optional[Dict[str, Any]]:
         """Get the loaded configuration (read-only)."""
@@ -306,15 +307,15 @@ class DBConnectionFactory:
         self._validate_database_type_exists(database_type)
         return self._config['databases'][database_type]
 
-    def get_schema(self, database_type: str = 'test') -> str:
+    def get_schema(self, database_type: str = DEFAULT_DATABASE_TYPE) -> str:
         """Return configured schema for a connection (defaults to Data)."""
         return get_schema_from_config(self.get_database_config(database_type))
 
-    def get_database_name(self, database_type: str = 'test') -> str:
+    def get_database_name(self, database_type: str = DEFAULT_DATABASE_TYPE) -> str:
         """Return configured database name for a connection."""
         return self.get_database_config(database_type)['database']
 
-    def qualify(self, object_name: str, database_type: str = 'test') -> str:
+    def qualify(self, object_name: str, database_type: str = DEFAULT_DATABASE_TYPE) -> str:
         """Return [schema].[object_name] using config for database_type."""
         schema = self.get_schema(database_type)
         return qualify_object(schema, object_name)
@@ -329,7 +330,7 @@ class DBConnectionFactory:
         schema = get_schema_from_config(db_config)
         return qualify_cross_db(db_config['database'], schema, object_name)
     
-    def connection(self, database_type: str = 'test') -> 'ConnectionContextManager':  # type: ignore
+    def connection(self, database_type: str = DEFAULT_DATABASE_TYPE) -> 'ConnectionContextManager':  # type: ignore
         """
         Context manager for automatic connection management.
         
@@ -339,7 +340,7 @@ class DBConnectionFactory:
                 cursor.execute("SELECT * FROM table")
         
         Args:
-            database_type: Type of database ('source' or 'test')
+            database_type: Type of database ('source' or 'prod')
             
         Returns:
             ConnectionContextManager that handles connection lifecycle

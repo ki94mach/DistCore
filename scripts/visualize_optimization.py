@@ -767,7 +767,7 @@ def get_product_display_name(product_id: str, data: Any) -> str:
 def visualize_product_level(
     product_identifier: str,
     snapshot_date: date,
-    database_type: str = "test",
+    database_type: str = "prod",
     settings: Optional[OptimizationSettings] = None,
     output_dir: Optional[Path] = None,
 ) -> None:
@@ -859,7 +859,7 @@ def visualize_single_run(
     distributor_id: str,
     product_identifier: str,
     snapshot_date: date,
-    database_type: str = "test",
+    database_type: str = "prod",
     settings: Optional[OptimizationSettings] = None,
     output_dir: Optional[Path] = None,
 ) -> None:
@@ -978,8 +978,8 @@ def main():
     parser.add_argument(
         "--database",
         type=str,
-        default="test",
-        choices=["test", "source"],
+        default="prod",
+        choices=["prod", "source"],
         help="Database type (default: test)",
     )
     parser.add_argument(

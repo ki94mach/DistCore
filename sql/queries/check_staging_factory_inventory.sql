@@ -1,6 +1,6 @@
 /*
 Purpose: Check the count of imported records in staging table for Factory Inventory.
-Assumptions: Run this query on the staging database (where [Data].[stg_FactoryInventory] exists).
+Assumptions: Run this query on the staging database (where [$(prod_schema)].[stg_FactoryInventory] exists).
 Usage: Check record counts by batch_id, with optional filtering by batch_id.
 */
 
@@ -12,7 +12,7 @@ SELECT
     MAX(ingested_at) AS last_ingested,
     MIN(as_of_datetime) AS min_as_of_datetime,
     MAX(as_of_datetime) AS max_as_of_datetime
-FROM [Data].[stg_FactoryInventory]
+FROM [$(prod_schema)].[stg_FactoryInventory]
 GROUP BY batch_id
 ORDER BY batch_id DESC;
 
@@ -29,7 +29,7 @@ SELECT
     -- Additional quality checks
     SUM(CASE WHEN factory_id IS NULL OR product_id IS NULL THEN 1 ELSE 0 END) AS null_key_count,
     SUM(CASE WHEN on_hand_qty < 0 THEN 1 ELSE 0 END) AS negative_qty_count
-FROM [Data].[stg_FactoryInventory]
+FROM [$(prod_schema)].[stg_FactoryInventory]
 WHERE batch_id = @batch_id
 GROUP BY batch_id;
 
@@ -39,7 +39,7 @@ SELECT
     COUNT(DISTINCT batch_id) AS total_batches,
     MIN(ingested_at) AS earliest_ingested,
     MAX(ingested_at) AS latest_ingested
-FROM [Data].[stg_FactoryInventory];
+FROM [$(prod_schema)].[stg_FactoryInventory];
 
 -- Option 4: Latest batch details (most recent batch)
 SELECT TOP 1
@@ -49,7 +49,7 @@ SELECT TOP 1
     MAX(ingested_at) AS last_ingested,
     MIN(as_of_datetime) AS min_as_of_datetime,
     MAX(as_of_datetime) AS max_as_of_datetime
-FROM [Data].[stg_FactoryInventory]
+FROM [$(prod_schema)].[stg_FactoryInventory]
 GROUP BY batch_id
 ORDER BY batch_id DESC;
 

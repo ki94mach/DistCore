@@ -19,7 +19,7 @@ SELECT
     END AS load_type,
     MIN([FKDate]) AS min_fk_date,
     MAX([FKDate]) AS max_fk_date
-FROM [DWOrchid].[dbo].[FactInventory]
+FROM [$(source_database)].[dbo].[FactInventory]
 WHERE [FKDate] IS NOT NULL
   AND (@since_date IS NULL OR [FKDate] >= @since_date);
 
@@ -30,7 +30,7 @@ SELECT TOP 100
     [BatchNo] AS product_batch_no,
     [FKDate] AS as_of_datetime,
     [DQty] AS on_hand_qty
-FROM [DWOrchid].[dbo].[FactInventory]
+FROM [$(source_database)].[dbo].[FactInventory]
 WHERE [FKDate] IS NOT NULL
   AND (@since_date IS NULL OR [FKDate] >= @since_date)
 ORDER BY [FKDate] DESC;
@@ -39,7 +39,7 @@ ORDER BY [FKDate] DESC;
 SELECT 
     [FKDate] AS as_of_datetime,
     COUNT(*) AS record_count
-FROM [DWOrchid].[dbo].[FactInventory]
+FROM [$(source_database)].[dbo].[FactInventory]
 WHERE [FKDate] IS NOT NULL
   AND (@since_date IS NULL OR [FKDate] >= @since_date)
 GROUP BY [FKDate]

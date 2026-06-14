@@ -157,14 +157,19 @@ def substitute_parameters(sql_content: str, parameters: Dict[str, str]) -> str:
         SQL content with substituted values
         
     Example:
-        >>> sql = "SELECT * FROM table WHERE id = $(batch_id)"
-        >>> substitute_parameters(sql, {'batch_id': '123'})
-        'SELECT * FROM table WHERE id = 123'
+        >>> sql = "SELECT * FROM [$(prod_schema)].[ctl_BatchRun]"
+        >>> substitute_parameters(sql, {'prod_schema': 'Sale'})
+        'SELECT * FROM [Sale].[ctl_BatchRun]'
     """
     result = sql_content
     for key, value in parameters.items():
         result = result.replace(f"$({key})", str(value))
     return result
+
+
+def find_unsubstituted_variables(sql_content: str) -> List[str]:
+    """Return unique $(variable) names still present after substitution."""
+    return sorted(set(re.findall(r"\$\((\w+)\)", sql_content)))
 
 
 def resolve_sql_file_path(

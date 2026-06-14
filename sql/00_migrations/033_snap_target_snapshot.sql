@@ -6,10 +6,10 @@ Usage: This table stores point-in-time snapshots of target quantities, typically
 How to run: Execute in SSMS or via sqlcmd against the target database; script is idempotent.
 */
 
--- Create [Data].[snp_TargetSnapshot] if missing
-IF OBJECT_ID(N'[Data].[snp_TargetSnapshot]', 'U') IS NULL
+-- Create [$(prod_schema)].[snp_TargetSnapshot] if missing
+IF OBJECT_ID(N'[$(prod_schema)].[snp_TargetSnapshot]', 'U') IS NULL
 BEGIN
-    CREATE TABLE [Data].[snp_TargetSnapshot] (
+    CREATE TABLE [$(prod_schema)].[snp_TargetSnapshot] (
         snapshot_date DATE NOT NULL,
         product_id INT NOT NULL,
         year INT NOT NULL,
@@ -26,12 +26,12 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[snp_TargetSnapshot]', 'U')
+    WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[snp_TargetSnapshot]', 'U')
       AND i.name = N'IX_TargetSnapshot_SnapshotDate'
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_TargetSnapshot_SnapshotDate
-        ON [Data].[snp_TargetSnapshot] (snapshot_date DESC);
+        ON [$(prod_schema)].[snp_TargetSnapshot] (snapshot_date DESC);
 END;
 GO
 
@@ -39,12 +39,12 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[snp_TargetSnapshot]', 'U')
+    WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[snp_TargetSnapshot]', 'U')
       AND i.name = N'IX_TargetSnapshot_Product_Year_Month'
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_TargetSnapshot_Product_Year_Month
-        ON [Data].[snp_TargetSnapshot] (product_id, year, month);
+        ON [$(prod_schema)].[snp_TargetSnapshot] (product_id, year, month);
 END;
 GO
 

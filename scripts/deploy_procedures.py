@@ -42,11 +42,11 @@ def main():
     ensure_vpn_connected()
 
     # Allow database type to be specified via command line argument
-    database_type = 'test'  # Default to 'test' to match procedure execution defaults
+    database_type = 'prod'  # Default to prod (DistCore operational database)
     if len(sys.argv) > 1:
         database_type = sys.argv[1].lower()
-        if database_type not in ['source', 'test']:
-            print(f"Error: database_type must be 'source' or 'test', got '{database_type}'")
+        if database_type not in ['source', 'prod']:
+            print(f"Error: database_type must be 'source' or 'prod', got '{database_type}'")
             sys.exit(1)
     
     factory = DBConnectionFactory()
@@ -62,7 +62,7 @@ def main():
         print(f"   Please run migrations on the '{database_type}' database first:")
         print("   python scripts/migrations.py              # full (dev, includes staging)")
         print("   python scripts/migrations.py --prod       # prod (snapshots + fact only)")
-        print(f"\n   Note: migrations.py runs on 'test' database by default.")
+        print(f"\n   Note: migrations.py runs on 'prod' database by default.")
         print(f"   If you need to deploy to 'source', run migrations on 'source' first.")
         response = input("\nContinue anyway? (y/n): ").strip().lower()
         if response != 'y':

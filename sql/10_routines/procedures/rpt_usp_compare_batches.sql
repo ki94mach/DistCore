@@ -1,15 +1,15 @@
 /*
 Purpose: Compare two inventory batches to help identify differences in factory inventory data between batch runs. This stored procedure provides row counts, detailed differences by factory/product combination, and summary statistics to facilitate batch comparison and troubleshooting.
 Grain: Aggregated by (factory_id, product_id) per batch using MAX(on_hand_qty) to match the publish logic. Multiple rows for the same (factory_id, product_id) within a batch are aggregated to a single quantity value.
-Assumptions: T-SQL on SQL Server; staging table [Data].[stg_FactoryInventory] exists (see 020_stg_factory_inventory.sql); both batch_id values exist in [Data].[stg_FactoryInventory]; aggregation uses MAX(on_hand_qty) to match the publish.sql aggregation rule.
-Usage: Execute via EXEC [Data].[rpt_usp_compare_batches] @batch_a = 123, @batch_b = 124. The procedure returns multiple result sets: row counts, top differences, and summary statistics.
+Assumptions: T-SQL on SQL Server; staging table [$(prod_schema)].[stg_FactoryInventory] exists (see 020_stg_factory_inventory.sql); both batch_id values exist in [$(prod_schema)].[stg_FactoryInventory]; aggregation uses MAX(on_hand_qty) to match the publish.sql aggregation rule.
+Usage: Execute via EXEC [$(prod_schema)].[rpt_usp_compare_batches] @batch_a = 123, @batch_b = 124. The procedure returns multiple result sets: row counts, top differences, and summary statistics.
 Parameters:
-    @batch_a BIGINT - First batch identifier to compare (must exist in [Data].[stg_FactoryInventory]).
-    @batch_b BIGINT - Second batch identifier to compare (must exist in [Data].[stg_FactoryInventory]).
-How to run: Execute via EXEC [Data].[rpt_usp_compare_batches] @batch_a = 123, @batch_b = 124. All queries are pure SELECTs with no side effects.
+    @batch_a BIGINT - First batch identifier to compare (must exist in [$(prod_schema)].[stg_FactoryInventory]).
+    @batch_b BIGINT - Second batch identifier to compare (must exist in [$(prod_schema)].[stg_FactoryInventory]).
+How to run: Execute via EXEC [$(prod_schema)].[rpt_usp_compare_batches] @batch_a = 123, @batch_b = 124. All queries are pure SELECTs with no side effects.
 */
 
-CREATE OR ALTER PROCEDURE [Data].[rpt_usp_compare_batches]
+CREATE OR ALTER PROCEDURE [$(prod_schema)].[rpt_usp_compare_batches]
     @batch_a BIGINT,
     @batch_b BIGINT
 AS
@@ -32,7 +32,7 @@ WITH DistinctCombos AS (
         factory_id,
         product_id,
         product_batch_no
-    FROM [Data].[stg_FactoryInventory]
+    FROM [$(prod_schema)].[stg_FactoryInventory]
     WHERE batch_id IN (@batch_a, @batch_b)
     GROUP BY batch_id, factory_id, product_id, product_batch_no
 ),
@@ -50,7 +50,7 @@ SELECT
     COUNT(DISTINCT f.product_id) AS distinct_products,
     COUNT(DISTINCT f.product_batch_no) AS distinct_product_batches,
     ISNULL(cc.distinct_factory_product_combos, 0) AS distinct_factory_product_combos
-FROM [Data].[stg_FactoryInventory] f
+FROM [$(prod_schema)].[stg_FactoryInventory] f
 LEFT JOIN ComboCounts cc ON f.batch_id = cc.batch_id
 WHERE f.batch_id IN (@batch_a, @batch_b)
 GROUP BY f.batch_id, cc.distinct_factory_product_combos
@@ -67,7 +67,7 @@ WITH BatchA AS (
         product_id,
         product_batch_no,
         MAX(on_hand_qty) AS qty_a
-    FROM [Data].[stg_FactoryInventory]
+    FROM [$(prod_schema)].[stg_FactoryInventory]
     WHERE batch_id = @batch_a
       AND factory_id IS NOT NULL
       AND product_id IS NOT NULL
@@ -80,7 +80,7 @@ BatchB AS (
         product_id,
         product_batch_no,
         MAX(on_hand_qty) AS qty_b
-    FROM [Data].[stg_FactoryInventory]
+    FROM [$(prod_schema)].[stg_FactoryInventory]
     WHERE batch_id = @batch_b
       AND factory_id IS NOT NULL
       AND product_id IS NOT NULL
@@ -122,7 +122,7 @@ WITH BatchA AS (
         product_id,
         product_batch_no,
         MAX(on_hand_qty) AS qty_a
-    FROM [Data].[stg_FactoryInventory]
+    FROM [$(prod_schema)].[stg_FactoryInventory]
     WHERE batch_id = @batch_a
       AND factory_id IS NOT NULL
       AND product_id IS NOT NULL
@@ -135,7 +135,7 @@ BatchB AS (
         product_id,
         product_batch_no,
         MAX(on_hand_qty) AS qty_b
-    FROM [Data].[stg_FactoryInventory]
+    FROM [$(prod_schema)].[stg_FactoryInventory]
     WHERE batch_id = @batch_b
       AND factory_id IS NOT NULL
       AND product_id IS NOT NULL
@@ -177,18 +177,18 @@ GO
 Example Usage:
 
 -- Example 1: Compare batches 123 and 124
-EXEC [Data].[rpt_usp_compare_batches] @batch_a = 123, @batch_b = 124;
+EXEC [$(prod_schema)].[rpt_usp_compare_batches] @batch_a = 123, @batch_b = 124;
 
 -- Example 2: Compare latest two batches
-DECLARE @batch_a BIGINT = (SELECT MAX(batch_id) - 1 FROM [Data].[stg_FactoryInventory]);
-DECLARE @batch_b BIGINT = (SELECT MAX(batch_id) FROM [Data].[stg_FactoryInventory]);
-EXEC [Data].[rpt_usp_compare_batches] @batch_a = @batch_a, @batch_b = @batch_b;
+DECLARE @batch_a BIGINT = (SELECT MAX(batch_id) - 1 FROM [$(prod_schema)].[stg_FactoryInventory]);
+DECLARE @batch_b BIGINT = (SELECT MAX(batch_id) FROM [$(prod_schema)].[stg_FactoryInventory]);
+EXEC [$(prod_schema)].[rpt_usp_compare_batches] @batch_a = @batch_a, @batch_b = @batch_b;
 
 -- Example 3: Verify batch exists before comparing
-IF EXISTS (SELECT 1 FROM [Data].[stg_FactoryInventory] WHERE batch_id = 123)
-   AND EXISTS (SELECT 1 FROM [Data].[stg_FactoryInventory] WHERE batch_id = 124)
+IF EXISTS (SELECT 1 FROM [$(prod_schema)].[stg_FactoryInventory] WHERE batch_id = 123)
+   AND EXISTS (SELECT 1 FROM [$(prod_schema)].[stg_FactoryInventory] WHERE batch_id = 124)
 BEGIN
-    EXEC [Data].[rpt_usp_compare_batches] @batch_a = 123, @batch_b = 124;
+    EXEC [$(prod_schema)].[rpt_usp_compare_batches] @batch_a = 123, @batch_b = 124;
 END
 ELSE
 BEGIN

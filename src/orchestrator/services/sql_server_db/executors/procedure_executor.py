@@ -37,7 +37,7 @@ class ProcedureExecutor:
         self,
         procedure_name: str,
         parameters: Optional[Dict[str, Any]] = None,
-        database_type: str = 'test',
+        database_type: str = 'prod',
         fetch_results: bool = True
     ) -> Optional[List[Dict[str, Any]]]:
         """
@@ -46,7 +46,7 @@ class ProcedureExecutor:
         Args:
             procedure_name: Full procedure name
             parameters: Dictionary of parameter names to values
-            database_type: Database type ('source' or 'test')
+            database_type: Database type ('source' or 'prod')
             fetch_results: Whether to fetch and return result sets
             
         Returns:
@@ -81,7 +81,7 @@ class ProcedureExecutor:
         procedure_name: str,
         parameters: Optional[Dict[str, Any]] = None,
         output_parameters: Optional[List[str]] = None,
-        database_type: str = 'test'
+        database_type: str = 'prod'
     ) -> Dict[str, Any]:
         """
         Execute a stored procedure and capture output parameters.
@@ -90,7 +90,7 @@ class ProcedureExecutor:
             procedure_name: Full procedure name
             parameters: Dictionary of input parameter names to values
             output_parameters: List of output parameter names (without @)
-            database_type: Database type ('source' or 'test')
+            database_type: Database type ('source' or 'prod')
             
         Returns:
             Dictionary containing output parameters and result sets

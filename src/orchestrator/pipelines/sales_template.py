@@ -67,7 +67,7 @@ class SalesTemplatePipeline(TemplatePipeline):
     def _prepare_staging_table(self) -> None:
         delete_query = f"DELETE FROM {self.staging_table}"
 
-        with self._connection_factory.connection('test') as test_conn:
+        with self._connection_factory.connection('prod') as test_conn:
             test_cursor = test_conn.cursor()
             test_cursor.execute(delete_query)
             test_conn.commit()

@@ -5,10 +5,10 @@ How to run: Execute in SSMS or via sqlcmd against the target database; script is
 Note: Staging accepts imperfect rows (nullable keys) to enable snapshot transformation before the snapshot layer. Snapshot tables enforce constraints.
 */
 
--- Create [Data].[stg_DistributorDeliveries] if missing
-IF OBJECT_ID(N'[Data].[stg_DistributorDeliveries]', 'U') IS NULL
+-- Create [$(prod_schema)].[stg_DistributorDeliveries] if missing
+IF OBJECT_ID(N'[$(prod_schema)].[stg_DistributorDeliveries]', 'U') IS NULL
 BEGIN
-    CREATE TABLE [Data].[stg_DistributorDeliveries] (
+    CREATE TABLE [$(prod_schema)].[stg_DistributorDeliveries] (
         batch_id BIGINT NOT NULL,
         ingested_at DATETIME2 NOT NULL CONSTRAINT DF_DistributorDeliveries_ingested_at DEFAULT SYSUTCDATETIME(),
         drug_code NVARCHAR(100) NULL,
@@ -45,12 +45,12 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[stg_DistributorDeliveries]', 'U')
+    WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_DistributorDeliveries]', 'U')
       AND i.name = N'CI_DistributorDeliveries_Batch_DeliveryDate'
 )
 BEGIN
     CREATE CLUSTERED INDEX CI_DistributorDeliveries_Batch_DeliveryDate
-        ON [Data].[stg_DistributorDeliveries] (batch_id, delivery_date);
+        ON [$(prod_schema)].[stg_DistributorDeliveries] (batch_id, delivery_date);
 END;
 GO
 
@@ -58,12 +58,12 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[stg_DistributorDeliveries]', 'U')
+    WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_DistributorDeliveries]', 'U')
       AND i.name = N'IX_DistributorDeliveries_DeliveryDate'
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_DistributorDeliveries_DeliveryDate
-        ON [Data].[stg_DistributorDeliveries] (delivery_date)
+        ON [$(prod_schema)].[stg_DistributorDeliveries] (delivery_date)
         INCLUDE (distributor_name, product_name, delivered_quantity);
 END;
 GO
@@ -72,12 +72,12 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[stg_DistributorDeliveries]', 'U')
+    WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_DistributorDeliveries]', 'U')
       AND i.name = N'IX_DistributorDeliveries_Company_Factory'
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_DistributorDeliveries_Company_Factory
-        ON [Data].[stg_DistributorDeliveries] (company_name, factory_name)
+        ON [$(prod_schema)].[stg_DistributorDeliveries] (company_name, factory_name)
         INCLUDE (delivery_date, delivered_quantity);
 END;
 GO

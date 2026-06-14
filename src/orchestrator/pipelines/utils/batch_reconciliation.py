@@ -22,7 +22,7 @@ def get_batch_run(
     connection_factory: "DBConnectionFactory",
     batch_id: int,
     *,
-    database_type: str = "test",
+    database_type: str = "prod",
 ) -> Optional[Dict[str, Any]]:
     batch_run_table = connection_factory.qualify("ctl_BatchRun", database_type)
     query = f"""
@@ -44,7 +44,7 @@ def count_snapshot_rows(
     snapshot_table: Optional[str],
     batch_id: int,
     *,
-    database_type: str = "test",
+    database_type: str = "prod",
 ) -> int:
     if not snapshot_table:
         return 0
@@ -64,7 +64,7 @@ def cleanup_batch_data(
     snapshot_table: Optional[str],
     batch_id: int,
     *,
-    database_type: str = "test",
+    database_type: str = "prod",
 ) -> None:
     with connection_factory.connection(database_type) as conn:
         cursor = conn.cursor()
@@ -178,7 +178,7 @@ def reconcile_before_staging_load(
     cache: ExtractCache,
     query_hash: str,
     log_fn: LogFn = None,
-    database_type: str = "test",
+    database_type: str = "prod",
 ) -> None:
     """Validate batch state; on mismatch delete staging/snapshot rows for batch_id."""
     manifest = cache.read_manifest()
@@ -240,7 +240,7 @@ def reconcile_before_publish(
     cache: Optional[ExtractCache] = None,
     query_hash: Optional[str] = None,
     log_fn: LogFn = None,
-    database_type: str = "test",
+    database_type: str = "prod",
 ) -> None:
     """Validate batch state before publish; clean mismatched staging/snapshot data."""
     manifest = cache.read_manifest() if cache is not None else None

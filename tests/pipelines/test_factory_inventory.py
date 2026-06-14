@@ -22,7 +22,7 @@ class TestFactoryInventoryPipeline(unittest.TestCase):
         self.snapshot_date = date(2024, 1, 15)
         self.connection_factory_mock = Mock(spec=DBConnectionFactory)
         self.connection_factory_mock.qualify = (
-            lambda object_name, database_type="test": f"[Data].[{object_name}]"
+            lambda object_name, database_type="prod": f"[Data].[{object_name}]"
         )
         self.pipeline = FactoryInventoryPipeline(
             batch_id=self.batch_id,
@@ -52,7 +52,7 @@ class TestFactoryInventoryPipeline(unittest.TestCase):
                 "batch_id": self.batch_id,
                 "snapshot_date": self.snapshot_date,
             },
-            database_type="test",
+            database_type="prod",
         )
 
     def test_finish_batch(self):
@@ -68,7 +68,7 @@ class TestFactoryInventoryPipeline(unittest.TestCase):
         )
 
         self.connection_factory_mock.get_connection.assert_called_once_with(
-            "test",
+            "prod",
             use_pool=False,
         )
         mock_cursor.execute.assert_called_once()

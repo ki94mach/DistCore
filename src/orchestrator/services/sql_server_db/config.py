@@ -4,6 +4,12 @@ import yaml
 from pathlib import Path
 from typing import Dict, Any
 
+DEFAULT_DATABASE_TYPE = "prod"
+SOURCE_DATABASE_TYPE = "source"
+DB_CONNECTION_CONFIG_KEYS = frozenset(
+    {"driver", "username", "password", "use_windows_auth"}
+)
+
 
 class DBConfigLoader:
     """Responsible for loading and validating database configuration from YAML file."""

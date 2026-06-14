@@ -22,12 +22,12 @@ class DatabaseHealthChecker:
         self.factory = factory or DBConnectionFactory()
         self._connection_health_checker = ConnectionHealthChecker()
     
-    def check_health(self, database_type: str = 'test', timeout: float = 5.0) -> Dict[str, any]:
+    def check_health(self, database_type: str = 'prod', timeout: float = 5.0) -> Dict[str, any]:
         """
         Perform a health check on the specified database.
         
         Args:
-            database_type: Type of database to check ('source' or 'test')
+            database_type: Type of database to check ('source' or 'prod')
             timeout: Maximum time in seconds to wait for connection
         
         Returns:
@@ -101,7 +101,7 @@ class DatabaseHealthChecker:
         
         return results
     
-    def is_healthy(self, database_type: str = 'test', timeout: float = 5.0) -> bool:
+    def is_healthy(self, database_type: str = 'prod', timeout: float = 5.0) -> bool:
         """
         Simple boolean check for database health.
         

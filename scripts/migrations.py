@@ -53,13 +53,13 @@ def main() -> None:
     parser.add_argument(
         "--database-type",
         default=None,
-        help="Database connection key from db.yml (default: test).",
+        help="Database connection key from db.yml (default: prod).",
     )
     args = parser.parse_args()
 
     ensure_vpn_connected()
 
-    database_type = args.database_type or "test"
+    database_type = args.database_type or "prod"
     factory = DBConnectionFactory()
     executor = SQLExecutor(factory)
 

@@ -33,6 +33,8 @@ Usage Examples:
         cursor.execute("SELECT * FROM table")
 """
 
+from .config import DEFAULT_DATABASE_TYPE, SOURCE_DATABASE_TYPE
+from .sql_config import build_sql_substitution_vars
 from .factory import DBConnectionFactory
 from .context import ConnectionContextManager
 from .executors.sql_executor import SQLExecutor
@@ -42,6 +44,9 @@ __all__ = [
     'DBConnectionFactory',
     'ConnectionContextManager',
     'SQLExecutor',
+    'DEFAULT_DATABASE_TYPE',
+    'SOURCE_DATABASE_TYPE',
+    'build_sql_substitution_vars',
     'DEFAULT_SCHEMA',
     'qualify_object',
     'qualify_cross_db',

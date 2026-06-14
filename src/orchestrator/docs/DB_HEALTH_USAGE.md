@@ -85,7 +85,7 @@ all_results = health_checker.check_all_databases(timeout=5.0)
 #         'response_time_ms': 45.23,
 #         ...
 #     },
-#     'test': {
+#     'prod': {
 #         'status': 'healthy',
 #         'response_time_ms': 38.12,
 #         ...

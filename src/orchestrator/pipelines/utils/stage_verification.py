@@ -34,7 +34,7 @@ def count_staging_rows(
     batch_id: int,
 ) -> int:
     query = f"SELECT COUNT(*) AS row_count FROM {staging_table} WHERE batch_id = ?"
-    with connection_factory.connection("test") as test_conn:
+    with connection_factory.connection("prod") as test_conn:
         cursor = test_conn.cursor()
         cursor.execute(query, (batch_id,))
         result = cursor.fetchone()

@@ -1,12 +1,12 @@
 /*
-Purpose: Build sales snapshots directly from [DWOrchid].[dbo].[Flat_Fact_Sale].
+Purpose: Build sales snapshots directly from [$(source_database)].[dbo].[Flat_Fact_Sale].
 Uses a rolling window ending on @snapshot_date (7 months of data for MA6 support).
 Parameters:
     @batch_id BIGINT - Audit lineage stamped on snapshot rows.
-    @snapshot_date DATE - Snapshot date; Jalali month resolved via [DWOrchid].[Data].[DimDate].
+    @snapshot_date DATE - Snapshot date; Jalali month resolved via [$(source_database)].[$(source_schema)].[DimDate].
 */
 
-CREATE OR ALTER PROCEDURE [Data].[etl_usp_build_sales_snapshot]
+CREATE OR ALTER PROCEDURE [$(prod_schema)].[etl_usp_build_sales_snapshot]
     @batch_id BIGINT,
     @snapshot_date DATE
 AS
@@ -29,20 +29,20 @@ BEGIN
         @snapshot_jalali_yyyymm = TRY_CONVERT(INT, LongShamsiYearMonth),
         @snapshot_jalali_year = ShamsiYear,
         @snapshot_jalali_month = ShamsiMonth
-    FROM [DWOrchid].[Data].[DimDate]
+    FROM [$(source_database)].[$(source_schema)].[DimDate]
     WHERE DateID = @snapshot_date;
 
     IF @snapshot_jalali_yyyymm IS NULL OR @snapshot_jalali_year IS NULL OR @snapshot_jalali_month IS NULL
-        THROW 50000, N'Could not resolve Jalali year/month from [DWOrchid].[Data].[DimDate] for @snapshot_date.', 1;
+        THROW 50000, N'Could not resolve Jalali year/month from [$(source_database)].[$(source_schema)].[DimDate] for @snapshot_date.', 1;
 
     SELECT TOP (1)
         @snapshot_month = DateID
-    FROM [DWOrchid].[Data].[DimDate]
+    FROM [$(source_database)].[$(source_schema)].[DimDate]
     WHERE ShamsiDay = 1
       AND TRY_CONVERT(INT, LongShamsiYearMonth) = @snapshot_jalali_yyyymm;
 
     IF @snapshot_month IS NULL
-        THROW 50000, N'Could not resolve Jalali month start date from [DWOrchid].[Data].[DimDate] for @snapshot_date.', 1;
+        THROW 50000, N'Could not resolve Jalali month start date from [$(source_database)].[$(source_schema)].[DimDate] for @snapshot_date.', 1;
 
     SET @window_start = DATEADD(MONTH, -6, @snapshot_month);
 
@@ -53,7 +53,7 @@ BEGIN
         distributor_id INT
     );
 
-    DELETE FROM [Data].[snp_SalesSnapshot];
+    DELETE FROM [$(prod_schema)].[snp_SalesSnapshot];
 
     WITH SourceMapped AS (
         SELECT
@@ -62,8 +62,8 @@ BEGIN
             CAST(s.[FKDate] AS DATE) AS as_of_datetime,
             CAST(s.[DQty] AS BIGINT) AS sales_qty,
             d.LongShamsiYearMonth
-        FROM [DWOrchid].[dbo].[Flat_Fact_Sale] AS s
-        INNER JOIN [DWOrchid].[Data].[DimDate] AS d
+        FROM [$(source_database)].[dbo].[Flat_Fact_Sale] AS s
+        INNER JOIN [$(source_database)].[$(source_schema)].[DimDate] AS d
             ON d.DateID = CAST(s.[FKDate] AS DATE)
         WHERE s.[FkDistributor] IS NOT NULL
           AND s.[FkCenter] IS NOT NULL
@@ -90,7 +90,7 @@ BEGIN
             month_start.DateID AS snapshot_month,
             SUM(sales_qty) AS monthly_sales
         FROM DailyTotals AS sm
-        INNER JOIN [DWOrchid].[Data].[DimDate] AS month_start
+        INNER JOIN [$(source_database)].[$(source_schema)].[DimDate] AS month_start
             ON month_start.ShamsiDay = 1
            AND TRY_CONVERT(INT, month_start.LongShamsiYearMonth) = TRY_CONVERT(INT, sm.LongShamsiYearMonth)
         GROUP BY product_id, distributor_id, month_start.DateID
@@ -141,7 +141,7 @@ BEGIN
           AND as_of_datetime <= @snapshot_date
         GROUP BY product_id, distributor_id
     )
-    MERGE [Data].[snp_SalesSnapshot] AS target
+    MERGE [$(prod_schema)].[snp_SalesSnapshot] AS target
     USING (
         SELECT
             snapshot.snapshot_month,

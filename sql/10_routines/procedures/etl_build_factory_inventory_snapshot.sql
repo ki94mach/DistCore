@@ -1,12 +1,12 @@
 /*
-Purpose: Build factory inventory snapshots directly from [DWOrchid].[dbo].[FactInventory].
+Purpose: Build factory inventory snapshots directly from [$(source_database)].[dbo].[FactInventory].
 Grain: One row per (snapshot_date, product_id) — aggregated across factories.
 Parameters:
     @batch_id BIGINT - Audit lineage stamped on snapshot rows.
     @snapshot_date DATE - Snapshot as-of date assigned to published records.
 */
 
-CREATE OR ALTER PROCEDURE [Data].[etl_usp_build_factory_inventory_snapshot]
+CREATE OR ALTER PROCEDURE [$(prod_schema)].[etl_usp_build_factory_inventory_snapshot]
     @batch_id BIGINT,
     @snapshot_date DATE
 AS
@@ -25,7 +25,7 @@ BEGIN
         product_id INT
     );
 
-    TRUNCATE TABLE [Data].[snp_FactoryInventorySnapshot];
+    TRUNCATE TABLE [$(prod_schema)].[snp_FactoryInventorySnapshot];
 
     DECLARE @today_date DATE = CAST(GETDATE() AS DATE);
 
@@ -33,14 +33,14 @@ BEGIN
         SELECT
             CAST([FKProduct] AS INT) AS product_id,
             SUM(CAST([DQty] AS BIGINT)) AS on_hand_qty
-        FROM [DWOrchid].[dbo].[FactInventory]
+        FROM [$(source_database)].[dbo].[FactInventory]
         WHERE [FkProvider] IS NOT NULL
           AND [FKProduct] IS NOT NULL
           AND [FKDate] = @today_date
           AND [DQty] <> 0
         GROUP BY [FKProduct]
     )
-    MERGE [Data].[snp_FactoryInventorySnapshot] AS target
+    MERGE [$(prod_schema)].[snp_FactoryInventorySnapshot] AS target
     USING AggregatedSource AS source
         ON target.snapshot_date = @snapshot_date
        AND target.product_id = source.product_id

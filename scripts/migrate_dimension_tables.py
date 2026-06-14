@@ -242,7 +242,7 @@ class DimensionTableMigrator:
         self,
         table_name: str,
         schema: str = 'Data',
-        database_type: str = 'test'
+        database_type: str = 'prod'
     ) -> bool:
         """Check if a table exists in the target database."""
         query = """
@@ -282,7 +282,7 @@ class DimensionTableMigrator:
         full_table_name = f"[{target_schema}].[{table_name}]"
         
         # Check if table exists
-        exists = self.table_exists(table_name, target_schema, 'test')
+        exists = self.table_exists(table_name, target_schema, 'prod')
         
         if exists:
             if if_exists == 'skip':
@@ -290,7 +290,7 @@ class DimensionTableMigrator:
                 return False
             elif if_exists == 'drop':
                 print(f"  Dropping existing table {full_table_name}")
-                self._drop_table(table_name, target_schema, 'test')
+                self._drop_table(table_name, target_schema, 'prod')
             elif if_exists == 'error':
                 raise ValueError(f"Table {full_table_name} already exists in test database")
 
@@ -303,7 +303,7 @@ class DimensionTableMigrator:
         # Create table in test
         print(f"  Creating table {full_table_name} in test...")
         try:
-            with self.factory.connection('test') as conn:
+            with self.factory.connection('prod') as conn:
                 cursor = conn.cursor()
                 cursor.execute(create_sql)
                 conn.commit()
@@ -351,7 +351,7 @@ class DimensionTableMigrator:
         target_full = f"[{target_schema}].[{table_name}]"
         # Check if table has data
         try:
-            with self.factory.connection('test') as conn:
+            with self.factory.connection('prod') as conn:
                 cursor = conn.cursor()
                 cursor.execute(f"SELECT COUNT(*) FROM {target_full}")
                 existing_count = cursor.fetchone()[0]
@@ -361,7 +361,7 @@ class DimensionTableMigrator:
         if existing_count > 0:
             if if_exists == 'truncate':
                 print(f"  Truncating existing data in {target_full}...")
-                with self.factory.connection('test') as conn:
+                with self.factory.connection('prod') as conn:
                     cursor = conn.cursor()
                     cursor.execute(f"TRUNCATE TABLE {target_full}")
                     conn.commit()
@@ -434,9 +434,9 @@ class DimensionTableMigrator:
                 INSERT INTO {target_full} ({column_list}) VALUES ({placeholders})
                 """
 
-                has_identity = self._has_identity_column(table_name, target_schema, 'test')
+                has_identity = self._has_identity_column(table_name, target_schema, 'prod')
 
-                with self.factory.connection('test') as test_conn:
+                with self.factory.connection('prod') as test_conn:
                     test_cursor = test_conn.cursor()
                     if has_identity:
                         test_cursor.execute(f""" 

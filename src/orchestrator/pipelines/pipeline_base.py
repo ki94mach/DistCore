@@ -103,7 +103,7 @@ class BasePipeline(ABC):
         self,
         procedure_name: str,
         parameters: Optional[Dict[str, Any]] = None,
-        database_type: str = 'test',
+        database_type: str = 'prod',
         fetch_results: bool = True
     ) -> Optional[List[Dict[str, Any]]]:
         """
@@ -112,7 +112,7 @@ class BasePipeline(ABC):
         Args:
             procedure_name: Full procedure name (e.g., '[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]')
             parameters: Dictionary of parameter names (without @) to values
-            database_type: Type of database ('source' or 'test')
+            database_type: Type of database ('source' or 'prod')
             fetch_results: If True, fetch and return result sets
             
         Returns:
@@ -136,7 +136,7 @@ class BasePipeline(ABC):
         procedure_name: str,
         parameters: Optional[Dict[str, Any]] = None,
         output_parameters: Optional[List[str]] = None,
-        database_type: str = 'test'
+        database_type: str = 'prod'
     ) -> Dict[str, Any]:
         """
         Execute a stored procedure and capture output parameters.
@@ -145,7 +145,7 @@ class BasePipeline(ABC):
             procedure_name: Full procedure name
             parameters: Dictionary of input parameter names to values
             output_parameters: List of output parameter names (without @)
-            database_type: Type of database ('source' or 'test')
+            database_type: Type of database ('source' or 'prod')
             
         Returns:
             Dictionary containing output parameter values and any result sets
@@ -168,7 +168,7 @@ class BasePipeline(ABC):
     def execute_sql_file(
         self,
         sql_file_path: Union[str, Path],
-        database_type: str = 'test',
+        database_type: str = 'prod',
         parameters: Optional[Dict[str, str]] = None
     ) -> Optional[List[Dict[str, Any]]]:
         """
@@ -176,7 +176,7 @@ class BasePipeline(ABC):
         
         Args:
             sql_file_path: Path to SQL file (relative to sql folder or absolute)
-            database_type: Type of database ('source' or 'test')
+            database_type: Type of database ('source' or 'prod')
             parameters: Optional dictionary for parameter substitution
             
         Returns:

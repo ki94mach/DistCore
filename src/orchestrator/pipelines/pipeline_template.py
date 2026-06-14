@@ -51,7 +51,7 @@ class TemplatePipeline(BasePipeline):
         snapshot_date: Optional[date] = None,
         connection_factory=None,
         triggered_by: str = 'PYTHON_PIPELINE',
-        database_type: str = 'test',
+        database_type: str = 'prod',
         cache_dir: Optional[Path] = None,
         log_fn: Optional[Callable[[str], None]] = None,
         show_progress: bool = False,
@@ -538,7 +538,7 @@ class TemplatePipeline(BasePipeline):
         return None, False
 
     def _get_latest_staging_date(self) -> Optional[date]:
-        with self._connection_factory.connection('test') as test_conn:
+        with self._connection_factory.connection('prod') as test_conn:
             test_cursor = test_conn.cursor()
             test_cursor.execute(
                 f"""
@@ -565,7 +565,7 @@ class TemplatePipeline(BasePipeline):
     def _prepare_staging_table(self) -> None:
         delete_query = f"DELETE FROM {self.staging_table} WHERE batch_id = ?"
 
-        with self._connection_factory.connection('test') as test_conn:
+        with self._connection_factory.connection('prod') as test_conn:
             test_cursor = test_conn.cursor()
             test_cursor.execute(delete_query, (self.batch_id,))
             test_conn.commit()
@@ -580,7 +580,7 @@ class TemplatePipeline(BasePipeline):
         """
 
     def _load_batch_to_staging(self, batch_data: List[tuple], insert_query: str, batch_number: int) -> None:
-        with self._connection_factory.connection('test') as test_conn:
+        with self._connection_factory.connection('prod') as test_conn:
             test_cursor = test_conn.cursor()
             try:
                 test_cursor.executemany(insert_query, batch_data)
@@ -716,7 +716,7 @@ class TemplatePipeline(BasePipeline):
         delete_query = f"DELETE FROM {self.staging_table} WHERE batch_id = ?"
 
         try:
-            with self._connection_factory.connection('test') as test_conn:
+            with self._connection_factory.connection('prod') as test_conn:
                 test_cursor = test_conn.cursor()
                 test_cursor.execute(delete_query, (self.batch_id,))
                 test_conn.commit()

@@ -31,6 +31,39 @@ This repository organizes T-SQL assets by execution phase and purpose. Follow th
 
 - ETL scripts expect parameters such as `@batch_id` (unique load identifier) and `@snapshot_date` (date for point-in-time loads). Provide them via `sqlcmd` variables or SSMS/Azure Data Studio query parameters. Default to `NULL` only when the script explicitly supports it.
 
+## db.yml placeholders (Python deploy path)
+
+When SQL files are executed via `scripts/migrations.py`, `scripts/deploy_procedures.py`, or `SQLExecutor.execute_sql_file`, DistCore substitutes `$(variable)` tokens from `src/orchestrator/config/db.yml` **before** sending the script to SQL Server.
+
+| Placeholder | From db.yml | Example use |
+|-------------|-------------|-------------|
+| `$(prod_schema)` | `prod.schema` | `[$(prod_schema)].[snp_SalesSnapshot]` |
+| `$(prod_database)` | `prod.database` | comments / cross-db (rare on prod) |
+| `$(source_database)` | `source.database` | `[$(source_database)].[dbo].[FactInventory]` |
+| `$(source_schema)` | `source.schema` | `[$(source_database)].[$(source_schema)].[DimDate]` |
+| `$(schema)` | schema for the connection running the script | same as `prod_schema` when deploying to prod |
+| `$(database)` | database for the connection running the script | same as `prod_database` when deploying to prod |
+
+Example in a stored procedure:
+
+```sql
+CREATE OR ALTER PROCEDURE [$(prod_schema)].[etl_usp_build_factory_inventory_snapshot]
+...
+FROM [$(source_database)].[dbo].[FactInventory]
+...
+MERGE [$(prod_schema)].[snp_FactoryInventorySnapshot] AS target
+```
+
+Run migrations/procs against prod:
+
+```bash
+python scripts/migrations.py --prod
+python scripts/deploy_procedures.py prod
+```
+
+**SSMS / sqlcmd:** placeholders are **not** expanded automatically. Either run through the Python scripts above, or manually replace `$(prod_schema)` etc. with values from your `db.yml`.
+
+
 ## How to run locally
 
 - **sqlcmd** (Windows): `sqlcmd -S <server> -d <database> -i 00_migrations\001_create_tables.sql -v batch_id=123 snapshot_date="2024-01-01"`

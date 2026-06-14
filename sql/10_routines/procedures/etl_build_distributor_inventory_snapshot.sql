@@ -1,12 +1,12 @@
 /*
-Purpose: Build distributor inventory snapshots directly from [DWOrchid].[dbo].[FactInventory].
+Purpose: Build distributor inventory snapshots directly from [$(source_database)].[dbo].[FactInventory].
 Grain: One row per (snapshot_date, product_id, distributor_id) — aggregated across centers.
 Parameters:
     @batch_id BIGINT - Audit lineage stamped on snapshot rows.
     @snapshot_date DATE - Snapshot as-of date assigned to published records.
 */
 
-CREATE OR ALTER PROCEDURE [Data].[etl_usp_build_distributor_inventory_snapshot]
+CREATE OR ALTER PROCEDURE [$(prod_schema)].[etl_usp_build_distributor_inventory_snapshot]
     @batch_id BIGINT,
     @snapshot_date DATE
 AS
@@ -26,7 +26,7 @@ BEGIN
         distributor_id INT
     );
 
-    TRUNCATE TABLE [Data].[snp_DistributorInventorySnapshot];
+    TRUNCATE TABLE [$(prod_schema)].[snp_DistributorInventorySnapshot];
 
     DECLARE @today_date DATE = CAST(GETDATE() AS DATE);
 
@@ -35,7 +35,7 @@ BEGIN
             CAST([FkDistributor] AS INT) AS distributor_id,
             CAST([FKProduct] AS INT) AS product_id,
             SUM(CAST([DQty] AS BIGINT)) AS on_hand_qty
-        FROM [DWOrchid].[dbo].[FactInventory]
+        FROM [$(source_database)].[dbo].[FactInventory]
         WHERE [FkDistributor] IS NOT NULL
           AND [FkCenter] IS NOT NULL
           AND [FKProduct] IS NOT NULL
@@ -44,7 +44,7 @@ BEGIN
           AND ([Status] = N'موجودي' OR [Status] = N'در راه')
         GROUP BY [FkDistributor], [FKProduct]
     )
-    MERGE [Data].[snp_DistributorInventorySnapshot] AS target
+    MERGE [$(prod_schema)].[snp_DistributorInventorySnapshot] AS target
     USING AggregatedSource AS source
         ON target.snapshot_date = @snapshot_date
        AND target.product_id = source.product_id

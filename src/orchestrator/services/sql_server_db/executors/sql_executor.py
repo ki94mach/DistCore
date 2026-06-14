@@ -37,7 +37,7 @@ class SQLExecutor:
         self,
         procedure_name: str,
         parameters: Optional[Dict[str, Any]] = None,
-        database_type: str = 'test',
+        database_type: str = 'prod',
         fetch_results: bool = True
     ) -> Optional[List[Dict[str, Any]]]:
         """
@@ -47,7 +47,7 @@ class SQLExecutor:
             procedure_name: Full procedure name (e.g., '[Data].[etl_usp_run_factory_inventory_snapshot_pipeline]')
             parameters: Dictionary of parameter names (without @) to values
                        Example: {'snapshot_date': '2024-01-15', 'triggered_by': 'SCHEDULED_JOB'}
-            database_type: Type of database to execute against ('source' or 'test')
+            database_type: Type of database to execute against ('source' or 'prod')
             fetch_results: If True, fetch and return result sets. If False, just execute.
             
         Returns:
@@ -69,7 +69,7 @@ class SQLExecutor:
         procedure_name: str,
         parameters: Optional[Dict[str, Any]] = None,
         output_parameters: Optional[List[str]] = None,
-        database_type: str = 'test'
+        database_type: str = 'prod'
     ) -> Dict[str, Any]:
         """
         Execute a stored procedure and capture output parameters.

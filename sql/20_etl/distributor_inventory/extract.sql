@@ -1,6 +1,6 @@
 /*
-Purpose: Extract current distributor inventory rows from the source table [DWOrchid].[dbo].[FactInventory].
-Assumptions: T-SQL on SQL Server; source table [DWOrchid].[dbo].[FactDistributorInventory] exists and is accessible.
+Purpose: Extract current distributor inventory rows from the source table [$(source_database)].[dbo].[FactInventory].
+Assumptions: T-SQL on SQL Server; source table [$(source_database)].[dbo].[FactDistributorInventory] exists and is accessible.
 Usage: This query extracts distributor inventory data with specified column aliases. Can be used with incremental filtering via @since parameter.
 Parameters:
     @since DATETIME2 = NULL - Optional timestamp for incremental extraction (e.g., ModifiedAt >= @since). 
@@ -21,7 +21,7 @@ SELECT
     [FKDate] AS as_of_datetime,
     [DQty] AS on_hand_qty
 FROM 
-    [DWOrchid].[dbo].[FactInventory]
+    [$(source_database)].[dbo].[FactInventory]
 WHERE
     [FkDistributor] IS NOT NULL
     AND [FkCenter] IS NOT NULL

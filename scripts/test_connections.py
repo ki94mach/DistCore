@@ -2,7 +2,7 @@
 
 Checks, in order:
   1. VPN tunnel (Cisco AnyConnect) — brings it up if needed.
-  2. SQL Server databases (source + test) — runs a lightweight query.
+  2. SQL Server databases (source + prod) — runs a lightweight query.
   3. DMS SharePoint folders (distributor deliveries) — lists files.
 
 Every line is also written to a UTF-8 report file. Persian (Farsi) DMS
@@ -159,9 +159,9 @@ def _resolve_sql_database_types() -> list:
         databases = config.get('databases', {})
         excluded = {'driver', 'username', 'password', 'use_windows_auth'}
         types = [key for key in databases if key not in excluded]
-        return types or ['source', 'test']
+        return types or ['source', 'prod']
     except Exception:
-        return ['source', 'test']
+        return ['source', 'prod']
 
 
 def test_dms_folder(out: Reporter, client: DmsClient, label: str, folder_url: str) -> bool:

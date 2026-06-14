@@ -5,10 +5,10 @@ How to run: Execute in SSMS or via sqlcmd against the target database; script is
 Note: Staging accepts imperfect rows (nullable keys) to enable snapshot transformation before the snapshot layer. Snapshot tables enforce constraints.
 */
 
--- Create [Data].[stg_DistributorInventory] if missing
-IF OBJECT_ID(N'[Data].[stg_DistributorInventory]', 'U') IS NULL
+-- Create [$(prod_schema)].[stg_DistributorInventory] if missing
+IF OBJECT_ID(N'[$(prod_schema)].[stg_DistributorInventory]', 'U') IS NULL
 BEGIN
-    CREATE TABLE [Data].[stg_DistributorInventory] (
+    CREATE TABLE [$(prod_schema)].[stg_DistributorInventory] (
         batch_id BIGINT NOT NULL,
         ingested_at DATETIME2 NOT NULL CONSTRAINT DF_DistributorInventory_ingested_at DEFAULT SYSUTCDATETIME(),
         distributor_id INT NULL,
@@ -29,11 +29,11 @@ GO
 -- IF EXISTS (
 --     SELECT 1
 --     FROM sys.columns c
---     WHERE c.object_id = OBJECT_ID(N'[Data].[stg_DistributorInventory]', 'U')
+--     WHERE c.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_DistributorInventory]', 'U')
 --       AND c.name = N'distributor_id' AND c.is_nullable = 0
 -- )
 -- BEGIN
---     ALTER TABLE [Data].[stg_DistributorInventory]
+--     ALTER TABLE [$(prod_schema)].[stg_DistributorInventory]
 --         ALTER COLUMN distributor_id INT NULL;
 -- END;
 -- GO
@@ -41,11 +41,11 @@ GO
 -- IF EXISTS (
 --     SELECT 1
 --     FROM sys.columns c
---     WHERE c.object_id = OBJECT_ID(N'[Data].[stg_DistributorInventory]', 'U')
+--     WHERE c.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_DistributorInventory]', 'U')
 --       AND c.name = N'center_id' AND c.is_nullable = 0
 -- )
 -- BEGIN
---     ALTER TABLE [Data].[stg_DistributorInventory]
+--     ALTER TABLE [$(prod_schema)].[stg_DistributorInventory]
 --         ALTER COLUMN center_id INT NULL;
 -- END;
 -- GO
@@ -53,11 +53,11 @@ GO
 -- IF EXISTS (
 --     SELECT 1
 --     FROM sys.columns c
---     WHERE c.object_id = OBJECT_ID(N'[Data].[stg_DistributorInventory]', 'U')
+--     WHERE c.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_DistributorInventory]', 'U')
 --       AND c.name = N'product_id' AND c.is_nullable = 0
 -- )
 -- BEGIN
---     ALTER TABLE [Data].[stg_DistributorInventory]
+--     ALTER TABLE [$(prod_schema)].[stg_DistributorInventory]
 --         ALTER COLUMN product_id INT NULL;
 -- END;
 -- GO
@@ -66,12 +66,12 @@ GO
 -- IF NOT EXISTS (
 --     SELECT 1
 --     FROM sys.indexes i
---     WHERE i.object_id = OBJECT_ID(N'[Data].[stg_DistributorInventory]', 'U')
+--     WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_DistributorInventory]', 'U')
 --       AND i.name = N'CI_DistributorInventory_Batch_Distributor_Center_Product'
 -- )
 -- BEGIN
 --     CREATE CLUSTERED INDEX CI_DistributorInventory_Batch_Distributor_Center_Product
---         ON [Data].[stg_DistributorInventory] (batch_id, distributor_id, center_id, product_id);
+--         ON [$(prod_schema)].[stg_DistributorInventory] (batch_id, distributor_id, center_id, product_id);
 -- END;
 -- GO
 
@@ -79,12 +79,12 @@ GO
 -- IF NOT EXISTS (
 --     SELECT 1
 --     FROM sys.indexes i
---     WHERE i.object_id = OBJECT_ID(N'[Data].[stg_DistributorInventory]', 'U')
+--     WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_DistributorInventory]', 'U')
 --       AND i.name = N'IX_DistributorInventory_Distributor_Center_Product_Incl'
 -- )
 -- BEGIN
 --     CREATE NONCLUSTERED INDEX IX_DistributorInventory_Distributor_Center_Product_Incl
---         ON [Data].[stg_DistributorInventory] (distributor_id, center_id, product_id)
+--         ON [$(prod_schema)].[stg_DistributorInventory] (distributor_id, center_id, product_id)
 --         INCLUDE (on_hand_qty, as_of_datetime, batch_id);
 -- END;
 -- GO

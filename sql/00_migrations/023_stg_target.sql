@@ -5,10 +5,10 @@ How to run: Execute in SSMS or via sqlcmd against the target database; script is
 Note: Staging accepts imperfect rows (nullable keys) to enable snapshot transformation before the snapshot layer. Snapshot tables enforce constraints.
 */
 
--- Create [Data].[stg_Target] if missing
-IF OBJECT_ID(N'[Data].[stg_Target]', 'U') IS NULL
+-- Create [$(prod_schema)].[stg_Target] if missing
+IF OBJECT_ID(N'[$(prod_schema)].[stg_Target]', 'U') IS NULL
 BEGIN
-    CREATE TABLE [Data].[stg_Target] (
+    CREATE TABLE [$(prod_schema)].[stg_Target] (
         batch_id BIGINT NOT NULL,
         ingested_at DATETIME2 NOT NULL CONSTRAINT DF_Target_ingested_at DEFAULT SYSUTCDATETIME(),
         product_id INT NULL,
@@ -28,11 +28,11 @@ GO
 IF EXISTS (
     SELECT 1
     FROM sys.columns c
-    WHERE c.object_id = OBJECT_ID(N'[Data].[stg_Target]', 'U')
+    WHERE c.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_Target]', 'U')
       AND c.name = N'product_id' AND c.is_nullable = 0
 )
 BEGIN
-    ALTER TABLE [Data].[stg_Target]
+    ALTER TABLE [$(prod_schema)].[stg_Target]
         ALTER COLUMN product_id INT NULL;
 END;
 GO
@@ -41,12 +41,12 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[stg_Target]', 'U')
+    WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_Target]', 'U')
       AND i.name = N'CI_Target_Batch_Product_Year_Month'
 )
 BEGIN
     CREATE CLUSTERED INDEX CI_Target_Batch_Product_Year_Month
-        ON [Data].[stg_Target] (batch_id, product_id, year, month);
+        ON [$(prod_schema)].[stg_Target] (batch_id, product_id, year, month);
 END;
 GO
 
@@ -54,12 +54,12 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[stg_Target]', 'U')
+    WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_Target]', 'U')
       AND i.name = N'IX_Target_Product_Year_Month_Incl'
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_Target_Product_Year_Month_Incl
-        ON [Data].[stg_Target] (product_id, year, month)
+        ON [$(prod_schema)].[stg_Target] (product_id, year, month)
         INCLUDE (target_quantity, batch_id, as_of_datetime);
 END;
 GO

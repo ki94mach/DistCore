@@ -1,12 +1,12 @@
 /*
-Purpose: Build target snapshots directly from [DWOrchid].[dbo].[FactTarget].
+Purpose: Build target snapshots directly from [$(source_database)].[dbo].[FactTarget].
 Grain: One row per (snapshot_date, product_id, year, month) for the Jalali month of @snapshot_date.
 Parameters:
     @batch_id BIGINT - Audit lineage stamped on snapshot rows.
-    @snapshot_date DATE - Used to resolve Jalali year/month via [DWOrchid].[Data].[DimDate].
+    @snapshot_date DATE - Used to resolve Jalali year/month via [$(source_database)].[$(source_schema)].[DimDate].
 */
 
-CREATE OR ALTER PROCEDURE [Data].[etl_usp_build_target_snapshot]
+CREATE OR ALTER PROCEDURE [$(prod_schema)].[etl_usp_build_target_snapshot]
     @batch_id BIGINT,
     @snapshot_date DATE
 AS
@@ -25,11 +25,11 @@ BEGIN
     SELECT TOP (1)
         @target_year = ShamsiYear,
         @target_month = ShamsiMonth
-    FROM [DWOrchid].[Data].[DimDate]
+    FROM [$(source_database)].[$(source_schema)].[DimDate]
     WHERE DateID = @snapshot_date;
 
     IF @target_year IS NULL OR @target_month IS NULL
-        THROW 50000, N'Could not resolve Jalali year/month from [DWOrchid].[Data].[DimDate] for @snapshot_date.', 1;
+        THROW 50000, N'Could not resolve Jalali year/month from [$(source_database)].[$(source_schema)].[DimDate] for @snapshot_date.', 1;
 
     DECLARE @MergeResults TABLE (
         ActionType NVARCHAR(10),
@@ -39,7 +39,7 @@ BEGIN
         month INT
     );
 
-    TRUNCATE TABLE [Data].[snp_TargetSnapshot];
+    TRUNCATE TABLE [$(prod_schema)].[snp_TargetSnapshot];
 
     WITH SourceData AS (
         SELECT
@@ -47,7 +47,7 @@ BEGIN
             CAST([Year] AS INT) AS year,
             CAST([Month] AS INT) AS month,
             SUM(CAST([TargetQuantity] AS BIGINT)) AS target_quantity
-        FROM [DWOrchid].[dbo].[FactTarget]
+        FROM [$(source_database)].[dbo].[FactTarget]
         WHERE [Year] = @target_year
           AND [Month] = @target_month
           AND [FKProduct] IS NOT NULL
@@ -56,7 +56,7 @@ BEGIN
           AND [TargetQuantity] IS NOT NULL
         GROUP BY [FKProduct], [Year], [Month]
     )
-    MERGE [Data].[snp_TargetSnapshot] AS target
+    MERGE [$(prod_schema)].[snp_TargetSnapshot] AS target
     USING SourceData AS source
         ON target.snapshot_date = @snapshot_date
        AND target.product_id = source.product_id

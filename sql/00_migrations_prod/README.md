@@ -1,6 +1,6 @@
 # Production migrations
 
-Run against the prod database on the source server (`db.yml` → `test` connection after cutover).
+Run against the prod database on the source server (`db.yml` → `prod` connection).
 
 Included scripts (in order):
 

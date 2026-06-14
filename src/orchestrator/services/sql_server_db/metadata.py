@@ -22,7 +22,7 @@ class ConnectionMetadataManager:
         
         Args:
             connection: The database connection
-            database_type: Type of database (e.g., 'source', 'test')
+            database_type: Type of database (e.g., 'source', 'prod')
             created_at_timestamp: Timestamp when connection was created
         """
         if self._can_store_attributes_on_connection():

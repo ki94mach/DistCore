@@ -6,10 +6,10 @@ Usage: This table stores point-in-time snapshots of factory inventory levels, ty
 How to run: Execute in SSMS or via sqlcmd against the target database; script is idempotent.
 */
 
--- Create [Data].[snp_FactoryInventorySnapshot] if missing
-IF OBJECT_ID(N'[Data].[snp_FactoryInventorySnapshot]', 'U') IS NULL
+-- Create [$(prod_schema)].[snp_FactoryInventorySnapshot] if missing
+IF OBJECT_ID(N'[$(prod_schema)].[snp_FactoryInventorySnapshot]', 'U') IS NULL
 BEGIN
-    CREATE TABLE [Data].[snp_FactoryInventorySnapshot] (
+    CREATE TABLE [$(prod_schema)].[snp_FactoryInventorySnapshot] (
         snapshot_date DATE NOT NULL,
         product_id INT NOT NULL,
         on_hand_qty BIGINT NULL,
@@ -24,7 +24,7 @@ GO
 IF EXISTS (
     SELECT 1
     FROM sys.columns c
-    WHERE c.object_id = OBJECT_ID(N'[Data].[snp_FactoryInventorySnapshot]', 'U')
+    WHERE c.object_id = OBJECT_ID(N'[$(prod_schema)].[snp_FactoryInventorySnapshot]', 'U')
       AND c.name = N'factory_id'
 )
 BEGIN
@@ -32,11 +32,11 @@ BEGIN
     IF EXISTS (
         SELECT 1
         FROM sys.key_constraints kc
-        WHERE kc.parent_object_id = OBJECT_ID(N'[Data].[snp_FactoryInventorySnapshot]', 'U')
+        WHERE kc.parent_object_id = OBJECT_ID(N'[$(prod_schema)].[snp_FactoryInventorySnapshot]', 'U')
           AND kc.name = N'PK_FactoryInventorySnapshot'
     )
     BEGIN
-        ALTER TABLE [Data].[snp_FactoryInventorySnapshot]
+        ALTER TABLE [$(prod_schema)].[snp_FactoryInventorySnapshot]
             DROP CONSTRAINT PK_FactoryInventorySnapshot;
     END;
     
@@ -44,11 +44,11 @@ BEGIN
     IF EXISTS (
         SELECT 1
         FROM sys.indexes i
-        WHERE i.object_id = OBJECT_ID(N'[Data].[snp_FactoryInventorySnapshot]', 'U')
+        WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[snp_FactoryInventorySnapshot]', 'U')
           AND i.name = N'IX_FactoryInventorySnapshot_SnapshotDate'
     )
     BEGIN
-        DROP INDEX IX_FactoryInventorySnapshot_SnapshotDate ON [Data].[snp_FactoryInventorySnapshot];
+        DROP INDEX IX_FactoryInventorySnapshot_SnapshotDate ON [$(prod_schema)].[snp_FactoryInventorySnapshot];
     END;
     
     -- Aggregate existing data by (snapshot_date, product_id) before schema change
@@ -60,33 +60,33 @@ BEGIN
         MAX(batch_id) AS batch_id,
         MIN(created_at) AS created_at
     INTO #TempAggregatedSnapshot
-    FROM [Data].[snp_FactoryInventorySnapshot]
+    FROM [$(prod_schema)].[snp_FactoryInventorySnapshot]
     GROUP BY snapshot_date, product_id;
     
     -- Clear existing table
-    TRUNCATE TABLE [Data].[snp_FactoryInventorySnapshot];
+    TRUNCATE TABLE [$(prod_schema)].[snp_FactoryInventorySnapshot];
     
     -- Drop old columns
-    ALTER TABLE [Data].[snp_FactoryInventorySnapshot]
+    ALTER TABLE [$(prod_schema)].[snp_FactoryInventorySnapshot]
         DROP COLUMN factory_id;
     
     IF EXISTS (
         SELECT 1
         FROM sys.columns c
-        WHERE c.object_id = OBJECT_ID(N'[Data].[snp_FactoryInventorySnapshot]', 'U')
+        WHERE c.object_id = OBJECT_ID(N'[$(prod_schema)].[snp_FactoryInventorySnapshot]', 'U')
           AND c.name = N'product_batch_no'
     )
     BEGIN
-        ALTER TABLE [Data].[snp_FactoryInventorySnapshot]
+        ALTER TABLE [$(prod_schema)].[snp_FactoryInventorySnapshot]
             DROP COLUMN product_batch_no;
     END;
     
     -- Add new primary key
-    ALTER TABLE [Data].[snp_FactoryInventorySnapshot]
+    ALTER TABLE [$(prod_schema)].[snp_FactoryInventorySnapshot]
         ADD CONSTRAINT PK_FactoryInventorySnapshot PRIMARY KEY (snapshot_date, product_id);
     
     -- Re-insert aggregated data
-    INSERT INTO [Data].[snp_FactoryInventorySnapshot] (snapshot_date, product_id, on_hand_qty, batch_id, created_at)
+    INSERT INTO [$(prod_schema)].[snp_FactoryInventorySnapshot] (snapshot_date, product_id, on_hand_qty, batch_id, created_at)
     SELECT snapshot_date, product_id, on_hand_qty, batch_id, created_at
     FROM #TempAggregatedSnapshot;
     
@@ -99,11 +99,11 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[snp_FactoryInventorySnapshot]', 'U')
+    WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[snp_FactoryInventorySnapshot]', 'U')
       AND i.name = N'IX_FactoryInventorySnapshot_SnapshotDate'
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_FactoryInventorySnapshot_SnapshotDate
-        ON [Data].[snp_FactoryInventorySnapshot] (snapshot_date DESC);
+        ON [$(prod_schema)].[snp_FactoryInventorySnapshot] (snapshot_date DESC);
 END;
 GO

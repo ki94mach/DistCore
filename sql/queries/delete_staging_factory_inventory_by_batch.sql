@@ -1,6 +1,6 @@
 /*
-Purpose: Delete ingested rows from staging table [Data].[stg_FactoryInventory] based on batch_id.
-Assumptions: Run this query on the staging database (where [Data].[stg_FactoryInventory] exists).
+Purpose: Delete ingested rows from staging table [$(prod_schema)].[stg_FactoryInventory] based on batch_id.
+Assumptions: Run this query on the staging database (where [$(prod_schema)].[stg_FactoryInventory] exists).
 Usage: 
    1. First run the PREVIEW section to see what will be deleted (commented out DELETE, shows SELECT)
    2. Review the results
@@ -24,7 +24,7 @@ SELECT
     MAX(ingested_at) AS last_ingested,
     MIN(as_of_datetime) AS min_as_of_datetime,
     MAX(as_of_datetime) AS max_as_of_datetime
-FROM [Data].[stg_FactoryInventory]
+FROM [$(prod_schema)].[stg_FactoryInventory]
 WHERE batch_id = @batch_id
 GROUP BY batch_id;
 
@@ -37,7 +37,7 @@ SELECT TOP 100
     as_of_datetime,
     on_hand_qty,
     ingested_at
-FROM [Data].[stg_FactoryInventory]
+FROM [$(prod_schema)].[stg_FactoryInventory]
 WHERE batch_id = @batch_id
 ORDER BY ingested_at DESC;
 
@@ -50,13 +50,13 @@ ORDER BY ingested_at DESC;
 BEGIN TRANSACTION;
 
 -- Delete records for the specified batch_id
-DELETE FROM [Data].[stg_FactoryInventory]
+DELETE FROM [$(prod_schema)].[stg_FactoryInventory]
 WHERE batch_id = @batch_id;
 
 -- Verify deletion (should return 0 rows)
 SELECT 
     COUNT(*) AS remaining_records
-FROM [Data].[stg_FactoryInventory]
+FROM [$(prod_schema)].[stg_FactoryInventory]
 WHERE batch_id = @batch_id;
 
 -- Review the changes before committing
@@ -81,12 +81,12 @@ BEGIN TRANSACTION;
 SELECT 
     batch_id,
     COUNT(*) AS records_to_delete
-FROM [Data].[stg_FactoryInventory]
+FROM [$(prod_schema)].[stg_FactoryInventory]
 WHERE batch_id IN (SELECT batch_id FROM @batch_ids)
 GROUP BY batch_id;
 
 -- Delete records for the specified batch_ids
-DELETE FROM [Data].[stg_FactoryInventory]
+DELETE FROM [$(prod_schema)].[stg_FactoryInventory]
 WHERE batch_id IN (SELECT batch_id FROM @batch_ids);
 
 -- Review and commit

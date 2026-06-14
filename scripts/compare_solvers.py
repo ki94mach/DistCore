@@ -98,7 +98,7 @@ def build_model(data: Any, settings: OptimizationSettings | None = None) -> Any:
 
 def run_comparison(
     snapshot_date: date,
-    database_type: str = "test",
+    database_type: str = "prod",
     config_path: str | None = None,
     settings: OptimizationSettings | None = None,
     solver_options: dict[str, dict[str, Any]] | None = None,
@@ -107,7 +107,7 @@ def run_comparison(
     
     Args:
         snapshot_date: Date to use for snapshot
-        database_type: Database type ("test" or "source")
+        database_type: Database type ("prod" or "source")
         config_path: Optional path to database config file
         settings: Optional OptimizationSettings (uses default if None)
         solver_options: Optional solver-specific options dict (e.g., {"SimulatedAnnealing": {"max_iter": 10000}})
@@ -217,8 +217,8 @@ def main() -> None:
     parser.add_argument(
         "--database-type",
         type=str,
-        default="test",
-        choices=("source", "test"),
+        default="prod",
+        choices=("source", "prod"),
         help="Database to load from (default: test)",
     )
     parser.add_argument(

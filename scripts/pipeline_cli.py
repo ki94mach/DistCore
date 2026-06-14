@@ -336,7 +336,7 @@ def build_pipeline_kwargs(pipeline_info, batch_id, snapshot_date, log: bool = Tr
         'batch_id': batch_id,
         'snapshot_date': snapshot_date,
         'triggered_by': 'MANUAL_TEST',
-        'database_type': 'test',
+        'database_type': 'prod',
     }
     if pipeline_info['name'] == 'Distributor Deliveries':
         kwargs['log_fn'] = print_info if log else None
@@ -385,7 +385,7 @@ def invoke_load_stage(pipeline_info, pipeline, config, staging_mode: str = 'full
         pipeline.load_stage()
 
 
-def start_new_batch(batch_type: str, triggered_by: str = 'MANUAL_TEST', database_type: str = 'test', pipeline_name: str = None) -> int:
+def start_new_batch(batch_type: str, triggered_by: str = 'MANUAL_TEST', database_type: str = 'prod', pipeline_name: str = None) -> int:
     """Start a new batch and return the batch_id."""
     connection_factory = DBConnectionFactory()
     sql_executor = SQLExecutor(connection_factory)
@@ -563,7 +563,7 @@ def configure_batch(pipeline_info, staging_mode: Optional[str] = None) -> Option
     return start_new_batch(
         batch_type=pipeline_info['batch_type'],
         triggered_by='MANUAL_TEST',
-        database_type='test',
+        database_type='prod',
         pipeline_name=pipeline_info['name'],
     )
 
@@ -682,7 +682,7 @@ def run_full_automate_pipeline():
             batch_id = start_new_batch(
                 batch_type=pipeline_info['batch_type'],
                 triggered_by='MANUAL_TEST',
-                database_type='test',
+                database_type='prod',
                 pipeline_name=pipeline_name
             )
 
@@ -731,10 +731,10 @@ def handle_error(e):
         print_info("To fix this, run the deployment script:")
         print(colorize("  python scripts/deploy_procedures.py", Colors.BRIGHT_WHITE))
         print()
-        print(colorize("This will deploy all stored procedures to the 'test' database.", Colors.DIM))
+        print(colorize("This will deploy all stored procedures to the 'prod' database.", Colors.DIM))
         print(colorize("If you need to deploy to a different database, use:", Colors.DIM))
         print(colorize("  python scripts/deploy_procedures.py <database_type>", Colors.BRIGHT_WHITE))
-        print(colorize("  (where <database_type> is 'source' or 'test')", Colors.DIM))
+        print(colorize("  (where <database_type> is 'source' or 'prod')", Colors.DIM))
     
     if isinstance(e, StageVerificationError):
         print_warning("Row counts did not match — see log lines above for source/cache/staging details.")

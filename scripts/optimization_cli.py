@@ -119,7 +119,7 @@ def configure_database() -> dict:
     # print_menu_item('2', 'Source database', Colors.WHITE)
     # db_choice = print_prompt("Select database type (1/2, default=1): ").strip() or "1"
     
-    # database_type = 'source' if db_choice == "2" else 'test'
+    # database_type = 'source' if db_choice == "2" else 'prod'
     
     # Config path (optional)
     # print_info("\nDatabase Configuration File:")
@@ -130,7 +130,7 @@ def configure_database() -> dict:
     # config_path = config_path_str if config_path_str else None
     
     return {
-        'database_type': 'test',
+        'database_type': 'prod',
         'config_path': None
     }
 

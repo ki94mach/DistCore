@@ -5,10 +5,10 @@ How to run: Execute in SSMS or via sqlcmd against the target database; script is
 Note: Staging accepts imperfect rows (nullable keys) to enable snapshot transformation before the snapshot layer. Snapshot tables enforce constraints.
 */
 
--- Create [Data].[stg_Sales] if missing
-IF OBJECT_ID(N'[Data].[stg_Sales]', 'U') IS NULL
+-- Create [$(prod_schema)].[stg_Sales] if missing
+IF OBJECT_ID(N'[$(prod_schema)].[stg_Sales]', 'U') IS NULL
 BEGIN
-    CREATE TABLE [Data].[stg_Sales] (
+    CREATE TABLE [$(prod_schema)].[stg_Sales] (
         batch_id BIGINT NOT NULL,
         ingested_at DATETIME2 NOT NULL CONSTRAINT DF_Sales_ingested_at DEFAULT SYSUTCDATETIME(),
         distributor_id INT NULL,
@@ -27,11 +27,11 @@ GO
 IF EXISTS (
     SELECT 1
     FROM sys.columns c
-    WHERE c.object_id = OBJECT_ID(N'[Data].[stg_Sales]', 'U')
+    WHERE c.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_Sales]', 'U')
       AND c.name = N'center_id'
 )
 BEGIN
-    ALTER TABLE [Data].[stg_Sales]
+    ALTER TABLE [$(prod_schema)].[stg_Sales]
         DROP COLUMN center_id;
 END;
 GO
@@ -39,11 +39,11 @@ GO
 IF EXISTS (
     SELECT 1
     FROM sys.columns c
-    WHERE c.object_id = OBJECT_ID(N'[Data].[stg_Sales]', 'U')
+    WHERE c.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_Sales]', 'U')
       AND c.name = N'product_batch_no'
 )
 BEGIN
-    ALTER TABLE [Data].[stg_Sales]
+    ALTER TABLE [$(prod_schema)].[stg_Sales]
         DROP COLUMN product_batch_no;
 END;
 GO
@@ -53,11 +53,11 @@ GO
 IF EXISTS (
     SELECT 1
     FROM sys.columns c
-    WHERE c.object_id = OBJECT_ID(N'[Data].[stg_Sales]', 'U')
+    WHERE c.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_Sales]', 'U')
       AND c.name = N'distributor_id' AND c.is_nullable = 0
 )
 BEGIN
-    ALTER TABLE [Data].[stg_Sales]
+    ALTER TABLE [$(prod_schema)].[stg_Sales]
         ALTER COLUMN distributor_id INT NULL;
 END;
 GO
@@ -65,11 +65,11 @@ GO
 IF EXISTS (
     SELECT 1
     FROM sys.columns c
-    WHERE c.object_id = OBJECT_ID(N'[Data].[stg_Sales]', 'U')
+    WHERE c.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_Sales]', 'U')
       AND c.name = N'product_id' AND c.is_nullable = 0
 )
 BEGIN
-    ALTER TABLE [Data].[stg_Sales]
+    ALTER TABLE [$(prod_schema)].[stg_Sales]
         ALTER COLUMN product_id INT NULL;
 END;
 GO
@@ -78,22 +78,22 @@ GO
 IF EXISTS (
     SELECT 1
     FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[stg_Sales]', 'U')
+    WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_Sales]', 'U')
       AND i.name = N'CI_Sales_Batch_Distributor_Center_Product'
 )
 BEGIN
-    DROP INDEX CI_Sales_Batch_Distributor_Center_Product ON [Data].[stg_Sales];
+    DROP INDEX CI_Sales_Batch_Distributor_Center_Product ON [$(prod_schema)].[stg_Sales];
 END;
 GO
 
 IF EXISTS (
     SELECT 1
     FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[stg_Sales]', 'U')
+    WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_Sales]', 'U')
       AND i.name = N'IX_Sales_Distributor_Center_Product_Incl'
 )
 BEGIN
-    DROP INDEX IX_Sales_Distributor_Center_Product_Incl ON [Data].[stg_Sales];
+    DROP INDEX IX_Sales_Distributor_Center_Product_Incl ON [$(prod_schema)].[stg_Sales];
 END;
 GO
 
@@ -101,12 +101,12 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[stg_Sales]', 'U')
+    WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_Sales]', 'U')
       AND i.name = N'CI_Sales_Batch_Distributor_Product'
 )
 BEGIN
     CREATE CLUSTERED INDEX CI_Sales_Batch_Distributor_Product
-        ON [Data].[stg_Sales] (batch_id, distributor_id, product_id, as_of_datetime);
+        ON [$(prod_schema)].[stg_Sales] (batch_id, distributor_id, product_id, as_of_datetime);
 END;
 GO
 
@@ -114,12 +114,12 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[stg_Sales]', 'U')
+    WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[stg_Sales]', 'U')
       AND i.name = N'IX_Sales_Distributor_Product_Incl'
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_Sales_Distributor_Product_Incl
-        ON [Data].[stg_Sales] (distributor_id, product_id, as_of_datetime)
+        ON [$(prod_schema)].[stg_Sales] (distributor_id, product_id, as_of_datetime)
         INCLUDE (sales_qty, batch_id);
 END;
 GO

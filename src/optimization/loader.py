@@ -19,13 +19,13 @@ if TYPE_CHECKING:
 class SnapshotDataLoader:
     """Loads optimization data from ETL snapshot tables."""
 
-    def __init__(self, sql_executor: SQLExecutor, database_type: str = "test"):
+    def __init__(self, sql_executor: SQLExecutor, database_type: str = "prod"):
         """
         Initialize the snapshot data loader.
 
         Args:
             sql_executor: SQLExecutor instance for database queries
-            database_type: Database type to query ('source' or 'test')
+            database_type: Database type to query ('source' or 'prod')
         """
         self._sql_executor = sql_executor
         self._database_type = database_type

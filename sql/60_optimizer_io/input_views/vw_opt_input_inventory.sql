@@ -1,12 +1,12 @@
 /*
 Purpose: Create or alter view that exposes factory inventory snapshot data as optimizer input. This view provides a simplified, optimizer-ready interface to snapshot data.
-Grain: One row per (snapshot_date, product_id) combination, matching [Data].[snp_FactoryInventorySnapshot].
-Assumptions: T-SQL on SQL Server; [Data] schema already exists; snapshot table [Data].[snp_FactoryInventorySnapshot] exists (see 030_snap_factory_inventory_snapshot.sql); requires permissions to create views.
+Grain: One row per (snapshot_date, product_id) combination, matching [$(prod_schema)].[snp_FactoryInventorySnapshot].
+Assumptions: T-SQL on SQL Server; [Data] schema already exists; snapshot table [$(prod_schema)].[snp_FactoryInventorySnapshot] exists (see 030_snap_factory_inventory_snapshot.sql); requires permissions to create views.
 Usage: This view exposes core inventory fields needed by the optimization engine. It serves as the primary input view for optimization processes, abstracting the underlying snapshot table structure. The view can be filtered by snapshot_date in downstream queries to select specific point-in-time snapshots. Data is aggregated by product_id, summing quantities across all factories.
 How to run: Execute in SSMS or via sqlcmd against the target database. Script is idempotent using CREATE OR ALTER syntax.
 */
 
-CREATE OR ALTER VIEW [Data].[opt_vw_opt_input_inventory]
+CREATE OR ALTER VIEW [$(prod_schema)].[opt_vw_opt_input_inventory]
 AS
 SELECT 
     snapshot_date,
@@ -27,7 +27,7 @@ SELECT
     -- , factory_capacity
     -- , max_storage_qty
 
-FROM [Data].[snp_FactoryInventorySnapshot];
+FROM [$(prod_schema)].[snp_FactoryInventorySnapshot];
 GO
 
 /*
@@ -38,7 +38,7 @@ SELECT
     snapshot_date,
     product_id,
     on_hand_qty
-FROM [Data].[opt_vw_opt_input_inventory]
+FROM [$(prod_schema)].[opt_vw_opt_input_inventory]
 WHERE snapshot_date = '2024-01-15'
 ORDER BY product_id;
 
@@ -47,8 +47,8 @@ SELECT
     snapshot_date,
     product_id,
     on_hand_qty
-FROM [Data].[opt_vw_opt_input_inventory]
-WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM [Data].[snp_FactoryInventorySnapshot])
+FROM [$(prod_schema)].[opt_vw_opt_input_inventory]
+WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM [$(prod_schema)].[snp_FactoryInventorySnapshot])
 ORDER BY product_id;
 
 -- Example 3: Count records by snapshot date
@@ -57,7 +57,7 @@ SELECT
     COUNT(*) AS record_count,
     COUNT(DISTINCT product_id) AS product_count,
     SUM(on_hand_qty) AS total_on_hand
-FROM [Data].[opt_vw_opt_input_inventory]
+FROM [$(prod_schema)].[opt_vw_opt_input_inventory]
 GROUP BY snapshot_date
 ORDER BY snapshot_date DESC;
 */

@@ -125,7 +125,7 @@ class DistributorDeliveriesPipeline(SqlSnapshotPipeline):
         snapshot_date: Optional[date] = None,
         connection_factory=None,
         triggered_by: str = "PYTHON_PIPELINE",
-        database_type: str = "test",
+        database_type: str = "prod",
         historical_folder_url: Optional[str] = None,
         current_folder_url: Optional[str] = None,
         log_fn: Optional[Callable[[str], None]] = None,

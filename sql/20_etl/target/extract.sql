@@ -1,6 +1,6 @@
 /*
-Purpose: Extract and aggregate target rows from the source table [DWOrchid].[dbo].[FactTarget] for the current Jalali year.
-Assumptions: T-SQL on SQL Server; source table [DWOrchid].[dbo].[FactTarget] exists and is accessible.
+Purpose: Extract and aggregate target rows from the source table [$(source_database)].[dbo].[FactTarget] for the current Jalali year.
+Assumptions: T-SQL on SQL Server; source table [$(source_database)].[dbo].[FactTarget] exists and is accessible.
 Usage: This query extracts target data with specified column aliases, aggregates by (product_id, year, month) using SUM,
       and filters by the current Jalali year. The aggregation reduces row counts by summing TargetQuantity for each
       unique combination of product, year, and month.
@@ -21,7 +21,7 @@ SELECT
     [Month] AS month,
     Sum([TargetQuantity]) AS target_quantity
 FROM 
-    [DWOrchid].[dbo].[FactTarget]
+    [$(source_database)].[dbo].[FactTarget]
 WHERE
     [Year] = @current_jalali_year
     AND [FKProduct] IS NOT NULL

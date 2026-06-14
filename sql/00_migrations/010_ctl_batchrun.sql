@@ -4,10 +4,10 @@ Assumptions: T-SQL on SQL Server; [Data] schema already exists; requires permiss
 How to run: Execute in SSMS or via sqlcmd against the target database; script is idempotent.
 */
 
--- Create [Data].[ctl_BatchRun] if missing
-IF OBJECT_ID(N'[Data].[ctl_BatchRun]', 'U') IS NULL
+-- Create [$(prod_schema)].[ctl_BatchRun] if missing
+IF OBJECT_ID(N'[$(prod_schema)].[ctl_BatchRun]', 'U') IS NULL
 BEGIN
-    CREATE TABLE [Data].[ctl_BatchRun] (
+    CREATE TABLE [$(prod_schema)].[ctl_BatchRun] (
         batch_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_BatchRun PRIMARY KEY,
         batch_type NVARCHAR(50) NOT NULL,
         started_at DATETIME2 NOT NULL CONSTRAINT DF_BatchRun_started_at DEFAULT SYSUTCDATETIME(),
@@ -24,11 +24,11 @@ GO
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes i
-    WHERE i.object_id = OBJECT_ID(N'[Data].[ctl_BatchRun]', 'U')
+    WHERE i.object_id = OBJECT_ID(N'[$(prod_schema)].[ctl_BatchRun]', 'U')
       AND i.name = N'IX_BatchRun_StartedAt_Status'
 )
 BEGIN
     CREATE NONCLUSTERED INDEX IX_BatchRun_StartedAt_Status
-        ON [Data].[ctl_BatchRun] (started_at DESC, status);
+        ON [$(prod_schema)].[ctl_BatchRun] (started_at DESC, status);
 END;
 GO

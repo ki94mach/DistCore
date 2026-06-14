@@ -17,7 +17,7 @@ from src.orchestrator.services.sql_server_db.factory import DBConnectionFactory
 class TestSqlSnapshotPipeline(unittest.TestCase):
     def setUp(self):
         factory = Mock(spec=DBConnectionFactory)
-        factory.qualify = lambda object_name, database_type="test": f"[Data].[{object_name}]"
+        factory.qualify = lambda object_name, database_type="prod": f"[Data].[{object_name}]"
         self.pipeline = FactoryInventoryPipeline(
             batch_id=123,
             snapshot_date=date(2024, 1, 15),

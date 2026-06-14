@@ -319,8 +319,8 @@ def main() -> None:
     parser.add_argument(
         "--database-type",
         type=str,
-        default="test",
-        choices=("source", "test"),
+        default="prod",
+        choices=("source", "prod"),
         help="Database to load from (default: test)",
     )
     parser.add_argument(

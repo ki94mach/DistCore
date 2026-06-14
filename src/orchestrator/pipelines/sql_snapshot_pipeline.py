@@ -26,7 +26,7 @@ class SqlSnapshotPipeline(BasePipeline):
         snapshot_date: Optional[date] = None,
         connection_factory: Optional[DBConnectionFactory] = None,
         triggered_by: str = "PYTHON_PIPELINE",
-        database_type: str = "test",
+        database_type: str = "prod",
         log_fn: Optional[Callable[[str], None]] = None,
     ):
         self._batch_id = batch_id

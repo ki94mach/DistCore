@@ -35,7 +35,7 @@ class TestSchemaHelpers(unittest.TestCase):
 
 
 class TestDBConnectionFactorySchema(unittest.TestCase):
-    """Uses db.yml (schema: Data on source and test connections)."""
+    """Uses db.yml (schema from source and prod connections)."""
 
     @classmethod
     def setUpClass(cls):
@@ -43,12 +43,12 @@ class TestDBConnectionFactorySchema(unittest.TestCase):
 
     def test_get_schema_from_config(self):
         self.assertEqual(self.factory.get_schema("source"), "Data")
-        self.assertEqual(self.factory.get_schema("test"), "Data")
+        self.assertEqual(self.factory.get_schema("prod"), "Sale")
 
     def test_qualify_uses_configured_schema(self):
         self.assertEqual(
-            self.factory.qualify("snp_SalesSnapshot", "test"),
-            "[Data].[snp_SalesSnapshot]",
+            self.factory.qualify("snp_SalesSnapshot", "prod"),
+            "[Sale].[snp_SalesSnapshot]",
         )
 
     def test_qualify_cross_db_uses_source_config(self):
