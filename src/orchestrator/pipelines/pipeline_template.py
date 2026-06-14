@@ -217,7 +217,7 @@ class TemplatePipeline(BasePipeline):
             hasattr(self, 'batch_id') and self.batch_id == 0
         ):
             result = self.execute_procedure_with_output(
-                '[Data].[ctl_usp_start_batch]',
+                self._connection_factory.qualify('ctl_usp_start_batch', self._database_type),
                 parameters={
                     'batch_type': self.batch_type,
                     'triggered_by': self._triggered_by,
@@ -761,7 +761,11 @@ class TemplatePipeline(BasePipeline):
             fresh_conn.autocommit = True
 
             cursor = fresh_conn.cursor()
-            exec_sql = "EXEC [Data].[ctl_usp_finish_batch] @batch_id = ?, @status = ?, @message = ?"
+            finish_proc = self._connection_factory.qualify(
+                'ctl_usp_finish_batch',
+                self._database_type,
+            )
+            exec_sql = f"EXEC {finish_proc} @batch_id = ?, @status = ?, @message = ?"
             param_values = [batch_id, status, message]
 
             cursor.execute(exec_sql, param_values)

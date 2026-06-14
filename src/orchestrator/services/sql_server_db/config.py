@@ -51,3 +51,20 @@ class DBConfigLoader:
         if not self._config or 'databases' not in self._config:
             raise ValueError("Invalid configuration: 'databases' key not found")
 
+        databases = self._config['databases']
+        connection_keys = [
+            key for key in databases
+            if isinstance(databases.get(key), dict) and 'server' in databases[key]
+        ]
+        for key in connection_keys:
+            db_config = databases[key]
+            if 'database' not in db_config:
+                raise ValueError(
+                    f"Invalid configuration: '{key}' connection missing 'database'"
+                )
+            schema = db_config.get('schema', 'Data')
+            if not schema or not isinstance(schema, str):
+                raise ValueError(
+                    f"Invalid configuration: '{key}.schema' must be a non-empty string"
+                )
+

@@ -36,6 +36,14 @@ Usage Examples:
 from .factory import DBConnectionFactory
 from .context import ConnectionContextManager
 from .executors.sql_executor import SQLExecutor
+from .schema import DEFAULT_SCHEMA, qualify_object, qualify_cross_db
 
-__all__ = ['DBConnectionFactory', 'ConnectionContextManager', 'SQLExecutor']
+__all__ = [
+    'DBConnectionFactory',
+    'ConnectionContextManager',
+    'SQLExecutor',
+    'DEFAULT_SCHEMA',
+    'qualify_object',
+    'qualify_cross_db',
+]
 

@@ -16,7 +16,8 @@ def check_migrations_run(factory: DBConnectionFactory, database_type: str) -> Tu
     """Check if required tables exist (indicating migrations have been run)."""
     missing_tables = []
     required_tables = ['ctl_BatchRun']
-    
+    schema = factory.get_schema(database_type)
+
     try:
         with factory.connection(database_type) as conn:
             cursor = conn.cursor()
@@ -24,9 +25,9 @@ def check_migrations_run(factory: DBConnectionFactory, database_type: str) -> Tu
                 cursor.execute("""
                     SELECT 1 
                     FROM INFORMATION_SCHEMA.TABLES 
-                    WHERE TABLE_SCHEMA = 'Data' 
+                    WHERE TABLE_SCHEMA = ? 
                       AND TABLE_NAME = ?
-                """, table_name)
+                """, schema, table_name)
                 if cursor.fetchone() is None:
                     missing_tables.append(table_name)
             
@@ -59,7 +60,8 @@ def main():
         if missing_tables:
             print(f"   Missing tables: {', '.join(missing_tables)}")
         print(f"   Please run migrations on the '{database_type}' database first:")
-        print("   python scripts/migrations.py")
+        print("   python scripts/migrations.py              # full (dev, includes staging)")
+        print("   python scripts/migrations.py --prod       # prod (snapshots + fact only)")
         print(f"\n   Note: migrations.py runs on 'test' database by default.")
         print(f"   If you need to deploy to 'source', run migrations on 'source' first.")
         response = input("\nContinue anyway? (y/n): ").strip().lower()

@@ -17,7 +17,11 @@ from .excel_utils import (
 )
 from .delivery_file_utils import (
     load_excel_files_from_dms,
-    transform_dataframe_to_staging_rows,
+    transform_dataframe_to_fact_rows,
+)
+from .delivery_fact_utils import (
+    count_fact_rows,
+    delete_current_year_fact_rows,
 )
 
 __all__ = [
@@ -31,5 +35,7 @@ __all__ = [
     'parse_excel_date',
     'safe_int',
     'load_excel_files_from_dms',
-    'transform_dataframe_to_staging_rows',
+    'transform_dataframe_to_fact_rows',
+    'count_fact_rows',
+    'delete_current_year_fact_rows',
 ]

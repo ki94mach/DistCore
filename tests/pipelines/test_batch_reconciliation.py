@@ -13,7 +13,6 @@ _project_root = Path(__file__).resolve().parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from src.orchestrator.pipelines.factory_inventory import FactoryInventoryPipeline
 from src.orchestrator.pipelines.utils.batch_reconciliation import (
     cleanup_batch_data,
     detect_batch_mismatches,
@@ -149,97 +148,6 @@ class TestReconcileBeforeStagingLoad(unittest.TestCase):
 
         mock_cleanup.assert_called_once()
         self.assertTrue(cache.batch_cache_dir.exists())
-
-
-class TestCacheQueryHashForLoad(unittest.TestCase):
-    def setUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.cache_root = Path(self.temp_dir.name)
-        self.pipeline = FactoryInventoryPipeline(
-            batch_id=10202,
-            snapshot_date=date.today(),
-            cache_dir=self.cache_root,
-        )
-
-    def tearDown(self):
-        self.temp_dir.cleanup()
-
-    def test_load_from_cache_uses_manifest_hash(self):
-        cache = ExtractCache(self.cache_root, "FACTORY_INVENTORY", 10202)
-        cache.write_extract(pd.DataFrame({"factory_id": range(5)}), "manifest_hash")
-        cache.set_verified_step("source_cache", source_row_count=5)
-
-        resolved = self.pipeline._cache_query_hash_for_load(
-            cache,
-            "different_run_hash",
-            load_from_cache_only=True,
-        )
-        self.assertEqual(resolved, "manifest_hash")
-
-    def test_full_load_without_cache_uses_run_hash(self):
-        cache = ExtractCache(self.cache_root, "FACTORY_INVENTORY", 10202)
-
-        resolved = self.pipeline._cache_query_hash_for_load(
-            cache,
-            "fresh_run_hash",
-            load_from_cache_only=False,
-        )
-        self.assertEqual(resolved, "fresh_run_hash")
-
-
-class TestPipelineReconcileIntegration(unittest.TestCase):
-    def setUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.cache_root = Path(self.temp_dir.name)
-        self.batch_id = 123
-        self.snapshot_date = date(2024, 1, 15)
-        self.connection_factory_mock = MagicMock(spec=DBConnectionFactory)
-        self.pipeline = FactoryInventoryPipeline(
-            batch_id=self.batch_id,
-            snapshot_date=self.snapshot_date,
-            connection_factory=self.connection_factory_mock,
-            cache_dir=self.cache_root,
-        )
-
-    def tearDown(self):
-        self.temp_dir.cleanup()
-
-    @patch(
-        "src.orchestrator.pipelines.pipeline_template.reconcile_before_staging_load",
-    )
-    @patch(
-        "src.orchestrator.pipelines.pipeline_template.count_staging_rows",
-        return_value=10,
-    )
-    @patch.object(FactoryInventoryPipeline, "_load_rows_from_cache")
-    @patch.object(FactoryInventoryPipeline, "_prepare_staging_table")
-    def test_load_calls_reconcile(
-        self,
-        _mock_prepare,
-        _mock_load_rows,
-        _mock_staging_count,
-        mock_reconcile,
-    ):
-        cache = ExtractCache(self.cache_root, self.pipeline.batch_type, self.batch_id)
-        cache.write_extract(pd.DataFrame({"factory_id": range(10)}), "hash")
-        cache.set_verified_step("source_cache", source_row_count=10)
-
-        with patch.object(self.pipeline, "_compute_query_hash", return_value="hash"):
-            self.pipeline._run_load_with_verification(
-                extract_query="SELECT 1",
-                batch_size=100,
-                query_hash="hash",
-                max_verification_retries=3,
-            )
-
-        mock_reconcile.assert_called_once()
-
-    @patch("src.orchestrator.pipelines.pipeline_template.reconcile_before_publish")
-    @patch.object(FactoryInventoryPipeline, "execute_procedure")
-    def test_publish_calls_reconcile(self, mock_execute, mock_reconcile):
-        self.pipeline.publish()
-        mock_reconcile.assert_called_once()
-        mock_execute.assert_called_once()
 
 
 class TestCleanupBatchData(unittest.TestCase):

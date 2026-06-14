@@ -1,18 +1,9 @@
 /*
-Purpose: Build sales snapshots from staging ([Data].[stg_Sales]) into the snapshot table ([Data].[snp_SalesSnapshot]) for a given snapshot date.
-Aggregation Logic:
-    - Aggregates by (product_id, distributor_id, Jalali snapshot_month) from staging data using DimDate.
-    - Calculates monthly sales totals and moving averages over monthly totals in Jalali months.
-    - Moving averages exclude the current Jalali month (MA 3: 3 months ago to 1 month ago, MA 6: 6 months ago to 1 month ago).
-    - Calculates month-to-date sales for the current Jalali month up to the snapshot date.
-Grain: One row per (snapshot_month, distributor_id, product_id) in the snapshot table. Includes product-distributor pairs with no sales in the current month when they have prior-month sales (so moving averages are preserved; sales_mtd is 0).
-Assumptions: T-SQL on SQL Server; staging table [Data].[stg_Sales] exists (see 022_stg_sales.sql); snapshot table [Data].[snp_SalesSnapshot] exists (see 032_snap_sales_snapshot.sql).
-Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. It aggregates staging data by product_id and distributor_id by month, computes moving averages, and merges into the snapshot table. The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will update existing records if staging data has changed, or leave them unchanged if data is identical.
+Purpose: Build sales snapshots directly from [DWOrchid].[dbo].[Flat_Fact_Sale].
+Uses a rolling window ending on @snapshot_date (7 months of data for MA6 support).
 Parameters:
-    @batch_id BIGINT - The batch identifier for the staging data to publish (must exist in [Data].[stg_Sales]).
-    @snapshot_date DATE - The snapshot date to assign to published records. Jalali month-to-date totals are computed up to this date.
-Returns: A resultset with columns: inserted_count, updated_count, total_count (one row summary).
-How to run: Execute via EXEC [Data].[etl_usp_build_sales_snapshot] @batch_id = 123, @snapshot_date = '2024-01-15'.
+    @batch_id BIGINT - Audit lineage stamped on snapshot rows.
+    @snapshot_date DATE - Snapshot date; Jalali month resolved via [DWOrchid].[Data].[DimDate].
 */
 
 CREATE OR ALTER PROCEDURE [Data].[etl_usp_build_sales_snapshot]
@@ -22,46 +13,39 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    -- Validate parameters
     IF @batch_id IS NULL
-    BEGIN
         THROW 50000, N'@batch_id cannot be NULL. Provide a valid batch identifier.', 1;
-    END;
 
     IF @snapshot_date IS NULL
-    BEGIN
         THROW 50000, N'@snapshot_date cannot be NULL. Provide a valid snapshot date.', 1;
-    END;
 
     DECLARE @snapshot_jalali_yyyymm INT;
     DECLARE @snapshot_jalali_year INT;
     DECLARE @snapshot_jalali_month INT;
     DECLARE @snapshot_month DATE;
+    DECLARE @window_start DATE;
 
     SELECT TOP (1)
         @snapshot_jalali_yyyymm = TRY_CONVERT(INT, LongShamsiYearMonth),
         @snapshot_jalali_year = ShamsiYear,
         @snapshot_jalali_month = ShamsiMonth
-    FROM [Analytics_Stage].[Data].[DimDate]
+    FROM [DWOrchid].[Data].[DimDate]
     WHERE DateID = @snapshot_date;
 
     IF @snapshot_jalali_yyyymm IS NULL OR @snapshot_jalali_year IS NULL OR @snapshot_jalali_month IS NULL
-    BEGIN
-        THROW 50000, N'Could not resolve Jalali year/month from [Analytics_Stage].[Data].[DimDate] for @snapshot_date.', 1;
-    END;
+        THROW 50000, N'Could not resolve Jalali year/month from [DWOrchid].[Data].[DimDate] for @snapshot_date.', 1;
 
     SELECT TOP (1)
         @snapshot_month = DateID
-    FROM [Analytics_Stage].[Data].[DimDate]
+    FROM [DWOrchid].[Data].[DimDate]
     WHERE ShamsiDay = 1
       AND TRY_CONVERT(INT, LongShamsiYearMonth) = @snapshot_jalali_yyyymm;
 
     IF @snapshot_month IS NULL
-    BEGIN
-        THROW 50000, N'Could not resolve Jalali month start date from [Analytics_Stage].[Data].[DimDate] for @snapshot_date.', 1;
-    END;
+        THROW 50000, N'Could not resolve Jalali month start date from [DWOrchid].[Data].[DimDate] for @snapshot_date.', 1;
 
-    -- Table variable to capture MERGE results
+    SET @window_start = DATEADD(MONTH, -6, @snapshot_month);
+
     DECLARE @MergeResults TABLE (
         ActionType NVARCHAR(10),
         snapshot_month DATE,
@@ -69,22 +53,35 @@ BEGIN
         distributor_id INT
     );
 
-    -- Clear snapshot table before reloading
     DELETE FROM [Data].[snp_SalesSnapshot];
 
-    WITH StagingMapped AS (
+    WITH SourceMapped AS (
         SELECT
-            s.product_id,
-            s.distributor_id,
-            s.as_of_datetime,
-            s.sales_qty,
+            CAST(s.[FkDistributor] AS INT) AS distributor_id,
+            CAST(s.[FKProduct] AS INT) AS product_id,
+            CAST(s.[FKDate] AS DATE) AS as_of_datetime,
+            CAST(s.[DQty] AS BIGINT) AS sales_qty,
             d.LongShamsiYearMonth
-        FROM [Data].[stg_Sales] AS s
-        INNER JOIN [Analytics_Stage].[Data].[DimDate] AS d
-            ON d.DateID = s.as_of_datetime
-        WHERE s.product_id IS NOT NULL
-          AND s.distributor_id IS NOT NULL
-          AND s.as_of_datetime IS NOT NULL
+        FROM [DWOrchid].[dbo].[Flat_Fact_Sale] AS s
+        INNER JOIN [DWOrchid].[Data].[DimDate] AS d
+            ON d.DateID = CAST(s.[FKDate] AS DATE)
+        WHERE s.[FkDistributor] IS NOT NULL
+          AND s.[FkCenter] IS NOT NULL
+          AND s.[FKProduct] IS NOT NULL
+          AND s.[FKDate] IS NOT NULL
+          AND s.[DQty] <> 0
+          AND CAST(s.[FKDate] AS DATE) >= @window_start
+          AND CAST(s.[FKDate] AS DATE) <= @snapshot_date
+    ),
+    DailyTotals AS (
+        SELECT
+            distributor_id,
+            product_id,
+            as_of_datetime,
+            SUM(sales_qty) AS sales_qty,
+            LongShamsiYearMonth
+        FROM SourceMapped
+        GROUP BY distributor_id, product_id, as_of_datetime, LongShamsiYearMonth
     ),
     MonthlyTotals AS (
         SELECT
@@ -92,20 +89,14 @@ BEGIN
             distributor_id,
             month_start.DateID AS snapshot_month,
             SUM(sales_qty) AS monthly_sales
-        FROM StagingMapped AS sm
-        INNER JOIN [Analytics_Stage].[Data].[DimDate] AS month_start
+        FROM DailyTotals AS sm
+        INNER JOIN [DWOrchid].[Data].[DimDate] AS month_start
             ON month_start.ShamsiDay = 1
            AND TRY_CONVERT(INT, month_start.LongShamsiYearMonth) = TRY_CONVERT(INT, sm.LongShamsiYearMonth)
-        GROUP BY
-            product_id,
-            distributor_id,
-            month_start.DateID
+        GROUP BY product_id, distributor_id, month_start.DateID
     ),
-    -- Include product-distributor pairs that have sales in prior months but none in current month (so they get a row with MA3/MA6, sales_mtd = 0)
     ZeroCurrentMonth AS (
-        SELECT DISTINCT
-            mt.product_id,
-            mt.distributor_id
+        SELECT DISTINCT mt.product_id, mt.distributor_id
         FROM MonthlyTotals AS mt
         WHERE mt.snapshot_month < @snapshot_month
         EXCEPT
@@ -139,21 +130,13 @@ BEGIN
         FROM MonthlyTotalsWithZeros
     ),
     SnapshotMonth AS (
-        SELECT
-            product_id,
-            distributor_id,
-            snapshot_month,
-            sales_ma_3,
-            sales_ma_6
+        SELECT product_id, distributor_id, snapshot_month, sales_ma_3, sales_ma_6
         FROM MonthlyWithAverages
         WHERE snapshot_month = @snapshot_month
     ),
     MonthToDate AS (
-        SELECT
-            product_id,
-            distributor_id,
-            SUM(sales_qty) AS sales_mtd
-        FROM StagingMapped
+        SELECT product_id, distributor_id, SUM(sales_qty) AS sales_mtd
+        FROM DailyTotals
         WHERE as_of_datetime >= @snapshot_month
           AND as_of_datetime <= @snapshot_date
         GROUP BY product_id, distributor_id
@@ -195,7 +178,6 @@ BEGIN
         inserted.distributor_id
     INTO @MergeResults;
 
-    -- Return ONE summary result set with columns: inserted_count, updated_count, total_count
     SELECT
         SUM(CASE WHEN ActionType = N'INSERT' THEN 1 ELSE 0 END) AS inserted_count,
         SUM(CASE WHEN ActionType = N'UPDATE' THEN 1 ELSE 0 END) AS updated_count,

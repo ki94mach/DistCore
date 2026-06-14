@@ -1,103 +1,51 @@
 graph TB
 
-  %% ── 1. External data sources ──────────────────────────────────────────────
   subgraph Sources["External data sources"]
     direction TB
 
-    subgraph SQLSource["SQL Server · source connection · database DWOrchid"]
+    subgraph DWOrchid["DWOrchid · source connection"]
       direction TB
-      FactInv["[dbo].[FactInventory]<br>factory rows · FkProvider<br>distributor rows · FkDistributor + FkCenter"]
-      FlatSale["[dbo].[Flat_Fact_Sale]<br>distributor sales · DQty"]
-      FactTarget["[dbo].[FactTarget]<br>product targets · Jalali year/month"]
+      FactInv["dbo.FactInventory"]
+      FlatSale["dbo.Flat_Fact_Sale"]
+      FactTarget["dbo.FactTarget"]
+      dims["Data.DimDate · DimProduct · DimDistrbutor"]
     end
 
-    subgraph DMS["DMS SharePoint · dms.yml"]
-      DelFiles["Delivery Excel files<br>historical 1404 + current 1405"]
+    subgraph DMS["DMS SharePoint"]
+      DelFiles["Delivery Excel 1404 + 1405"]
     end
   end
 
-  %% ── 2. ETL orchestration ────────────────────────────────────────────────────
-  subgraph Orchestrator["ETL orchestration · Python"]
+  subgraph Orchestrator["ETL · Python pipeline_cli"]
     direction TB
-    CLI["scripts/pipeline_cli.py"]
-    P1["Factory Inventory pipeline"]
-    P2["Distributor Inventory pipeline"]
-    P3["Sales Snapshot pipeline"]
-    P4["Target pipeline"]
-    P5["Distributor Deliveries pipeline"]
-    CLI --> P1 & P2 & P3 & P4 & P5
+    P1["Factory Inventory"]
+    P2["Distributor Inventory"]
+    P3["Sales Snapshot"]
+    P4["Target"]
+    P5["Distributor Deliveries"]
   end
 
-  %% ── 3. Analytics_Stage (test connection) ──────────────────────────────────
-  subgraph AnalyticsStage["SQL Server · test connection · database Analytics_Stage · schema Data"]
+  subgraph ProdDB["Analytics_Stage · test/prod connection · schema Data"]
     direction TB
-
-    subgraph Staging["Staging tables · stg_*"]
-      direction LR
-      STG_FI["stg_FactoryInventory"]
-      STG_DI["stg_DistributorInventory"]
-      STG_S["stg_Sales"]
-      STG_T["stg_Target"]
-      STG_DD["stg_DistributorDeliveries"]
-    end
-
-    subgraph Snapshots["Snapshot tables · snp_* · 5 tables filled by publish step"]
-      direction LR
-      SNP_FI["snp_FactoryInventorySnapshot"]
-      SNP_DI["snp_DistributorInventorySnapshot"]
-      SNP_S["snp_SalesSnapshot"]
-      SNP_T["snp_TargetSnapshot"]
-      SNP_DD["snp_DistributorDeliveriesSnapshot"]
-    end
-
-    subgraph Dimensions["Dimension tables · used by snapshot build procs"]
-      DIM["DimDate · DimProduct · DimDistrbutor"]
-    end
-
-    Staging --> Snapshots
-    Dimensions -.-> Snapshots
+    ctl[ctl_BatchRun]
+    factDel[fact_DistributorDeliveries]
+    snp[snp_* x5 snapshots]
   end
 
-  %% ── 4. Optimization layer ─────────────────────────────────────────────────
-  subgraph Optimization["Optimization layer"]
-    direction TB
-    Loader["SnapshotDataLoader · loader.py"]
-    OptData["OptimizationData"]
-    Solvers["LP / MILP / CP-SAT solvers"]
-    Loader --> OptData --> Solvers
+  subgraph Optimization["Optimization"]
+    Loader[SnapshotDataLoader]
+    Solvers[LP / MILP / CP-SAT]
+    Loader --> Solvers
   end
 
-  %% ── 5. Policy & governance (planned) ──────────────────────────────────────
-  subgraph Policy["Policy & governance · planned"]
-    direction LR
-    Config["Versioned config repo"]
-    PolicySvc["Policy / rules service<br>coefficients · penalties · calendars"]
-    Config --> PolicySvc
-  end
-
-  %% ── 6. Planning & execution (planned) ─────────────────────────────────────
-  subgraph Planning["Planning & execution · planned"]
-    direction LR
-    UI["Planner UI"]
-    Approvals["Approval workflow"]
-    Exec["Execution adapter · ERP / ASN / transfers"]
-    Monitor["Monitoring & alerts"]
-    UI --> Approvals --> Exec --> Monitor
-  end
-
-  %% ── Source → pipeline → staging ───────────────────────────────────────────
-  FactInv --> P1 & P2
+  FactInv -->|"publish procs"| P1 & P2
   FlatSale --> P3
   FactTarget --> P4
   DelFiles --> P5
+  P5 --> factDel
 
-  P1 --> STG_FI
-  P2 --> STG_DI
-  P3 --> STG_S
-  P4 --> STG_T
-  P5 --> STG_DD
+  P1 & P2 & P3 & P4 -->|"EXEC etl_usp_build_*"| snp
+  P5 -->|"publish"| snp
+  dims -->|"cross-DB joins in procs"| snp
 
-  SNP_FI & SNP_DI & SNP_S & SNP_T & SNP_DD --> Loader
-
-  PolicySvc -.-> Solvers
-  Solvers -.-> UI
+  snp --> Loader

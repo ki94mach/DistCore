@@ -5,6 +5,7 @@ This repository organizes T-SQL assets by execution phase and purpose. Follow th
 ## Folder purpose (top-level)
 
 - `00_migrations`: schema changes (tables, indexes) and reference data seeds; files prefixed with ordered numbers (e.g., `001_create_tables.sql`). All table creation scripts belong here.
+  - **Prod cutover:** run `python scripts/migrations.py --prod` to apply ctl, snapshot, and fact tables only (skips `stg_*` migrations). See `00_migrations_prod/README.md`.
 - `10_routines`: stored procedures, functions, and views that depend on schema being in place. **All stored procedures go in `10_routines/procedures/`, regardless of their purpose (ETL, reporting, optimization, etc.).**
 - `20_etl`: batch and snapshot load scripts (queries, templates); orchestrated after routines exist. Contains extraction queries and ETL templates used by pipelines.
 - `50_policy`: policy- or rules-engine artifacts that drive downstream logic.

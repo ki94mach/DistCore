@@ -24,7 +24,8 @@ def main():
     4. Ensure Excel files follow the pattern:
        "دیتابیس تحویل به پخش ها - [Factory Name] - 1404/1405.xlsx"
 
-    5. Run staging migration: sql/00_migrations/024_stg_distributor_deliveries.sql
+    5. Run prod migration: python scripts/migrations.py --prod
+       (creates [Data].[fact_DistributorDeliveries] on the prod database)
     """
     deliveries_config = DmsConfigLoader.get_distributor_deliveries_config()
 

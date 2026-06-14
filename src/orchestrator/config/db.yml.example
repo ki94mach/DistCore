@@ -1,0 +1,17 @@
+# Copy to db.yml and adjust for your environment.
+# Prod layout: source reads DWOrchid facts/dims; test is prod DB on same server (snapshots + ctl + fact).
+# schema: SQL schema for DistCore objects (tables, procs, views). Defaults to Data if omitted.
+
+databases:
+  driver: ODBC Driver 17 for SQL Server
+  use_windows_auth: true
+
+  source:
+    server: op-db1-srv
+    database: DWOrchid
+    schema: Data
+
+  test:
+    server: op-db1-srv
+    database: Analytics_Stage
+    schema: Data

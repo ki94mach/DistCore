@@ -1,18 +1,9 @@
 /*
-Purpose: Build target snapshots from staging ([Data].[stg_Target]) into the snapshot table ([Data].[snp_TargetSnapshot]) for a given snapshot date.
-Aggregation Logic: 
-    - Direct mapping from staging to snapshot (no additional aggregation needed)
-    - Data is already aggregated at (product_id, year, month) level in the extract query
-    - Filters to records in staging for the given batch_id
-    - Result: Target quantities per product, year, and month for the snapshot date
-Grain: One row per (snapshot_date, product_id, year, month) in the snapshot table.
-Assumptions: T-SQL on SQL Server; staging table [Data].[stg_Target] exists (see 023_stg_target.sql); snapshot table [Data].[snp_TargetSnapshot] exists (see 033_snap_target_snapshot.sql).
-Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. It clears the snapshot table (latest-only), then loads the staging data for the Jalali year/month resolved from [Analytics_Stage].[Data].[DimDate] using @snapshot_date. Re-running with the same @batch_id and @snapshot_date will replace the snapshot data.
+Purpose: Build target snapshots directly from [DWOrchid].[dbo].[FactTarget].
+Grain: One row per (snapshot_date, product_id, year, month) for the Jalali month of @snapshot_date.
 Parameters:
-    @batch_id BIGINT - The batch identifier for the staging data to publish (must exist in [Data].[stg_Target]).
-    @snapshot_date DATE - The snapshot date to assign to published records (used to resolve Jalali year/month).
-Returns: A resultset with columns: inserted_count, updated_count, total_count (one row summary).
-How to run: Execute via EXEC [Data].[etl_usp_build_target_snapshot] @batch_id = 123, @snapshot_date = '2024-01-15'.
+    @batch_id BIGINT - Audit lineage stamped on snapshot rows.
+    @snapshot_date DATE - Used to resolve Jalali year/month via [DWOrchid].[Data].[DimDate].
 */
 
 CREATE OR ALTER PROCEDURE [Data].[etl_usp_build_target_snapshot]
@@ -21,17 +12,12 @@ CREATE OR ALTER PROCEDURE [Data].[etl_usp_build_target_snapshot]
 AS
 BEGIN
     SET NOCOUNT ON;
-    
-    -- Validate parameters
+
     IF @batch_id IS NULL
-    BEGIN
         THROW 50000, N'@batch_id cannot be NULL. Provide a valid batch identifier.', 1;
-    END;
-    
+
     IF @snapshot_date IS NULL
-    BEGIN
         THROW 50000, N'@snapshot_date cannot be NULL. Provide a valid snapshot date.', 1;
-    END;
 
     DECLARE @target_year INT;
     DECLARE @target_month INT;
@@ -39,15 +25,12 @@ BEGIN
     SELECT TOP (1)
         @target_year = ShamsiYear,
         @target_month = ShamsiMonth
-    FROM [Analytics_Stage].[Data].[DimDate]
+    FROM [DWOrchid].[Data].[DimDate]
     WHERE DateID = @snapshot_date;
 
     IF @target_year IS NULL OR @target_month IS NULL
-    BEGIN
-        THROW 50000, N'Could not resolve Jalali year/month from [Analytics_Stage].[Data].[DimDate] for @snapshot_date.', 1;
-    END;
-    
-    -- Table variable to capture MERGE results
+        THROW 50000, N'Could not resolve Jalali year/month from [DWOrchid].[Data].[DimDate] for @snapshot_date.', 1;
+
     DECLARE @MergeResults TABLE (
         ActionType NVARCHAR(10),
         snapshot_date DATE,
@@ -55,29 +38,26 @@ BEGIN
         year INT,
         month INT
     );
-    
-    -- Clear snapshot table (latest-only) before reloading
+
     TRUNCATE TABLE [Data].[snp_TargetSnapshot];
 
-    -- Build source dataset: select staging data for the batch
-    -- Filter out NULL keys to ensure snapshot grain integrity
-    WITH StagingData AS (
-        SELECT 
-            product_id,
-            year,
-            month,
-            target_quantity
-        FROM [Data].[stg_Target]
-        WHERE batch_id = @batch_id
-          AND year = @target_year
-          AND month = @target_month
-          AND product_id IS NOT NULL
-          AND year IS NOT NULL
-          AND month IS NOT NULL
+    WITH SourceData AS (
+        SELECT
+            CAST([FKProduct] AS INT) AS product_id,
+            CAST([Year] AS INT) AS year,
+            CAST([Month] AS INT) AS month,
+            SUM(CAST([TargetQuantity] AS BIGINT)) AS target_quantity
+        FROM [DWOrchid].[dbo].[FactTarget]
+        WHERE [Year] = @target_year
+          AND [Month] = @target_month
+          AND [FKProduct] IS NOT NULL
+          AND [Year] IS NOT NULL
+          AND [Month] IS NOT NULL
+          AND [TargetQuantity] IS NOT NULL
+        GROUP BY [FKProduct], [Year], [Month]
     )
-    -- MERGE into snapshot table
     MERGE [Data].[snp_TargetSnapshot] AS target
-    USING StagingData AS source
+    USING SourceData AS source
         ON target.snapshot_date = @snapshot_date
        AND target.product_id = source.product_id
        AND target.year = source.year
@@ -86,24 +66,21 @@ BEGIN
         UPDATE SET
             target_quantity = source.target_quantity,
             batch_id = @batch_id
-            -- Note: created_at is not updated to preserve original creation timestamp
     WHEN NOT MATCHED BY TARGET THEN
         INSERT (snapshot_date, product_id, year, month, target_quantity, batch_id)
         VALUES (@snapshot_date, source.product_id, source.year, source.month, source.target_quantity, @batch_id)
-    OUTPUT 
+    OUTPUT
         $action AS ActionType,
         inserted.snapshot_date,
         inserted.product_id,
         inserted.year,
         inserted.month
     INTO @MergeResults;
-    
-    -- Return ONE summary result set with columns: inserted_count, updated_count, total_count
-    SELECT 
+
+    SELECT
         SUM(CASE WHEN ActionType = N'INSERT' THEN 1 ELSE 0 END) AS inserted_count,
         SUM(CASE WHEN ActionType = N'UPDATE' THEN 1 ELSE 0 END) AS updated_count,
         COUNT(*) AS total_count
     FROM @MergeResults;
 END;
 GO
-

@@ -123,7 +123,7 @@ def prompt_force_extract() -> bool:
 
 def prompt_force_historical_reload() -> bool:
     choice = print_prompt(
-        "Force full reload (erase ALL staging incl. 1404)? Normal runs keep 1404 (y/N): "
+        "Force full reload (erase ALL fact rows incl. 1404)? Normal runs keep 1404 (y/N): "
     ).strip().lower()
     return choice == 'y'
 
@@ -340,6 +340,7 @@ def build_pipeline_kwargs(pipeline_info, batch_id, snapshot_date, log: bool = Tr
     }
     if pipeline_info['name'] == 'Distributor Deliveries':
         kwargs['log_fn'] = print_info if log else None
+        kwargs['show_progress'] = log
     elif log:
         kwargs['log_fn'] = make_pipeline_log_fn(pipeline_info['name'])
         kwargs['show_progress'] = True
@@ -348,6 +349,9 @@ def build_pipeline_kwargs(pipeline_info, batch_id, snapshot_date, log: bool = Tr
 
 def build_load_stage_kwargs(pipeline_info, config, staging_mode: str) -> dict:
     """Build load_stage keyword arguments for a pipeline and staging mode."""
+    if is_sql_source_pipeline(pipeline_info):
+        return {}
+
     kwargs = {
         'batch_size': config['batch_size'],
         'max_verification_retries': config.get('max_verification_retries', 3),
@@ -385,9 +389,9 @@ def start_new_batch(batch_type: str, triggered_by: str = 'MANUAL_TEST', database
     """Start a new batch and return the batch_id."""
     connection_factory = DBConnectionFactory()
     sql_executor = SQLExecutor(connection_factory)
-    
+
     result = sql_executor.execute_procedure_with_output(
-        procedure_name='[Data].[ctl_usp_start_batch]',
+        procedure_name=connection_factory.qualify('ctl_usp_start_batch', database_type),
         parameters={
             'batch_type': batch_type,
             'triggered_by': triggered_by
@@ -425,19 +429,13 @@ def select_operation(pipeline_info):
     """Choose what to run for the selected pipeline."""
     print_header(f"{pipeline_info['name']}", Colors.BRIGHT_CYAN)
     if is_sql_source_pipeline(pipeline_info):
-        print(colorize("  Staging", Colors.DIM))
-        print_menu_item('1', 'Full staging (extract + load + verify)', Colors.BRIGHT_WHITE)
-        print_menu_item('2', 'Extract to cache only', Colors.BRIGHT_WHITE)
-        print_menu_item('3', 'Load staging from cache', Colors.BRIGHT_WHITE)
-        print_menu_item('4', 'View cache for a batch', Colors.BRIGHT_WHITE)
-        print()
-        print(colorize("  Publish", Colors.DIM))
-        print_menu_item('5', 'Publish snapshot only', Colors.BRIGHT_WHITE)
-        print_menu_item('6', 'Full pipeline (staging + publish)', Colors.BRIGHT_WHITE)
-    else:
-        print_menu_item('1', 'Load staging', Colors.BRIGHT_WHITE)
+        print(colorize("  Snapshot (reads DWOrchid directly via stored proc)", Colors.DIM))
+        print_menu_item('1', 'Publish snapshot only', Colors.BRIGHT_WHITE)
+        print_menu_item('2', 'Full pipeline (prepare batch + publish)', Colors.BRIGHT_WHITE)
+    elif pipeline_info['name'] == 'Distributor Deliveries':
+        print_menu_item('1', 'Load fact table from DMS', Colors.BRIGHT_WHITE)
         print_menu_item('2', 'Publish snapshot', Colors.BRIGHT_WHITE)
-        print_menu_item('3', 'Full pipeline (staging + publish)', Colors.BRIGHT_WHITE)
+        print_menu_item('3', 'Full pipeline (load fact + publish)', Colors.BRIGHT_WHITE)
     print()
     print_menu_item('b', 'Back', Colors.BRIGHT_YELLOW)
     print_menu_item('q', 'Quit', Colors.BRIGHT_YELLOW)
@@ -446,10 +444,13 @@ def select_operation(pipeline_info):
 
 
 def configure_staging(pipeline_info, staging_mode: str = 'full'):
-    """Staging options; questions depend on the operation."""
+    """Run options; SQL pipelines only need snapshot date."""
     print_header("Options", Colors.BRIGHT_BLUE)
 
     snapshot_date = prompt_snapshot_date()
+
+    if is_sql_source_pipeline(pipeline_info):
+        return {'snapshot_date': snapshot_date}
 
     batch_size = 10000
     incremental = True
@@ -480,7 +481,7 @@ def configure_staging(pipeline_info, staging_mode: str = 'full'):
 
     if ask_load_window:
         print_info("Data window:")
-        print_menu_item('1', 'Incremental (after latest date in staging)', Colors.WHITE)
+        print_menu_item('1', 'Incremental (after latest date in fact table)', Colors.WHITE)
         print_menu_item('2', 'Single snapshot date only', Colors.WHITE)
         print_menu_item('3', 'Full reload (all source rows)', Colors.WHITE)
         mode_choice = print_prompt("  1/2/3 (default 1): ").strip() or "1"
@@ -628,12 +629,18 @@ def run_publish(pipeline_info, config):
 
 
 def run_full_pipeline(pipeline_info):
-    """Run the full pipeline."""
+    """Run the full pipeline (load fact or prepare batch, then publish)."""
     staging_config = configure_staging(pipeline_info, staging_mode='full')
     batch_id = configure_batch(pipeline_info, staging_mode='full')
+    if is_sql_source_pipeline(pipeline_info):
+        operation = "Full pipeline (prepare batch + publish)"
+    elif pipeline_info['name'] == 'Distributor Deliveries':
+        operation = "Full pipeline (load fact + publish)"
+    else:
+        operation = "Full pipeline (staging + publish)"
     print_run_plan(
         pipeline_info,
-        operation="Full pipeline (staging + publish)",
+        operation=operation,
         batch_id=batch_id,
         config=staging_config,
         staging_mode='full',
@@ -645,44 +652,22 @@ def run_full_pipeline(pipeline_info):
 
     started = time.monotonic()
     try:
-        print_action("Step 1/2 — Staging...")
-        invoke_load_stage(pipeline_info, pipeline, staging_config, 'full')
-        print_action("Step 2/2 — Publish...")
-        pipeline.publish()
-
-        if hasattr(pipeline, 'batch_id') and pipeline.batch_id:
-            pipeline.finish_batch(pipeline.batch_id, 'SUCCESS', 'OK')
-
+        pipeline.run()
         elapsed = time.monotonic() - started
         print_run_footer(pipeline_info, pipeline, 'full', elapsed, success=True)
         return pipeline
     except Exception as e:
-        if hasattr(pipeline, 'batch_id') and pipeline.batch_id:
-            try:
-                pipeline.finish_batch(pipeline.batch_id, 'FAILED', str(e))
-            except Exception:
-                pass
         elapsed = time.monotonic() - started
         print_run_footer(pipeline_info, pipeline, 'full', elapsed, success=False)
         if isinstance(e, StageVerificationError):
-            print_warning("Retry: option 3 «Load staging from cache», then option 5 «Publish».")
+            print_warning("Retry after fixing the error above.")
         raise
 
 
 def run_full_automate_pipeline():
-    """Run all pipelines fully automated with default settings.
-    
-    Each pipeline runs with:
-    - snapshot_date: today's date (None -> defaults to today inside the pipeline)
-    - batch_size: 10000 (default)
-    - incremental: True (default)
-    - single_date_only: False (default)
-    - batch: auto-created per pipeline
-    - triggered_by: MANUAL_TEST
-    - database_type: test
-    """
+    """Run all pipelines with default settings (today's date, auto-batch, prod DB)."""
     print_header("Full Automate Pipeline - Running All Pipelines", Colors.BRIGHT_MAGENTA)
-    print_info("All pipelines will run with default settings (today's date, incremental, auto-batch).")
+    print_info("All pipelines run with today's snapshot date and auto-created batches.")
     print()
 
     total = len(PIPELINES)
@@ -693,7 +678,6 @@ def run_full_automate_pipeline():
         pipeline_name = pipeline_info['name']
         print_header(f"[{key}/{total}] {pipeline_name}", Colors.BRIGHT_CYAN)
         try:
-            # Create batch
             print_action(f"[{pipeline_name}] Creating batch...")
             batch_id = start_new_batch(
                 batch_type=pipeline_info['batch_type'],
@@ -707,26 +691,8 @@ def run_full_automate_pipeline():
             )
             step_started = time.monotonic()
 
-            # --- Load stage ---
-            print_action(f"[{pipeline_name}] Loading stage...")
-            auto_config = {
-                'snapshot_date': None,
-                'batch_size': 10000,
-                'incremental': pipeline_name in ('Factory Inventory', 'Distributor Inventory'),
-                'single_date_only': False,
-                'force_extract': is_sql_source_pipeline(pipeline_info),
-                'force_historical_reload': False,
-                'max_verification_retries': 3,
-            }
-            invoke_load_stage(pipeline_info, pipeline, auto_config, 'full')
-
-            # --- Publish ---
-            print_action(f"[{pipeline_name}] Publishing...")
-            pipeline.publish()
-
-            # Finish batch
-            if hasattr(pipeline, 'batch_id') and pipeline.batch_id:
-                pipeline.finish_batch(pipeline.batch_id, 'SUCCESS', 'OK')
+            print_action(f"[{pipeline_name}] Running pipeline...")
+            pipeline.run()
 
             elapsed = time.monotonic() - step_started
             print_success(
@@ -736,12 +702,6 @@ def run_full_automate_pipeline():
 
         except Exception as e:
             print_error(f"[{pipeline_name}] Failed: {e}")
-            # Try to mark batch as failed
-            try:
-                if 'pipeline' in locals() and hasattr(pipeline, 'batch_id') and pipeline.batch_id:
-                    pipeline.finish_batch(pipeline.batch_id, 'FAILED', str(e))
-            except Exception:
-                pass
             import traceback
             traceback.print_exc()
             failed.append(pipeline_name)
@@ -833,24 +793,18 @@ def main():
 
             try:
                 if sql and choice == '1':
-                    config = configure_staging(pipeline_info, staging_mode='full')
-                    run_staging(pipeline_info, config, staging_mode='full')
-                elif sql and choice == '2':
-                    config = configure_staging(pipeline_info, staging_mode='extract_only')
-                    run_staging(pipeline_info, config, staging_mode='extract_only')
-                elif sql and choice == '3':
-                    config = configure_staging(pipeline_info, staging_mode='load_from_cache')
-                    run_staging(pipeline_info, config, staging_mode='load_from_cache')
-                elif sql and choice == '4':
-                    view_cache_status_interactive(pipeline_info)
-                elif (sql and choice == '5') or (not sql and choice == '2'):
                     config = configure_publish(pipeline_info)
                     run_publish(pipeline_info, config)
-                elif (sql and choice == '6') or (not sql and choice == '3'):
+                elif sql and choice == '2':
                     run_full_pipeline(pipeline_info)
-                elif not sql and choice == '1':
+                elif pipeline_info['name'] == 'Distributor Deliveries' and choice == '1':
                     config = configure_staging(pipeline_info, staging_mode='full')
                     run_staging(pipeline_info, config, staging_mode='full')
+                elif pipeline_info['name'] == 'Distributor Deliveries' and choice == '2':
+                    config = configure_publish(pipeline_info)
+                    run_publish(pipeline_info, config)
+                elif pipeline_info['name'] == 'Distributor Deliveries' and choice == '3':
+                    run_full_pipeline(pipeline_info)
                 else:
                     print_error("Invalid choice.")
                     continue

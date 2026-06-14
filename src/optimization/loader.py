@@ -29,6 +29,9 @@ class SnapshotDataLoader:
         """
         self._sql_executor = sql_executor
         self._database_type = database_type
+        factory = sql_executor._procedure_executor._connection_factory
+        self._qualify = factory.qualify
+        self._qualify_source = factory.qualify_cross_db
 
     def load_optimization_data(
         self,
@@ -132,7 +135,7 @@ class SnapshotDataLoader:
             target_qty = float(row["target_quantity"] or 0.0)
             target_units_map[product_id] = target_units_map.get(product_id, 0.0) + target_qty
 
-        # Load dimension names from SQL Server (Analytics_Stage) for output display
+        # Load dimension names from DWOrchid for output display
         distributor_names = self._load_distributor_names(sorted(distributors))
         product_names = self._load_product_names(sorted(products))  # Persian names for CSV
         product_names_en = self._load_product_names_en(sorted(products))  # English names for terminal
@@ -156,23 +159,25 @@ class SnapshotDataLoader:
 
     def _load_factory_inventory(self, snapshot_date: date) -> List[Dict[str, Any]]:
         """Load factory inventory snapshot data."""
-        query = """
+        table = self._qualify("snp_FactoryInventorySnapshot", self._database_type)
+        query = f"""
         SELECT 
             product_id,
             on_hand_qty
-        FROM [Data].[snp_FactoryInventorySnapshot]
+        FROM {table}
         WHERE snapshot_date = ?
         """
         return self._execute_parameterized_query(query, (snapshot_date,))
 
     def _load_distributor_inventory(self, snapshot_date: date) -> List[Dict[str, Any]]:
         """Load distributor inventory snapshot data."""
-        query = """
+        table = self._qualify("snp_DistributorInventorySnapshot", self._database_type)
+        query = f"""
         SELECT 
             distributor_id,
             product_id,
             on_hand_qty
-        FROM [Data].[snp_DistributorInventorySnapshot]
+        FROM {table}
         WHERE snapshot_date = ?
         """
         return self._execute_parameterized_query(query, (snapshot_date,))
@@ -180,22 +185,23 @@ class SnapshotDataLoader:
     def _get_sales_snapshot_month(self, snapshot_date: date) -> date:
         """
         Return the first day of the Jalali month (as a Gregorian date) for the given snapshot_date.
-        This must match the value written by [Data].[etl_usp_build_sales_snapshot], which uses
-        [Analytics_Stage].[Data].[DimDate] to resolve the month. Using Gregorian month start
-        (snapshot_date.replace(day=1)) would query a different key and return no rows.
+        This must match the value written by the sales snapshot proc, which uses DimDate
+        to resolve the month. Using Gregorian month start (snapshot_date.replace(day=1))
+        would query a different key and return no rows.
         """
-        query = """
+        dim_date = self._qualify_source("DimDate")
+        query = f"""
         SELECT TOP (1) month_start.DateID AS snapshot_month
-        FROM [Analytics_Stage].[Data].[DimDate] AS d
-        INNER JOIN [Analytics_Stage].[Data].[DimDate] AS month_start
+        FROM {dim_date} AS d
+        INNER JOIN {dim_date} AS month_start
             ON month_start.ShamsiDay = 1
            AND TRY_CONVERT(INT, month_start.LongShamsiYearMonth) = TRY_CONVERT(INT, d.LongShamsiYearMonth)
         WHERE d.DateID = ?
         """
-        rows = self._execute_parameterized_query(query, (snapshot_date,))
+        rows = self._execute_parameterized_query(query, (snapshot_date,), database_type="source")
         if not rows or rows[0].get("snapshot_month") is None:
             raise ValueError(
-                f"Could not resolve Jalali month start from [Analytics_Stage].[Data].[DimDate] "
+                f"Could not resolve Jalali month start from {dim_date} "
                 f"for snapshot_date={snapshot_date!s}. Ensure DimDate is populated for this date."
             )
         val = rows[0]["snapshot_month"]
@@ -203,29 +209,28 @@ class SnapshotDataLoader:
 
     def _load_sales_snapshot(self, snapshot_month: date) -> List[Dict[str, Any]]:
         """Load sales snapshot data."""
-        query = """
+        table = self._qualify("snp_SalesSnapshot", self._database_type)
+        query = f"""
         SELECT 
             distributor_id,
             product_id,
             sales_mtd,
             sales_ma_3,
             sales_ma_6
-        FROM [Data].[snp_SalesSnapshot]
+        FROM {table}
         WHERE snapshot_month = ?
         """
         return self._execute_parameterized_query(query, (snapshot_month,))
 
     def _load_target_snapshot(self, snapshot_date: date) -> List[Dict[str, Any]]:
         """Load target snapshot data."""
-        # Target snapshots use Jalali calendar year; month rows are stored per Jalali month.
-        # We filter by snapshot_date and Jalali year, then aggregate across months downstream.
         year = get_jalali_year(snapshot_date)
-
-        query = """
+        table = self._qualify("snp_TargetSnapshot", self._database_type)
+        query = f"""
         SELECT 
             product_id,
             target_quantity
-        FROM [Data].[snp_TargetSnapshot]
+        FROM {table}
         WHERE snapshot_date = ?
           AND year = ?
         """
@@ -235,19 +240,20 @@ class SnapshotDataLoader:
         self, snapshot_date: date
     ) -> List[Dict[str, Any]]:
         """Load distributor deliveries snapshot data."""
-        query = """
+        table = self._qualify("snp_DistributorDeliveriesSnapshot", self._database_type)
+        query = f"""
         SELECT 
             distributor_id,
             product_id,
             delivered_qty_ma_6,
             has_delivery_last_6m
-        FROM [Data].[snp_DistributorDeliveriesSnapshot]
+        FROM {table}
         WHERE snapshot_date = ?
         """
         return self._execute_parameterized_query(query, (snapshot_date,))
 
     def _execute_parameterized_query(
-        self, query: str, parameters: tuple
+        self, query: str, parameters: tuple, database_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Execute a parameterized SQL query and return results as list of dictionaries.
@@ -261,8 +267,9 @@ class SnapshotDataLoader:
         """
         # Access the connection factory through the SQLExecutor's internal executors
         connection_factory = self._sql_executor._procedure_executor._connection_factory
+        db_type = database_type or self._database_type
 
-        with connection_factory.connection(self._database_type) as conn:
+        with connection_factory.connection(db_type) as conn:
             cursor = conn.cursor()
             cursor.execute(query, parameters)
             columns = [column[0] for column in cursor.description]
@@ -318,49 +325,58 @@ class SnapshotDataLoader:
         return products
 
     def _load_distributor_names(self, distributor_ids: List[str]) -> Dict[str, str]:
-        """Load distributor ID -> name from [Analytics_Stage].[Data].[DimDistrbutor]."""
+        """Load distributor ID -> name from source DimDistrbutor."""
         if not distributor_ids:
             return {}
         try:
+            dim_distributor = self._qualify_source("DimDistrbutor")
             placeholders = ",".join("?" * len(distributor_ids))
             query = f"""
             SELECT ID, DistrbutorTitle
-            FROM [Analytics_Stage].[Data].[DimDistrbutor]
+            FROM {dim_distributor}
             WHERE ID IN ({placeholders})
             """
-            rows = self._execute_parameterized_query(query, tuple(distributor_ids))
+            rows = self._execute_parameterized_query(
+                query, tuple(distributor_ids), database_type="source"
+            )
             return {str(r["ID"]): (r["DistrbutorTitle"] or "").strip() or str(r["ID"]) for r in rows}
         except Exception:
             return {}
 
     def _load_product_names(self, product_ids: List[str]) -> Dict[str, str]:
-        """Load product ID -> Persian name from [Analytics_Stage].[Data].[DimProduct]."""
+        """Load product ID -> Persian name from source DimProduct."""
         if not product_ids:
             return {}
         try:
+            dim_product = self._qualify_source("DimProduct")
             placeholders = ",".join("?" * len(product_ids))
             query = f"""
             SELECT ID, ProductTitle
-            FROM [Analytics_Stage].[Data].[DimProduct]
+            FROM {dim_product}
             WHERE ID IN ({placeholders})
             """
-            rows = self._execute_parameterized_query(query, tuple(product_ids))
+            rows = self._execute_parameterized_query(
+                query, tuple(product_ids), database_type="source"
+            )
             return {str(r["ID"]): (r["ProductTitle"] or "").strip() or str(r["ID"]) for r in rows}
         except Exception:
             return {}
 
     def _load_product_names_en(self, product_ids: List[str]) -> Dict[str, str]:
-        """Load product ID -> English name from [Analytics_Stage].[Data].[DimProduct]."""
+        """Load product ID -> English name from source DimProduct."""
         if not product_ids:
             return {}
         try:
+            dim_product = self._qualify_source("DimProduct")
             placeholders = ",".join("?" * len(product_ids))
             query = f"""
             SELECT ID, ProductTitleEN
-            FROM [Analytics_Stage].[Data].[DimProduct]
+            FROM {dim_product}
             WHERE ID IN ({placeholders})
             """
-            rows = self._execute_parameterized_query(query, tuple(product_ids))
+            rows = self._execute_parameterized_query(
+                query, tuple(product_ids), database_type="source"
+            )
             return {str(r["ID"]): (r["ProductTitleEN"] or "").strip() or str(r["ID"]) for r in rows}
         except Exception:
             return {}

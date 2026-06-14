@@ -11,6 +11,12 @@ from .connection_string import ConnectionStringBuilder
 from .health import ConnectionHealthChecker
 from .metadata import ConnectionMetadataManager
 from .pool import ConnectionPoolManager
+from .schema import (
+    DEFAULT_SCHEMA,
+    get_schema_from_config,
+    qualify_cross_db,
+    qualify_object,
+)
 
 if TYPE_CHECKING:
     from .context import ConnectionContextManager
@@ -294,6 +300,34 @@ class DBConnectionFactory:
     def get_config(self) -> Optional[Dict[str, Any]]:
         """Get the loaded configuration (read-only)."""
         return self._config.copy() if self._config else None
+
+    def get_database_config(self, database_type: str) -> Dict[str, Any]:
+        """Return server/database/schema settings for a connection key."""
+        self._validate_database_type_exists(database_type)
+        return self._config['databases'][database_type]
+
+    def get_schema(self, database_type: str = 'test') -> str:
+        """Return configured schema for a connection (defaults to Data)."""
+        return get_schema_from_config(self.get_database_config(database_type))
+
+    def get_database_name(self, database_type: str = 'test') -> str:
+        """Return configured database name for a connection."""
+        return self.get_database_config(database_type)['database']
+
+    def qualify(self, object_name: str, database_type: str = 'test') -> str:
+        """Return [schema].[object_name] using config for database_type."""
+        schema = self.get_schema(database_type)
+        return qualify_object(schema, object_name)
+
+    def qualify_cross_db(
+        self,
+        object_name: str,
+        database_type: str = 'source',
+    ) -> str:
+        """Return [database].[schema].[object_name] for cross-database references."""
+        db_config = self.get_database_config(database_type)
+        schema = get_schema_from_config(db_config)
+        return qualify_cross_db(db_config['database'], schema, object_name)
     
     def connection(self, database_type: str = 'test') -> 'ConnectionContextManager':  # type: ignore
         """

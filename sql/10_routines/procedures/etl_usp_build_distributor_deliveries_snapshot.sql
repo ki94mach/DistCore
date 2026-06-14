@@ -1,10 +1,10 @@
 /*
-Purpose: Build distributor deliveries snapshots from staging ([Data].[stg_DistributorDeliveries]) into the snapshot table 
+Purpose: Build distributor deliveries snapshots from [Data].[fact_DistributorDeliveries] into the snapshot table 
         ([Data].[snp_DistributorDeliveriesSnapshot]) for a given snapshot date.
 Data sources:
     - Staging [month]: Jalali YYYYMM of the *requested delivery* month (per row). Used only to decide which delivery
       records fall inside the 6-month window. Must not be used as the "current" snapshot month.
-    - Current Jalali YYYYMM (snapshot month): Comes from @snapshot_jalali_yyyymm or from [Analytics_Stage].[Data].[DimDate]
+    - Current Jalali YYYYMM (snapshot month): Comes from @snapshot_jalali_yyyymm or from [DWOrchid].[Data].[DimDate]
       via @effective_snapshot_date; never from staging.
 Aggregation Logic:
     - Maps staging rows to (product_id, distributor_id) via dimension tables.
@@ -14,9 +14,9 @@ Aggregation Logic:
     - Sets flag indicating if there was any delivery in the last 6 months.
     - Includes all product-distributor combinations from staging data.
 Grain: One row per (snapshot_date, product_id, distributor_id) in the snapshot table.
-Assumptions: T-SQL on SQL Server; staging table [Data].[stg_DistributorDeliveries] exists (see 024_stg_distributor_deliveries.sql); 
-            snapshot table [Data].[snp_DistributorDeliveriesSnapshot] exists (see 034_snap_distributor_deliveries_snapshot.sql); 
-            dimension tables [Analytics_Stage].[Data].[DimProduct], [Analytics_Stage].[Data].[DimDistrbutor], and [Analytics_Stage].[Data].[DimDate] exist and are populated.
+Assumptions: T-SQL on SQL Server; fact table [Data].[fact_DistributorDeliveries] exists (see 036_fact_distributor_deliveries.sql);
+            snapshot table [Data].[snp_DistributorDeliveriesSnapshot] exists (see 034_snap_distributor_deliveries_snapshot.sql);
+            dimension tables [DWOrchid].[Data].[DimProduct], [DWOrchid].[Data].[DimDistrbutor], and [DWOrchid].[Data].[DimDate] exist and are populated.
 Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. 
         It clears the snapshot table (latest-only), then computes average delivery per event (SUM/COUNT) over the last 6 months and merges into the snapshot table. 
         The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will replace the snapshot data.
@@ -24,7 +24,7 @@ Parameters:
     @batch_id BIGINT - The batch identifier stamped on published snapshot rows. Staging is read in full (all rows).
     @snapshot_date DATE - Gregorian snapshot date to assign to published records. Moving averages are calculated up to this date.
     @snapshot_jalali_yyyymm INT - Optional Jalali year-month (YYYYMM) for the *current/snapshot* month. If provided, it is
-        converted to Gregorian date using [Analytics_Stage].[Data].[DimDate] (ShamsiDay=1) and overrides @snapshot_date.
+        converted to Gregorian date using [DWOrchid].[Data].[DimDate] (ShamsiDay=1) and overrides @snapshot_date.
         This is the authoritative source for "current" Jalali month when provided.
 Returns: A resultset with columns: inserted_count, updated_count, total_count (one row summary).
 How to run: EXEC [Data].[etl_usp_build_distributor_deliveries_snapshot] @batch_id = 123, @snapshot_jalali_yyyymm = 140410;
@@ -56,13 +56,13 @@ BEGIN
     BEGIN
         SELECT TOP (1)
             @effective_snapshot_date = DateID
-        FROM [Analytics_Stage].[Data].[DimDate]
+        FROM [DWOrchid].[Data].[DimDate]
         WHERE ShamsiDay = 1
           AND TRY_CONVERT(INT, LongShamsiYearMonth) = @snapshot_jalali_yyyymm;
 
         IF @effective_snapshot_date IS NULL
         BEGIN
-            THROW 50000, N'Invalid @snapshot_jalali_yyyymm. No matching DateID in [Analytics_Stage].[Data].[DimDate].', 1;
+            THROW 50000, N'Invalid @snapshot_jalali_yyyymm. No matching DateID in [DWOrchid].[Data].[DimDate].', 1;
         END;
     END;
 
@@ -72,13 +72,13 @@ BEGIN
     BEGIN
         SELECT TOP (1)
             @snapshot_jalali_yyyymm_resolved = TRY_CONVERT(INT, LongShamsiYearMonth)
-        FROM [Analytics_Stage].[Data].[DimDate]
+        FROM [DWOrchid].[Data].[DimDate]
         WHERE DateID = @effective_snapshot_date;
         -- If LongShamsiYearMonth is YYYYMMDD (8 digits), reduce to YYYYMM
         IF @snapshot_jalali_yyyymm_resolved IS NOT NULL AND @snapshot_jalali_yyyymm_resolved >= 1000000
             SET @snapshot_jalali_yyyymm_resolved = @snapshot_jalali_yyyymm_resolved / 100;
         IF @snapshot_jalali_yyyymm_resolved IS NULL
-            THROW 50000, N'Snapshot date not found in [Analytics_Stage].[Data].[DimDate]. Cannot resolve Jalali year-month for 6-month window.', 1;
+            THROW 50000, N'Snapshot date not found in [DWOrchid].[Data].[DimDate]. Cannot resolve Jalali year-month for 6-month window.', 1;
     END;
     -- 6 months including current = current Jalali month and 5 before (Jalali arithmetic). Staging [month] = delivery month, compared to this window.
     DECLARE @y INT = @snapshot_jalali_yyyymm_resolved / 100;
@@ -105,10 +105,10 @@ BEGIN
             dd.ID AS distributor_id,
             sd.[month] AS delivery_jalali_yyyymm,  -- month of requested delivery
             sd.delivered_quantity
-        FROM [Data].[stg_DistributorDeliveries] AS sd
-        INNER JOIN [Analytics_Stage].[Data].[DimProduct] AS dp
+        FROM [Data].[fact_DistributorDeliveries] AS sd
+        INNER JOIN [DWOrchid].[Data].[DimProduct] AS dp
             ON dp.ProductTitle = sd.product_name
-        INNER JOIN [Analytics_Stage].[Data].[DimDistrbutor] AS dd
+        INNER JOIN [DWOrchid].[Data].[DimDistrbutor] AS dd
             ON dd.DistrbutorTitle = sd.distributor_name
         WHERE sd.product_name IS NOT NULL
           AND sd.distributor_name IS NOT NULL

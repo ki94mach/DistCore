@@ -176,7 +176,6 @@ def safe_get_column(row: pd.Series, column_name: str, default=None):
 
 def transform_distributor_delivery_row(
     row: pd.Series,
-    batch_id: int,
     persian_columns: List[str],
 ) -> tuple:
     request_date = parse_excel_date(safe_get_column(row, 'تاریخ درخواست'))
@@ -209,7 +208,6 @@ def transform_distributor_delivery_row(
         return str(val)
 
     return (
-        batch_id,
         safe_str(safe_get_column(row, 'کد دارو')),
         safe_str(safe_get_column(row, 'کالا')),
         safe_str(safe_get_column(row, 'نام پخش')),
@@ -340,9 +338,8 @@ def load_excel_files_from_dms(
     return df
 
 
-def transform_dataframe_to_staging_rows(
+def transform_dataframe_to_fact_rows(
     df: pd.DataFrame,
-    batch_id: int,
     persian_columns: List[str],
 ) -> List[tuple]:
     missing_cols = [col for col in persian_columns if col not in df.columns]
@@ -361,8 +358,11 @@ def transform_dataframe_to_staging_rows(
                 flush=True,
             )
 
-        staging_row = transform_distributor_delivery_row(row, batch_id, persian_columns)
-        staging_rows.append(staging_row)
+        fact_row = transform_distributor_delivery_row(row, persian_columns)
+        staging_rows.append(fact_row)
 
     print(" " * 60, end='\r', flush=True)
     return staging_rows
+
+
+transform_dataframe_to_staging_rows = transform_dataframe_to_fact_rows

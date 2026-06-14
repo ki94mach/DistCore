@@ -1,105 +1,122 @@
-"""Pipeline for loading historical distributor deliveries from DMS files."""
+"""Pipeline for loading distributor deliveries from DMS into fact table and publishing snapshot."""
 
-import sys
 import os
+import sys
 import warnings
 from datetime import date
 from typing import Callable, List, Optional
 
-# Suppress openpyxl warnings BEFORE importing anything that uses it
-warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
-warnings.filterwarnings('ignore', message='.*Data Validation.*')
-warnings.filterwarnings('ignore', message='.*Print area.*')
+warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
+warnings.filterwarnings("ignore", message=".*Data Validation.*")
+warnings.filterwarnings("ignore", message=".*Print area.*")
 
-# Set UTF-8 encoding for Windows terminal to display Farsi characters
-if sys.platform == 'win32':
-    if hasattr(sys.stdout, 'reconfigure'):
-        try:
-            sys.stdout.reconfigure(encoding='utf-8')
-        except Exception:
-            pass
-    if hasattr(sys.stderr, 'reconfigure'):
-        try:
-            sys.stderr.reconfigure(encoding='utf-8')
-        except Exception:
-            pass
-    os.environ['PYTHONIOENCODING'] = 'utf-8'
+if sys.platform == "win32":
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except Exception:
+                pass
+    os.environ["PYTHONIOENCODING"] = "utf-8"
 
-from src.orchestrator.pipelines.pipeline_template import TemplatePipeline
+from src.orchestrator.pipelines.sql_snapshot_pipeline import SqlSnapshotPipeline
+from src.orchestrator.pipelines.utils.delivery_fact_utils import (
+    CURRENT_SOURCE_FILE_PATTERN,
+    HISTORICAL_SOURCE_FILE_PATTERN,
+    count_fact_rows,
+    delete_current_year_fact_rows,
+)
 from src.orchestrator.pipelines.utils.delivery_file_utils import (
     concat_delivery_dataframes,
     load_excel_files_from_dms,
-    transform_dataframe_to_staging_rows,
+    transform_dataframe_to_fact_rows,
 )
-from src.orchestrator.pipelines.utils.staging_utils import (
-    CURRENT_SOURCE_FILE_PATTERN,
-    HISTORICAL_SOURCE_FILE_PATTERN,
-    count_staging_rows,
-    delete_current_year_staging_rows,
-    staging_has_historical_data,
-    sync_all_staging_batch_ids,
-)
+from src.orchestrator.pipelines.utils.progress_bar import RowProgressBar
 from src.orchestrator.services.dms import DmsClient
 from src.orchestrator.services.dms.config import DmsConfigLoader
 
 
-class DistributorDeliveriesPipeline(TemplatePipeline):
+class DistributorDeliveriesPipeline(SqlSnapshotPipeline):
     """
-    Pipeline for loading distributor deliveries from DMS SharePoint folders.
+    Load delivery Excel files from DMS into [Data].[fact_DistributorDeliveries], then publish snapshot.
 
-    Historical data (Jalali year 1404) is loaded once and retained in staging.
-    Current data (Jalali year 1405) is refreshed on every run.
+    Historical 1404 data is loaded once and retained. Current 1405 data is refreshed each run.
     """
 
-    FILE_PATTERN = r'دیتابیس تحویل به پخش ها.*\.(xlsx|xls)$'
-    HISTORICAL_YEAR = '1404'
-    CURRENT_YEAR = '1405'
+    FILE_PATTERN = r"دیتابیس تحویل به پخش ها.*\.(xlsx|xls)$"
+    HISTORICAL_YEAR = "1404"
+    CURRENT_YEAR = "1405"
 
     EXPECTED_FILES_1404 = [
-        'دیتابیس تحویل به پخش ها - اروندفارمد - 1404.xlsx',
-        'دیتابیس تحویل به پخش ها - آریوژن - 1404.xlsx',
-        'دیتابیس تحویل به پخش ها - اسپاد فارمد - 1404.xlsx',
-        'دیتابیس تحویل به پخش ها - آلاشت - 1404.xlsx',
-        'دیتابیس تحویل به پخش ها - اینوکلون - 1404.xlsx',
-        'دیتابیس تحویل به پخش ها - پرسیس ژن- 1404.xlsx',
-        'دیتابیس تحویل به پخش ها - سیناژن - 1404.xlsx',
-        'دیتابیس تحویل به پخش ها - نانوالوند - 1404.xlsx',
-        'دیتابیس تحویل به پخش ها - نوژین فارمد- 1404.xlsx',
-        'دیتابیس تحویل به پخش ها - نویان پژوهان- 1404.xlsx',
-        'دیتابیس تحویل به پخش ها - نیواد فارمد- 1404.xlsx',
+        "دیتابیس تحویل به پخش ها - اروندفارمد - 1404.xlsx",
+        "دیتابیس تحویل به پخش ها - آریوژن - 1404.xlsx",
+        "دیتابیس تحویل به پخش ها - اسپاد فارمد - 1404.xlsx",
+        "دیتابیس تحویل به پخش ها - آلاشت - 1404.xlsx",
+        "دیتابیس تحویل به پخش ها - اینوکلون - 1404.xlsx",
+        "دیتابیس تحویل به پخش ها - پرسیس ژن- 1404.xlsx",
+        "دیتابیس تحویل به پخش ها - سیناژن - 1404.xlsx",
+        "دیتابیس تحویل به پخش ها - نانوالوند - 1404.xlsx",
+        "دیتابیس تحویل به پخش ها - نوژین فارمد- 1404.xlsx",
+        "دیتابیس تحویل به پخش ها - نویان پژوهان- 1404.xlsx",
+        "دیتابیس تحویل به پخش ها - نیواد فارمد- 1404.xlsx",
     ]
 
-    EXPECTED_FILES_1405 = [
-        name.replace('1404', '1405') for name in EXPECTED_FILES_1404
-    ]
+    EXPECTED_FILES_1405 = [name.replace("1404", "1405") for name in EXPECTED_FILES_1404]
 
     IGNORED_FILES = [
-        f'دیتابیس تحویل به پخش ها - {HISTORICAL_YEAR}.xlsx',
-        f'دیتابیس تحویل به پخش ها - {CURRENT_YEAR}.xlsx',
+        f"دیتابیس تحویل به پخش ها - {HISTORICAL_YEAR}.xlsx",
+        f"دیتابیس تحویل به پخش ها - {CURRENT_YEAR}.xlsx",
     ]
 
     PERSIAN_COLUMNS = [
-        'کد دارو',
-        'کالا',
-        'نام پخش',
-        'شماره بچ',
-        'تاریخ انقضاء',
-        'تعداد تحویلی',
-        'تعداد تحویلی رند بالا',
-        'تعداد تحویلی رند پایین',
-        'تاریخ درخواست',
-        'تاریخ تحویل',
-        'ماه',
-        'شماره نامه خروج از انبار',
-        'تعداد خروج از انبار',
-        'جزئیات خروج از انبار',
-        'وضعیت رسید',
-        'تاریخ ریلیز',
-        'تعداد روز بین تاریخ تحویلی و ریلیز',
-        'تعداد تحویل روتین',
-        'تعداد درخواست زنجیره تامین',
-        'کارخانه',
-        'توضیحات',
+        "کد دارو",
+        "کالا",
+        "نام پخش",
+        "شماره بچ",
+        "تاریخ انقضاء",
+        "تعداد تحویلی",
+        "تعداد تحویلی رند بالا",
+        "تعداد تحویلی رند پایین",
+        "تاریخ درخواست",
+        "تاریخ تحویل",
+        "ماه",
+        "شماره نامه خروج از انبار",
+        "تعداد خروج از انبار",
+        "جزئیات خروج از انبار",
+        "وضعیت رسید",
+        "تاریخ ریلیز",
+        "تعداد روز بین تاریخ تحویلی و ریلیز",
+        "تعداد تحویل روتین",
+        "تعداد درخواست زنجیره تامین",
+        "کارخانه",
+        "توضیحات",
+    ]
+
+    FACT_COLUMNS = [
+        "drug_code",
+        "product_name",
+        "distributor_name",
+        "batch_number",
+        "expiry_date",
+        "delivered_quantity",
+        "delivered_quantity_round_up",
+        "delivered_quantity_round_down",
+        "request_date",
+        "delivery_date",
+        "month",
+        "warehouse_exit_letter_number",
+        "warehouse_exit_quantity",
+        "warehouse_exit_details",
+        "receipt_status",
+        "release_date",
+        "days_between_delivery_release",
+        "routine_delivery_quantity",
+        "supply_chain_request_quantity",
+        "factory_name",
+        "company_name",
+        "description",
+        "source_file",
+        "row_hash",
     ]
 
     def __init__(
@@ -107,20 +124,22 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
         batch_id: Optional[int],
         snapshot_date: Optional[date] = None,
         connection_factory=None,
-        triggered_by: str = 'PYTHON_PIPELINE',
-        database_type: str = 'test',
+        triggered_by: str = "PYTHON_PIPELINE",
+        database_type: str = "test",
         historical_folder_url: Optional[str] = None,
         current_folder_url: Optional[str] = None,
         log_fn: Optional[Callable[[str], None]] = None,
+        show_progress: bool = False,
     ):
         deliveries_config = DmsConfigLoader.get_distributor_deliveries_config()
         self._historical_folder_url = (
-            historical_folder_url or deliveries_config['historical_folder_url']
+            historical_folder_url or deliveries_config["historical_folder_url"]
         )
         self._current_folder_url = (
-            current_folder_url or deliveries_config['current_folder_url']
+            current_folder_url or deliveries_config["current_folder_url"]
         )
         self._dms_client = DmsClient()
+        self._show_progress = show_progress
 
         super().__init__(
             batch_id=batch_id,
@@ -129,60 +148,19 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
             triggered_by=triggered_by,
             database_type=database_type,
             log_fn=log_fn,
-            show_progress=log_fn is not None,
         )
 
     @property
     def batch_type(self) -> str:
-        return 'DISTRIBUTOR_DELIVERIES'
-
-    @property
-    def extract_sql_path(self) -> str:
-        """Not used for DMS-based pipeline, but required by TemplatePipeline."""
-        return '20_etl/distributor_deliveries/extract.sql'
+        return "DISTRIBUTOR_DELIVERIES"
 
     @property
     def publish_procedure(self) -> str:
-        return '[Data].[etl_usp_build_distributor_deliveries_snapshot]'
+        return self._qualify("etl_usp_build_distributor_deliveries_snapshot")
 
     @property
-    def staging_table(self) -> str:
-        return '[Data].[stg_DistributorDeliveries]'
-
-    @property
-    def staging_columns(self) -> List[str]:
-        return [
-            'batch_id',
-            'drug_code',
-            'product_name',
-            'distributor_name',
-            'batch_number',
-            'expiry_date',
-            'delivered_quantity',
-            'delivered_quantity_round_up',
-            'delivered_quantity_round_down',
-            'request_date',
-            'delivery_date',
-            'month',
-            'warehouse_exit_letter_number',
-            'warehouse_exit_quantity',
-            'warehouse_exit_details',
-            'receipt_status',
-            'release_date',
-            'days_between_delivery_release',
-            'routine_delivery_quantity',
-            'supply_chain_request_quantity',
-            'factory_name',
-            'company_name',
-            'description',
-            'source_file',
-            'row_hash',
-        ]
-
-    def transform_row_to_staging_data(self, row: tuple, columns: List[str]) -> tuple:
-        raise NotImplementedError(
-            "This pipeline uses DataFrame transformation, not SQL row transformation"
-        )
+    def fact_table(self) -> str:
+        return self._qualify("fact_DistributorDeliveries")
 
     def load_stage(
         self,
@@ -190,44 +168,31 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
         incremental: bool = False,
         single_date_only: bool = False,
         force_historical_reload: bool = False,
+        **kwargs,
     ) -> None:
-        """
-        Load data from DMS folders into staging table.
+        del incremental, single_date_only, kwargs
 
-        First run (no 1404 rows in staging): erase all, load 1404 + 1405.
-        Subsequent runs: keep 1404 rows, delete 1405 rows, reload 1405 only.
-        force_historical_reload: erase all and reload 1404 + 1405.
-        """
-        del incremental, single_date_only
-
-        with self._handle_batch_failure("Load stage failed: "):
+        with self._handle_batch_failure("Load fact failed: "):
             self._ensure_snapshot_date()
             self._ensure_batch_created()
 
             with self._connection_factory.connection(self._database_type) as conn:
                 cursor = conn.cursor()
-                historical_row_count = count_staging_rows(
-                    cursor,
-                    self.staging_table,
-                    HISTORICAL_SOURCE_FILE_PATTERN,
+                historical_row_count = count_fact_rows(
+                    cursor, self.fact_table, HISTORICAL_SOURCE_FILE_PATTERN
                 )
-                current_row_count = count_staging_rows(
-                    cursor,
-                    self.staging_table,
-                    CURRENT_SOURCE_FILE_PATTERN,
+                current_row_count = count_fact_rows(
+                    cursor, self.fact_table, CURRENT_SOURCE_FILE_PATTERN
                 )
-                has_historical = historical_row_count > 0
 
-            needs_full_reload = force_historical_reload or not has_historical
+            needs_full_reload = force_historical_reload or historical_row_count == 0
 
             if needs_full_reload:
                 if force_historical_reload:
-                    self._log("Force reload requested: erasing all staging rows.")
+                    self._log("Force reload requested: erasing all fact rows.")
                 else:
-                    self._log(
-                        "No 1404 historical data in staging; erasing table before first ingest."
-                    )
-                self._truncate_staging_table()
+                    self._log("No 1404 historical data in fact table; loading full history.")
+                self._truncate_fact_table()
                 self._log("Loading historical (1404) and current (1405) delivery files...")
                 df_historical = load_excel_files_from_dms(
                     dms_client=self._dms_client,
@@ -255,7 +220,7 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
                     f"Keeping {historical_row_count:,} historical (1404) rows; "
                     f"replacing {current_row_count:,} current (1405) rows."
                 )
-                self._delete_current_year_staging_rows()
+                self._delete_current_year_fact_rows()
                 self._log("Loading current (1405) delivery files...")
                 df = load_excel_files_from_dms(
                     dms_client=self._dms_client,
@@ -268,53 +233,34 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
                     log_label="current files",
                 )
 
-            staging_rows = transform_dataframe_to_staging_rows(
-                df=df,
-                batch_id=self.batch_id,
-                persian_columns=self.PERSIAN_COLUMNS,
-            )
+            fact_rows = transform_dataframe_to_fact_rows(df, self.PERSIAN_COLUMNS)
+            if fact_rows:
+                self._load_fact_rows_in_batches(fact_rows, batch_size)
 
-            if staging_rows:
-                self._load_staging_rows_in_batches(staging_rows, batch_size)
-
-            self._sync_all_staging_batch_ids()
-
-    def _truncate_staging_table(self) -> None:
-        delete_query = f"DELETE FROM {self.staging_table}"
+    def _truncate_fact_table(self) -> None:
         with self._connection_factory.connection(self._database_type) as conn:
             cursor = conn.cursor()
-            cursor.execute(delete_query)
+            cursor.execute(f"DELETE FROM {self.fact_table}")
             conn.commit()
 
-    def _delete_current_year_staging_rows(self) -> None:
+    def _delete_current_year_fact_rows(self) -> None:
         with self._connection_factory.connection(self._database_type) as conn:
             cursor = conn.cursor()
-            deleted = delete_current_year_staging_rows(cursor, self.staging_table)
+            deleted = delete_current_year_fact_rows(cursor, self.fact_table)
             conn.commit()
-            self._log(f"Removed {deleted:,} current-year (1405) staging rows before reload.")
+            self._log(f"Removed {deleted:,} current-year (1405) fact rows before reload.")
 
-    def _sync_all_staging_batch_ids(self) -> None:
-        with self._connection_factory.connection(self._database_type) as conn:
-            cursor = conn.cursor()
-            updated = sync_all_staging_batch_ids(
-                cursor,
-                self.staging_table,
-                self.batch_id,
-            )
-            conn.commit()
-            self._log(f"Synced batch_id on {updated:,} staging rows (batch_id={self.batch_id}).")
+    def _get_fact_insert_query(self) -> str:
+        columns = ", ".join(self.FACT_COLUMNS)
+        placeholders = ", ".join(["?"] * len(self.FACT_COLUMNS))
+        return f"INSERT INTO {self.fact_table} ({columns}) VALUES ({placeholders})"
 
-    def _load_staging_rows_in_batches(self, staging_rows: List[tuple], batch_size: int) -> None:
-        from src.orchestrator.pipelines.utils.progress_bar import RowProgressBar
-
-        insert_query = self._get_staging_insert_query()
-        total_rows = len(staging_rows)
-        self._log(
-            f"Inserting {total_rows:,} rows into {self.staging_table} "
-            f"(batch_id={self.batch_id})..."
-        )
+    def _load_fact_rows_in_batches(self, fact_rows: List[tuple], batch_size: int) -> None:
+        insert_query = self._get_fact_insert_query()
+        total_rows = len(fact_rows)
+        self._log(f"Inserting {total_rows:,} rows into {self.fact_table}...")
         progress = (
-            RowProgressBar(self._staging_progress_label(), total=total_rows)
+            RowProgressBar(f"Load fact ({self.fact_table})", total=total_rows)
             if self._show_progress
             else None
         )
@@ -323,41 +269,35 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
             for i in range(0, total_rows, batch_size):
                 if self._interrupted:
                     raise KeyboardInterrupt("Process interrupted by user")
-
-                batch = staging_rows[i:i + batch_size]
+                batch = fact_rows[i : i + batch_size]
                 batch_number = (i // batch_size) + 1
-                self._load_batch_to_staging(batch, insert_query, batch_number)
+                self._load_batch_to_fact(batch, insert_query, batch_number)
                 loaded = min(i + len(batch), total_rows)
                 if progress is not None:
                     progress.update(loaded, "inserting")
                 elif batch_number == 1 or batch_number % 10 == 0:
-                    self._log(f"  staged {loaded:,}/{total_rows:,} rows...")
+                    self._log(f"  loaded {loaded:,}/{total_rows:,} rows...")
 
             if progress is not None:
                 progress.close("insert complete")
-        except KeyboardInterrupt:
-            if progress is not None:
-                progress.close("failed")
-            self._cleanup_partial_staging_data()
-            raise
         except Exception:
             if progress is not None:
                 progress.close("failed")
             raise
 
         self._log(
-            f"Staging DB load complete: {total_rows:,} rows in "
+            f"Fact load complete: {total_rows:,} rows in "
             f"{(total_rows + batch_size - 1) // batch_size} batch(es)."
         )
 
-    def _load_batch_to_staging(self, batch_data: List[tuple], insert_query: str, batch_number: int) -> None:
+    def _load_batch_to_fact(self, batch_data: List[tuple], insert_query: str, batch_number: int) -> None:
         with self._connection_factory.connection(self._database_type) as conn:
             cursor = conn.cursor()
             try:
                 cursor.executemany(insert_query, batch_data)
                 conn.commit()
-            except Exception as e:
+            except Exception as exc:
                 conn.rollback()
                 raise Exception(
-                    f"Failed to load batch {batch_number} into staging: {str(e)}"
-                ) from e
+                    f"Failed to load batch {batch_number} into fact table: {exc}"
+                ) from exc

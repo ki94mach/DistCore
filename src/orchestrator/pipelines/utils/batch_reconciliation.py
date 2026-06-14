@@ -24,9 +24,10 @@ def get_batch_run(
     *,
     database_type: str = "test",
 ) -> Optional[Dict[str, Any]]:
-    query = """
+    batch_run_table = connection_factory.qualify("ctl_BatchRun", database_type)
+    query = f"""
         SELECT batch_type, status
-        FROM [Data].[ctl_BatchRun]
+        FROM {batch_run_table}
         WHERE batch_id = ?
     """
     with connection_factory.connection(database_type) as conn:
@@ -94,7 +95,7 @@ def detect_batch_mismatches(
     reasons: List[str] = []
 
     if batch_run is None:
-        reasons.append(f"batch_id {batch_id} not found in [Data].[ctl_BatchRun]")
+        reasons.append(f"batch_id {batch_id} not found in ctl_BatchRun")
     elif batch_run.get("batch_type") != expected_batch_type:
         reasons.append(
             f"ctl_BatchRun batch_type is {batch_run.get('batch_type')!r}, "
