@@ -1,70 +1,103 @@
-graph LR
+graph TB
 
-  %% 1. Data sources
-  subgraph Sources["Data sources"]
+  %% ── 1. External data sources ──────────────────────────────────────────────
+  subgraph Sources["External data sources"]
     direction TB
-    HDI["Historical Distrubutor Inventory<br> [DWOrchid].[dbo].[FactInventoryHistorical]"]
-    CFI["Current Factory Inventory<br> [DWOrchid].[dbo].[FactInventory]"]
-    CMS["Current Month Sales<br>[DWOrchid].[dbo].[Flat_Fact_Sale]"]
-    SH6M["Sales History (Last 6 Months) <br> [DWOrchid].[dbo].[Flat_Fact_Sale]"]
-    DT["Distributor Target<br> [Iris_DW].[import].[Data0_Main_SC_Distributors_Target_Template]"]
-    PT["Product Target<br>SQL Server: [DWOrchid].[dbo].[FactTarget]"]
+
+    subgraph SQLSource["SQL Server · source connection · database DWOrchid"]
+      direction TB
+      FactInv["[dbo].[FactInventory]<br>factory rows · FkProvider<br>distributor rows · FkDistributor + FkCenter"]
+      FlatSale["[dbo].[Flat_Fact_Sale]<br>distributor sales · DQty"]
+      FactTarget["[dbo].[FactTarget]<br>product targets · Jalali year/month"]
+    end
+
+    subgraph DMS["DMS SharePoint · dms.yml"]
+      DelFiles["Delivery Excel files<br>historical 1404 + current 1405"]
+    end
   end
 
-  %% 2. Data & snapshot layer
-  subgraph Data["Data & snapshot layer"]
+  %% ── 2. ETL orchestration ────────────────────────────────────────────────────
+  subgraph Orchestrator["ETL orchestration · Python"]
     direction TB
-    Ingest["ELT + validation"]
-    DWH["Data Warehouse"]
-    Snap["Snapshot Builder<br>As-of dataset + derived metrics<br>(MA sales, MA deliveries, 6m flags)"]
+    CLI["scripts/pipeline_cli.py"]
+    P1["Factory Inventory pipeline"]
+    P2["Distributor Inventory pipeline"]
+    P3["Sales Snapshot pipeline"]
+    P4["Target pipeline"]
+    P5["Distributor Deliveries pipeline"]
+    CLI --> P1 & P2 & P3 & P4 & P5
   end
 
-  %% 3. Policy & governance
-  subgraph Policy["Policy & governance"]
+  %% ── 3. Analytics_Stage (test connection) ──────────────────────────────────
+  subgraph AnalyticsStage["SQL Server · test connection · database Analytics_Stage · schema Data"]
+    direction TB
+
+    subgraph Staging["Staging tables · stg_*"]
+      direction LR
+      STG_FI["stg_FactoryInventory"]
+      STG_DI["stg_DistributorInventory"]
+      STG_S["stg_Sales"]
+      STG_T["stg_Target"]
+      STG_DD["stg_DistributorDeliveries"]
+    end
+
+    subgraph Snapshots["Snapshot tables · snp_* · 5 tables filled by publish step"]
+      direction LR
+      SNP_FI["snp_FactoryInventorySnapshot"]
+      SNP_DI["snp_DistributorInventorySnapshot"]
+      SNP_S["snp_SalesSnapshot"]
+      SNP_T["snp_TargetSnapshot"]
+      SNP_DD["snp_DistributorDeliveriesSnapshot"]
+    end
+
+    subgraph Dimensions["Dimension tables · used by snapshot build procs"]
+      DIM["DimDate · DimProduct · DimDistrbutor"]
+    end
+
+    Staging --> Snapshots
+    Dimensions -.-> Snapshots
+  end
+
+  %% ── 4. Optimization layer ─────────────────────────────────────────────────
+  subgraph Optimization["Optimization layer"]
+    direction TB
+    Loader["SnapshotDataLoader · loader.py"]
+    OptData["OptimizationData"]
+    Solvers["LP / MILP / CP-SAT solvers"]
+    Loader --> OptData --> Solvers
+  end
+
+  %% ── 5. Policy & governance (planned) ──────────────────────────────────────
+  subgraph Policy["Policy & governance · planned"]
     direction LR
     Config["Versioned config repo"]
-    PolicySvc["Policy/Rules Service\ncoefficients, hard/soft flags,\npenalties, exceptions, calendars"]
+    PolicySvc["Policy / rules service<br>coefficients · penalties · calendars"]
+    Config --> PolicySvc
   end
 
-  %% 4. Optimization layer
-  subgraph Solve["Optimization layer"]
-    direction TB
-    OptAPI["Optimization Orchestrator API"]
-    Workers["Solver workers\nLP/MILP/CP-SAT"]
-    RunDB["Run Registry + Audit"]
-  end
-
-  %% 5. Planning & execution
-  subgraph Plan["Planning & execution"]
+  %% ── 6. Planning & execution (planned) ─────────────────────────────────────
+  subgraph Planning["Planning & execution · planned"]
     direction LR
-    UI["Planner UI\nreview / what-if / override"]
+    UI["Planner UI"]
     Approvals["Approval workflow"]
-    Exec["Execution adapter\nERP orders / ASN / transfers"]
-    Monitor["Monitoring + Alerts"]
+    Exec["Execution adapter · ERP / ASN / transfers"]
+    Monitor["Monitoring & alerts"]
+    UI --> Approvals --> Exec --> Monitor
   end
 
-  %% Data flow from individual sources
-  HDI --> Ingest
-  CFI --> Ingest
-  CMS --> Ingest
-  DT --> Ingest
-  PT --> Ingest
-  SH6M --> Ingest
-  Ingest --> DWH
-  DWH --> Snap
+  %% ── Source → pipeline → staging ───────────────────────────────────────────
+  FactInv --> P1 & P2
+  FlatSale --> P3
+  FactTarget --> P4
+  DelFiles --> P5
 
-  %% Policy config
-  Config --> PolicySvc
+  P1 --> STG_FI
+  P2 --> STG_DI
+  P3 --> STG_S
+  P4 --> STG_T
+  P5 --> STG_DD
 
-  %% Optimization
-  Snap --> OptAPI
-  PolicySvc --> OptAPI
-  OptAPI --> Workers
-  Workers --> RunDB
+  SNP_FI & SNP_DI & SNP_S & SNP_T & SNP_DD --> Loader
 
-  %% Planning & execution
-  OptAPI --> UI
-  UI --> Approvals
-  Approvals --> Exec
-  Exec --> Monitor
-  Approvals --> RunDB
+  PolicySvc -.-> Solvers
+  Solvers -.-> UI
