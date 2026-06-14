@@ -341,6 +341,9 @@ class TemplatePipeline(BasePipeline):
         load_from_cache_only: bool,
     ) -> str:
         """Hash used for cache I/O; load-from-cache always uses the manifest hash."""
+        if not load_from_cache_only:
+            return run_query_hash
+
         manifest = cache.read_manifest()
         if not manifest or not manifest.get("extract_query_hash"):
             raise ExtractCacheError(
@@ -348,12 +351,12 @@ class TemplatePipeline(BasePipeline):
                 "Run extract to cache first."
             )
         cache_hash = str(manifest["extract_query_hash"])
-        if load_from_cache_only and cache_hash != run_query_hash:
+        if cache_hash != run_query_hash:
             self._log(
                 "Load-from-cache: using extract parameters stored in cache "
                 "(CLI snapshot/load options may differ from when extract ran)."
             )
-        return cache_hash if load_from_cache_only else run_query_hash
+        return cache_hash
 
     def _run_extract_with_verification(
         self,

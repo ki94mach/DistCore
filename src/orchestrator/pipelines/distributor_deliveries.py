@@ -6,8 +6,6 @@ import warnings
 from datetime import date
 from typing import Callable, List, Optional
 
-import pandas as pd
-
 # Suppress openpyxl warnings BEFORE importing anything that uses it
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 warnings.filterwarnings('ignore', message='.*Data Validation.*')
@@ -28,11 +26,15 @@ if sys.platform == 'win32':
     os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 from src.orchestrator.pipelines.pipeline_template import TemplatePipeline
-from src.orchestrator.pipelines.utils import (
+from src.orchestrator.pipelines.utils.delivery_file_utils import (
+    concat_delivery_dataframes,
     load_excel_files_from_dms,
     transform_dataframe_to_staging_rows,
 )
 from src.orchestrator.pipelines.utils.staging_utils import (
+    CURRENT_SOURCE_FILE_PATTERN,
+    HISTORICAL_SOURCE_FILE_PATTERN,
+    count_staging_rows,
     delete_current_year_staging_rows,
     staging_has_historical_data,
     sync_all_staging_batch_ids,
@@ -192,8 +194,9 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
         """
         Load data from DMS folders into staging table.
 
-        First run (or force_historical_reload): truncate staging, load 1404 + 1405.
-        Subsequent runs: delete only 1405 rows, reload 1405, keep 1404.
+        First run (no 1404 rows in staging): erase all, load 1404 + 1405.
+        Subsequent runs: keep 1404 rows, delete 1405 rows, reload 1405 only.
+        force_historical_reload: erase all and reload 1404 + 1405.
         """
         del incremental, single_date_only
 
@@ -203,11 +206,29 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
 
             with self._connection_factory.connection(self._database_type) as conn:
                 cursor = conn.cursor()
-                has_historical = staging_has_historical_data(cursor, self.staging_table)
+                historical_row_count = count_staging_rows(
+                    cursor,
+                    self.staging_table,
+                    HISTORICAL_SOURCE_FILE_PATTERN,
+                )
+                current_row_count = count_staging_rows(
+                    cursor,
+                    self.staging_table,
+                    CURRENT_SOURCE_FILE_PATTERN,
+                )
+                has_historical = historical_row_count > 0
 
-            if force_historical_reload or not has_historical:
-                self._log("Loading historical (1404) and current (1405) delivery files...")
+            needs_full_reload = force_historical_reload or not has_historical
+
+            if needs_full_reload:
+                if force_historical_reload:
+                    self._log("Force reload requested: erasing all staging rows.")
+                else:
+                    self._log(
+                        "No 1404 historical data in staging; erasing table before first ingest."
+                    )
                 self._truncate_staging_table()
+                self._log("Loading historical (1404) and current (1405) delivery files...")
                 df_historical = load_excel_files_from_dms(
                     dms_client=self._dms_client,
                     folder_url=self._historical_folder_url,
@@ -228,10 +249,14 @@ class DistributorDeliveriesPipeline(TemplatePipeline):
                     log_fn=self._log_fn,
                     log_label="current files",
                 )
-                df = pd.concat([df_historical, df_current], ignore_index=True, sort=False)
+                df = concat_delivery_dataframes([df_historical, df_current])
             else:
-                self._log("Historical (1404) data present; refreshing current (1405) files only...")
+                self._log(
+                    f"Keeping {historical_row_count:,} historical (1404) rows; "
+                    f"replacing {current_row_count:,} current (1405) rows."
+                )
                 self._delete_current_year_staging_rows()
+                self._log("Loading current (1405) delivery files...")
                 df = load_excel_files_from_dms(
                     dms_client=self._dms_client,
                     folder_url=self._current_folder_url,

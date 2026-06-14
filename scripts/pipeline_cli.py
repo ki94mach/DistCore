@@ -123,7 +123,7 @@ def prompt_force_extract() -> bool:
 
 def prompt_force_historical_reload() -> bool:
     choice = print_prompt(
-        "Force reload historical 1404 files (full staging erase)? (y/N): "
+        "Force full reload (erase ALL staging incl. 1404)? Normal runs keep 1404 (y/N): "
     ).strip().lower()
     return choice == 'y'
 
@@ -714,7 +714,8 @@ def run_full_automate_pipeline():
                 'batch_size': 10000,
                 'incremental': pipeline_name in ('Factory Inventory', 'Distributor Inventory'),
                 'single_date_only': False,
-                'force_extract': False,
+                'force_extract': is_sql_source_pipeline(pipeline_info),
+                'force_historical_reload': False,
                 'max_verification_retries': 3,
             }
             invoke_load_stage(pipeline_info, pipeline, auto_config, 'full')

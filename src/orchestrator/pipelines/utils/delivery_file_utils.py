@@ -11,6 +11,33 @@ from src.orchestrator.pipelines.utils.excel_utils import parse_excel_date, safe_
 from src.orchestrator.services.dms import DmsClient
 
 
+def concat_delivery_dataframes(dataframes: List[pd.DataFrame]) -> pd.DataFrame:
+    """
+    Concatenate per-file delivery DataFrames without pandas FutureWarnings.
+
+    Drops all-NA columns per frame and aligns columns before concat so mixed
+    Excel schemas across factory files do not trigger dtype inference warnings.
+    """
+    if not dataframes:
+        raise ValueError("No dataframes to concatenate")
+
+    if len(dataframes) == 1:
+        return dataframes[0].copy()
+
+    prepared: List[pd.DataFrame] = []
+    all_columns: List[str] = []
+
+    for dataframe in dataframes:
+        frame = dataframe.dropna(axis=1, how='all')
+        for column in frame.columns:
+            if column not in all_columns:
+                all_columns.append(column)
+        prepared.append(frame)
+
+    aligned = [frame.reindex(columns=all_columns) for frame in prepared]
+    return pd.concat(aligned, ignore_index=True, sort=False)
+
+
 def extract_factory_name_from_filename(filename: str) -> Optional[str]:
     """Extract factory name from filename pattern: ... - [Factory Name] - 1404.xlsx"""
     pattern = r'دیتابیس تحویل به پخش ها\s*-\s*([^-]+?)\s*-\s*\d+\.(xlsx|xls)$'
@@ -294,7 +321,7 @@ def load_excel_files_from_dms(
             f"Total files found: {len(files)}, Skipped: {len(skipped_files)}"
         )
 
-    df = pd.concat(non_empty_dataframes, ignore_index=True, sort=False)
+    df = concat_delivery_dataframes(non_empty_dataframes)
     df = normalize_dataframe_columns(df, persian_columns)
     validate_dataframe_columns(df, persian_columns)
     validate_dataframe_has_data(df, persian_columns)

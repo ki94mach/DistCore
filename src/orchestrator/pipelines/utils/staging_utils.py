@@ -3,16 +3,17 @@
 from typing import Optional
 
 
-HISTORICAL_SOURCE_FILE_PATTERN = '%- 1404.xlsx'
-CURRENT_SOURCE_FILE_PATTERN = '%- 1405.xlsx'
+HISTORICAL_SOURCE_FILE_PATTERN = '%1404.xlsx'
+CURRENT_SOURCE_FILE_PATTERN = '%1405.xlsx'
 
 
 def staging_has_historical_data(cursor, staging_table: str) -> bool:
-    """Return True if staging already contains 1404 historical delivery files."""
-    query = f"SELECT COUNT(1) FROM {staging_table} WHERE source_file LIKE ?"
-    cursor.execute(query, (HISTORICAL_SOURCE_FILE_PATTERN,))
-    row = cursor.fetchone()
-    return bool(row and row[0] > 0)
+    """Return True if staging already contains rows from 1404 historical files."""
+    return count_staging_rows(
+        cursor,
+        staging_table,
+        source_file_pattern=HISTORICAL_SOURCE_FILE_PATTERN,
+    ) > 0
 
 
 def delete_current_year_staging_rows(cursor, staging_table: str) -> int:

@@ -176,6 +176,16 @@ class TestCacheQueryHashForLoad(unittest.TestCase):
         )
         self.assertEqual(resolved, "manifest_hash")
 
+    def test_full_load_without_cache_uses_run_hash(self):
+        cache = ExtractCache(self.cache_root, "FACTORY_INVENTORY", 10202)
+
+        resolved = self.pipeline._cache_query_hash_for_load(
+            cache,
+            "fresh_run_hash",
+            load_from_cache_only=False,
+        )
+        self.assertEqual(resolved, "fresh_run_hash")
+
 
 class TestPipelineReconcileIntegration(unittest.TestCase):
     def setUp(self):
