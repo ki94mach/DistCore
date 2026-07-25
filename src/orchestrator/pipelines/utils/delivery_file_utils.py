@@ -165,6 +165,31 @@ def filter_empty_rows(df: pd.DataFrame, data_columns: List[str]) -> pd.DataFrame
     return df[has_data_mask].copy()
 
 
+def normalize_delivery_jalali_yyyymm(month, source_file: str = "") -> Optional[int]:
+    """
+    Normalize Excel ماه to Jalali YYYYMM.
+
+    Accepts YYYYMM, YYYYMMDD, or bare month 1-12 (year taken from source_file name).
+    """
+    if month is None:
+        return None
+    try:
+        value = int(month)
+    except (TypeError, ValueError):
+        return None
+
+    if value >= 1000000:
+        return value // 100
+    if value >= 100000:
+        return value
+    if 1 <= value <= 12:
+        match = re.search(r"(14\d{2})", source_file or "")
+        if match:
+            return int(match.group(1)) * 100 + value
+        return None
+    return None
+
+
 def safe_get_column(row: pd.Series, column_name: str, default=None):
     if column_name not in row.index:
         return default
@@ -193,14 +218,11 @@ def transform_distributor_delivery_row(
         safe_get_column(row, 'تعداد روز بین تاریخ تحویلی و ریلیز')
     )
 
-    month = safe_get_column(row, 'ماه')
-    if month is not None:
-        try:
-            month = int(month)
-        except (TypeError, ValueError):
-            month = None
-
-    source_file = safe_get_column(row, 'source_file', '')
+    source_file = safe_get_column(row, 'source_file', '') or ''
+    month = normalize_delivery_jalali_yyyymm(
+        safe_get_column(row, 'ماه'),
+        source_file,
+    )
 
     def safe_str(val, default=''):
         if val is None or pd.isna(val):

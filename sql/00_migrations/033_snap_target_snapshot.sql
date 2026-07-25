@@ -2,7 +2,8 @@
 Purpose: Create snapshot table for target data used by optimization logic.
 Grain: One row per (snapshot_date, product_id, year, month) combination.
 Assumptions: T-SQL on SQL Server; [Data] schema already exists; requires permissions to create tables and indexes.
-Usage: This table stores point-in-time snapshots of target quantities, typically refreshed from staging data. The snapshot_date represents the as-of date for the target data. Used by downstream optimization processes that require consistent snapshot inputs.
+Usage: This table stores point-in-time snapshots of target quantities built by
+       etl_usp_build_target_snapshot from DWOrchid FactTarget for the Jalali year/month of snapshot_date.
 How to run: Execute in SSMS or via sqlcmd against the target database; script is idempotent.
 */
 

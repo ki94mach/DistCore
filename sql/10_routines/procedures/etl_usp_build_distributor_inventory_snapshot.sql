@@ -3,7 +3,7 @@ Purpose: Build distributor inventory snapshots directly from [DWOrchid].[dbo].[F
 Grain: One row per (snapshot_date, product_id, distributor_id) — aggregated across centers.
 Parameters:
     @batch_id BIGINT - Audit lineage stamped on snapshot rows.
-    @snapshot_date DATE - Snapshot as-of date assigned to published records.
+    @snapshot_date DATE - Source filter (FKDate) and snapshot key stamped on published records.
 */
 
 CREATE OR ALTER PROCEDURE [Data].[etl_usp_build_distributor_inventory_snapshot]
@@ -28,8 +28,6 @@ BEGIN
 
     TRUNCATE TABLE [Data].[snp_DistributorInventorySnapshot];
 
-    DECLARE @today_date DATE = CAST(GETDATE() AS DATE);
-
     WITH AggregatedSource AS (
         SELECT
             CAST([FkDistributor] AS INT) AS distributor_id,
@@ -39,7 +37,7 @@ BEGIN
         WHERE [FkDistributor] IS NOT NULL
           AND [FkCenter] IS NOT NULL
           AND [FKProduct] IS NOT NULL
-          AND [FKDate] = @today_date
+          AND [FKDate] = @snapshot_date
           AND [DQty] <> 0
           AND ([Status] = N'موجودي' OR [Status] = N'در راه')
         GROUP BY [FkDistributor], [FKProduct]

@@ -103,6 +103,13 @@ class SqlSnapshotPipeline(BasePipeline):
                 pass
         raise KeyboardInterrupt("Process interrupted by user")
 
+    def _finish_success_if_standalone(self, message: str = "OK") -> None:
+        """Mark batch SUCCESS when load/publish is called outside run()."""
+        if self._in_run_method:
+            return
+        if has_valid_batch_id(self.batch_id):
+            self.finish_batch(self.batch_id, "SUCCESS", message)
+
     def load_stage(self, **kwargs) -> None:
         """No-op: snapshot procedures read source tables directly."""
         del kwargs
@@ -110,6 +117,7 @@ class SqlSnapshotPipeline(BasePipeline):
             self._ensure_snapshot_date()
             self._ensure_batch_created()
             self._log(f"Batch {self.batch_id} ready for snapshot publish.")
+        self._finish_success_if_standalone("Batch prepared")
 
     def publish(self) -> None:
         with self._handle_batch_failure("Publish failed: "):
@@ -128,6 +136,7 @@ class SqlSnapshotPipeline(BasePipeline):
                 database_type=self._database_type,
             )
             self._log("Snapshot publish complete.")
+        self._finish_success_if_standalone("Snapshot publish complete")
 
     def finish_batch(self, batch_id: int, status: str, message: str = "") -> None:
         fresh_conn = self._connection_factory.get_connection(

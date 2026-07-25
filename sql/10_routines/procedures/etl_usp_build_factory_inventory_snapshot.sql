@@ -3,7 +3,7 @@ Purpose: Build factory inventory snapshots directly from [DWOrchid].[dbo].[FactI
 Grain: One row per (snapshot_date, product_id) — aggregated across factories.
 Parameters:
     @batch_id BIGINT - Audit lineage stamped on snapshot rows.
-    @snapshot_date DATE - Snapshot as-of date assigned to published records.
+    @snapshot_date DATE - Source filter (FKDate) and snapshot key stamped on published records.
 */
 
 CREATE OR ALTER PROCEDURE [Data].[etl_usp_build_factory_inventory_snapshot]
@@ -27,8 +27,6 @@ BEGIN
 
     TRUNCATE TABLE [Data].[snp_FactoryInventorySnapshot];
 
-    DECLARE @today_date DATE = CAST(GETDATE() AS DATE);
-
     WITH AggregatedSource AS (
         SELECT
             CAST([FKProduct] AS INT) AS product_id,
@@ -36,7 +34,7 @@ BEGIN
         FROM [DWOrchid].[dbo].[FactInventory]
         WHERE [FkProvider] IS NOT NULL
           AND [FKProduct] IS NOT NULL
-          AND [FKDate] = @today_date
+          AND [FKDate] = @snapshot_date
           AND [DQty] <> 0
         GROUP BY [FKProduct]
     )
