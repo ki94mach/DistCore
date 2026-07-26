@@ -329,6 +329,7 @@ class DistributorDeliveriesPipeline(SqlSnapshotPipeline):
         with self._connection_factory.connection(self._database_type) as conn:
             cursor = conn.cursor()
             try:
+                cursor.fast_executemany = True
                 cursor.executemany(insert_query, batch_data)
                 conn.commit()
             except Exception as exc:
