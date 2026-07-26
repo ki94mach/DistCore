@@ -34,12 +34,27 @@ class BasePipeline(ABC):
             self.publish()
             if has_valid_batch_id(self.batch_id):
                 self.finish_batch(self.batch_id, 'SUCCESS', 'OK')
+        except KeyboardInterrupt:
+            self._finish_batch_failed('Process interrupted by user (Ctrl+C)')
+            raise
         except Exception as e:
-            if has_valid_batch_id(self.batch_id):
-                self.finish_batch(self.batch_id, 'FAILED', str(e))
-            raise e
+            self._finish_batch_failed(str(e))
+            raise
         finally:
             self._in_run_method = False
+
+    def _finish_batch_failed(self, message: str) -> None:
+        """Mark batch FAILED via subclass helper when available."""
+        if not has_valid_batch_id(self.batch_id):
+            return
+        mark = getattr(self, '_mark_batch_failed', None)
+        if callable(mark):
+            mark(message)
+            return
+        try:
+            self.finish_batch(self.batch_id, 'FAILED', message)
+        except Exception as finish_error:
+            print(f"Warning: Could not mark batch as FAILED: {finish_error}")
 
     @abstractmethod
     def load_stage(self):
@@ -84,18 +99,25 @@ class BasePipeline(ABC):
         """
         try:
             yield
-        except Exception as e:
+        except (Exception, KeyboardInterrupt) as e:
             # Only mark as failed if:
             # 1. We have a valid batch_id
             # 2. We're NOT in the run() method (to avoid duplicate calls)
             #    (If we're in run(), the base class will handle the error)
             if has_valid_batch_id(self.batch_id) and not self._in_run_method:
                 try:
-                    error_msg = f"{error_message_prefix}{str(e)}" if error_message_prefix else str(e)
+                    if isinstance(e, KeyboardInterrupt):
+                        error_msg = "Process interrupted by user (Ctrl+C)"
+                    else:
+                        error_msg = (
+                            f"{error_message_prefix}{str(e)}"
+                            if error_message_prefix
+                            else str(e)
+                        )
                     self.finish_batch(self.batch_id, 'FAILED', error_msg)
                 except Exception as finish_error:
                     # If finish_batch itself fails, log but don't mask the original error
-                    print(f"⚠️  Warning: Could not mark batch as FAILED: {str(finish_error)}")
+                    print(f"Warning: Could not mark batch as FAILED: {finish_error}")
             # Re-raise the original exception
             raise
     

@@ -33,9 +33,11 @@ class SqlSnapshotPipeline(BasePipeline):
         self._snapshot_date = snapshot_date
         self._triggered_by = triggered_by
         self._database_type = database_type
-        self._batch_created = False
+        # CLI/automate often pre-create the batch; treat that as already active.
+        self._batch_created = has_valid_batch_id(batch_id)
         self._snapshot_date_detected = False
         self._interrupted = False
+        self._batch_failed_marked = False
         self._log_fn = log_fn
 
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -93,14 +95,21 @@ class SqlSnapshotPipeline(BasePipeline):
             object.__setattr__(self, "batch_id", self._batch_id)
         self._batch_created = True
 
+    def _mark_batch_failed(self, message: str) -> None:
+        """Mark the current batch FAILED in ctl_BatchRun if a valid batch_id exists."""
+        batch_id = self._batch_id if has_valid_batch_id(self._batch_id) else self.batch_id
+        if not has_valid_batch_id(batch_id) or self._batch_failed_marked:
+            return
+        try:
+            self.finish_batch(batch_id, "FAILED", message)
+            self._batch_failed_marked = True
+        except Exception as finish_error:
+            print(f"Warning: Could not mark batch as FAILED: {finish_error}")
+
     def _signal_handler(self, signum, frame) -> None:
         del signum, frame
         self._interrupted = True
-        if self._batch_created and self._batch_id:
-            try:
-                self.finish_batch(self._batch_id, "FAILED", "Process interrupted by user (Ctrl+C)")
-            except Exception:
-                pass
+        self._mark_batch_failed("Process interrupted by user (Ctrl+C)")
         raise KeyboardInterrupt("Process interrupted by user")
 
     def _finish_success_if_standalone(self, message: str = "OK") -> None:
@@ -159,9 +168,5 @@ class SqlSnapshotPipeline(BasePipeline):
         try:
             super().run()
         except KeyboardInterrupt:
-            if self._batch_created and self._batch_id:
-                try:
-                    self.finish_batch(self._batch_id, "FAILED", "Process interrupted by user (Ctrl+C)")
-                except Exception:
-                    pass
+            self._mark_batch_failed("Process interrupted by user (Ctrl+C)")
             raise

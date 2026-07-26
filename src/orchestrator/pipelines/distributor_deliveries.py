@@ -310,6 +310,10 @@ class DistributorDeliveriesPipeline(SqlSnapshotPipeline):
 
             if progress is not None:
                 progress.close("insert complete")
+        except KeyboardInterrupt:
+            if progress is not None:
+                progress.close("interrupted")
+            raise
         except Exception:
             if progress is not None:
                 progress.close("failed")

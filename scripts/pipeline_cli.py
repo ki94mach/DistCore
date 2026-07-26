@@ -97,6 +97,43 @@ SQL_SOURCE_PIPELINES = frozenset({
     'Target',
 })
 
+# Pipeline currently running; used to finish ctl_BatchRun on Ctrl+C at process exit.
+_active_pipeline = None
+
+
+def set_active_pipeline(pipeline) -> None:
+    global _active_pipeline
+    _active_pipeline = pipeline
+
+
+def clear_active_pipeline() -> None:
+    global _active_pipeline
+    _active_pipeline = None
+
+
+def finish_active_pipeline_on_interrupt() -> None:
+    """Best-effort FAILED write for the in-flight batch after Ctrl+C."""
+    pipeline = _active_pipeline
+    if pipeline is None:
+        return
+    batch_id = getattr(pipeline, 'batch_id', None)
+    if not batch_id:
+        return
+    try:
+        mark = getattr(pipeline, '_mark_batch_failed', None)
+        if callable(mark):
+            mark("Process interrupted by user (Ctrl+C)")
+        else:
+            pipeline.finish_batch(
+                batch_id,
+                'FAILED',
+                'Process interrupted by user (Ctrl+C)',
+            )
+    except Exception as finish_error:
+        print_warning(f"Could not mark batch {batch_id} as FAILED: {finish_error}")
+    finally:
+        clear_active_pipeline()
+
 
 def is_sql_source_pipeline(pipeline_info) -> bool:
     return pipeline_info['name'] in SQL_SOURCE_PIPELINES
@@ -333,6 +370,7 @@ def run_deliveries_load(pipeline_info, config):
     pipeline = pipeline_info['class'](
         **build_pipeline_kwargs(pipeline_info, batch_id, config['snapshot_date'])
     )
+    set_active_pipeline(pipeline)
 
     started = time.monotonic()
     print_action("Running...")
@@ -344,10 +382,15 @@ def run_deliveries_load(pipeline_info, config):
         elapsed = time.monotonic() - started
         print_run_footer(pipeline, "Load fact", elapsed, success=True)
         return pipeline
+    except KeyboardInterrupt:
+        raise
     except Exception:
         elapsed = time.monotonic() - started
         print_run_footer(pipeline, "Load fact", elapsed, success=False)
         raise
+    finally:
+        if sys.exc_info()[0] is not KeyboardInterrupt:
+            clear_active_pipeline()
 
 
 def run_publish(pipeline_info, config):
@@ -363,6 +406,7 @@ def run_publish(pipeline_info, config):
     pipeline = pipeline_info['class'](
         **build_pipeline_kwargs(pipeline_info, batch_id, config['snapshot_date'], log=False)
     )
+    set_active_pipeline(pipeline)
 
     started = time.monotonic()
     print_action("Publishing...")
@@ -371,10 +415,15 @@ def run_publish(pipeline_info, config):
         elapsed = time.monotonic() - started
         print_run_footer(pipeline, "Publish", elapsed, success=True)
         return pipeline
+    except KeyboardInterrupt:
+        raise
     except Exception:
         elapsed = time.monotonic() - started
         print_run_footer(pipeline, "Publish", elapsed, success=False)
         raise
+    finally:
+        if sys.exc_info()[0] is not KeyboardInterrupt:
+            clear_active_pipeline()
 
 
 def run_full_pipeline(pipeline_info):
@@ -397,6 +446,7 @@ def run_full_pipeline(pipeline_info):
     pipeline = pipeline_info['class'](
         **build_pipeline_kwargs(pipeline_info, batch_id, config['snapshot_date'])
     )
+    set_active_pipeline(pipeline)
 
     started = time.monotonic()
     try:
@@ -411,10 +461,29 @@ def run_full_pipeline(pipeline_info):
                 pipeline.publish()
                 if pipeline.batch_id:
                     pipeline.finish_batch(pipeline.batch_id, 'SUCCESS', 'OK')
+            except KeyboardInterrupt:
+                if pipeline.batch_id:
+                    try:
+                        mark = getattr(pipeline, '_mark_batch_failed', None)
+                        if callable(mark):
+                            mark("Process interrupted by user (Ctrl+C)")
+                        else:
+                            pipeline.finish_batch(
+                                pipeline.batch_id,
+                                'FAILED',
+                                'Process interrupted by user (Ctrl+C)',
+                            )
+                    except Exception:
+                        pass
+                raise
             except Exception as e:
                 if pipeline.batch_id:
                     try:
-                        pipeline.finish_batch(pipeline.batch_id, 'FAILED', str(e))
+                        mark = getattr(pipeline, '_mark_batch_failed', None)
+                        if callable(mark):
+                            mark(str(e))
+                        else:
+                            pipeline.finish_batch(pipeline.batch_id, 'FAILED', str(e))
                     except Exception:
                         pass
                 raise
@@ -425,10 +494,15 @@ def run_full_pipeline(pipeline_info):
         elapsed = time.monotonic() - started
         print_run_footer(pipeline, "Full pipeline", elapsed, success=True)
         return pipeline
+    except KeyboardInterrupt:
+        raise
     except Exception:
         elapsed = time.monotonic() - started
         print_run_footer(pipeline, "Full pipeline", elapsed, success=False)
         raise
+    finally:
+        if sys.exc_info()[0] is not KeyboardInterrupt:
+            clear_active_pipeline()
 
 
 def run_full_automate_pipeline():
@@ -456,6 +530,7 @@ def run_full_automate_pipeline():
             pipeline = pipeline_info['class'](
                 **build_pipeline_kwargs(pipeline_info, batch_id, None)
             )
+            set_active_pipeline(pipeline)
             step_started = time.monotonic()
 
             print_action(f"[{pipeline_name}] Running pipeline...")
@@ -467,11 +542,16 @@ def run_full_automate_pipeline():
             )
             succeeded.append(pipeline_name)
 
+        except KeyboardInterrupt:
+            raise
         except Exception as e:
             print_error(f"[{pipeline_name}] Failed: {e}")
             import traceback
             traceback.print_exc()
             failed.append(pipeline_name)
+        finally:
+            if sys.exc_info()[0] is not KeyboardInterrupt:
+                clear_active_pipeline()
 
         print()
 
@@ -568,5 +648,6 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         print()
         print()
+        finish_active_pipeline_on_interrupt()
         print_warning("Interrupted by user. Goodbye!")
         sys.exit(0)
