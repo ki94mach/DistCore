@@ -17,7 +17,7 @@ Aggregation Logic:
 Grain: One row per (snapshot_date, product_id, distributor_id) in the snapshot table.
 Assumptions: T-SQL on SQL Server; fact table [$(prod_schema)].[fact_DistributorDeliveries] exists (see 036_fact_distributor_deliveries.sql);
             snapshot table [$(prod_schema)].[snp_DistributorDeliveriesSnapshot] exists (see 034_snap_distributor_deliveries_snapshot.sql);
-            dimension tables [$(source_database)].[$(source_schema)].[DimProduct], [$(source_database)].[$(source_schema)].[DimDistrbutor], and [$(source_database)].[$(source_schema)].[DimDate] exist and are populated.
+            dimension tables [$(source_database)].[dbo].[DimProduct], [$(source_database)].[dbo].[DimDistrbutor], and [$(source_database)].[dbo].[DimDate] exist and are populated.
 Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. 
         It clears the snapshot table (latest-only), then computes average delivery per event (SUM/COUNT) over the last 6 months and merges into the snapshot table. 
         The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will replace the snapshot data.
@@ -115,16 +115,17 @@ BEGIN
             END AS delivery_jalali_yyyymm,
             sd.delivered_quantity
         FROM [$(prod_schema)].[fact_DistributorDeliveries] AS sd
-        INNER JOIN [$(source_database)].[$(source_schema)].[DimProduct] AS dp
-            ON dp.ProductTitle = sd.product_name
-        INNER JOIN [$(source_database)].[$(source_schema)].[DimDistrbutor] AS dd
-            ON dd.DistrbutorTitle = sd.distributor_name
+        -- Cross-db string compare: Iris_DW (SQL_Latin1...) vs DWOrchid dims (Persian_100...).
+        INNER JOIN [$(source_database)].[dbo].[DimProduct] AS dp
+            ON dp.ProductTitle = sd.product_name COLLATE Persian_100_CI_AS
+        INNER JOIN [$(source_database)].[dbo].[DimDistrbutor] AS dd
+            ON dd.DistrbutorTitle = sd.distributor_name COLLATE Persian_100_CI_AS
         WHERE sd.product_name IS NOT NULL
           AND sd.distributor_name IS NOT NULL
           AND sd.[month] IS NOT NULL
           AND sd.delivered_quantity IS NOT NULL
           AND sd.delivered_quantity <> 0
-          AND sd.receipt_status = N'رسید شده'
+          AND sd.receipt_status COLLATE Persian_100_CI_AS = N'رسید شده' COLLATE Persian_100_CI_AS
           AND (
                 CASE
                     WHEN sd.[month] >= 1000000 THEN sd.[month] / 100
