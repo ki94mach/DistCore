@@ -1,0 +1,25 @@
+# DistCore Python dependencies
+# Install: pip install -r requirements.txt
+#
+# System prerequisites (not installed via pip):
+#   - ODBC Driver 17 for SQL Server
+#   - Cisco AnyConnect (VPN automation on Windows only)
+
+# --- Core ETL / DB ---
+pyodbc>=5.0.0
+PyYAML>=6.0
+pandas>=2.0.0
+openpyxl>=3.1.0
+requests>=2.31.0
+
+# Windows-only: DMS SharePoint integrated auth
+# Install on domain-joined Windows: pip install requests-negotiate-sspi
+requests-negotiate-sspi>=0.3.0; platform_system=="Windows"
+
+# --- Optimization ---
+pulp>=2.7.0
+scipy>=1.11.0
+numpy>=1.24.0
+
+# --- Visualization (scripts/visualize_optimization.py) ---
+matplotlib>=3.7.0
