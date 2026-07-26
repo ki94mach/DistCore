@@ -2,6 +2,10 @@
 
 from typing import Optional
 
+# Shared messages for user interrupt (Ctrl+C) handling.
+INTERRUPT_MESSAGE = "Process interrupted by user (Ctrl+C)"
+INTERRUPT_EXCEPTION_MESSAGE = "Process interrupted by user"
+
 
 def has_valid_batch_id(batch_id: Optional[int]) -> bool:
     """

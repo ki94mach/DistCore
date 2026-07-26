@@ -6,7 +6,11 @@ from .query_utils import (
     substitute_date_parameter,
     apply_date_equality_filter
 )
-from .pipeline_utils import has_valid_batch_id
+from .pipeline_utils import (
+    has_valid_batch_id,
+    INTERRUPT_MESSAGE,
+    INTERRUPT_EXCEPTION_MESSAGE,
+)
 from .date_utils import (
     get_jalali_year,
     substitute_jalali_year_parameter
@@ -30,6 +34,8 @@ __all__ = [
     'substitute_date_parameter',
     'apply_date_equality_filter',
     'has_valid_batch_id',
+    'INTERRUPT_MESSAGE',
+    'INTERRUPT_EXCEPTION_MESSAGE',
     'get_jalali_year',
     'substitute_jalali_year_parameter',
     'parse_excel_date',

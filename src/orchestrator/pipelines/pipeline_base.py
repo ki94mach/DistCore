@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any, List, Union
 
 from ..services.sql_server_db.factory import DBConnectionFactory
 from ..services.sql_server_db.executors.sql_executor import SQLExecutor
-from .utils import has_valid_batch_id
+from .utils import has_valid_batch_id, INTERRUPT_MESSAGE
 
 
 class BasePipeline(ABC):
@@ -35,7 +35,7 @@ class BasePipeline(ABC):
             if has_valid_batch_id(self.batch_id):
                 self.finish_batch(self.batch_id, 'SUCCESS', 'OK')
         except KeyboardInterrupt:
-            self._finish_batch_failed('Process interrupted by user (Ctrl+C)')
+            self._finish_batch_failed(INTERRUPT_MESSAGE)
             raise
         except Exception as e:
             self._finish_batch_failed(str(e))
@@ -107,7 +107,7 @@ class BasePipeline(ABC):
             if has_valid_batch_id(self.batch_id) and not self._in_run_method:
                 try:
                     if isinstance(e, KeyboardInterrupt):
-                        error_msg = "Process interrupted by user (Ctrl+C)"
+                        error_msg = INTERRUPT_MESSAGE
                     else:
                         error_msg = (
                             f"{error_message_prefix}{str(e)}"

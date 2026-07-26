@@ -20,6 +20,7 @@ if sys.platform == "win32":
     os.environ["PYTHONIOENCODING"] = "utf-8"
 
 from src.orchestrator.pipelines.sql_snapshot_pipeline import SqlSnapshotPipeline
+from src.orchestrator.pipelines.utils import INTERRUPT_EXCEPTION_MESSAGE
 from src.orchestrator.pipelines.utils.delivery_fact_utils import (
     count_fact_rows,
     delete_current_year_fact_rows,
@@ -298,7 +299,7 @@ class DistributorDeliveriesPipeline(SqlSnapshotPipeline):
         try:
             for i in range(0, total_rows, batch_size):
                 if self._interrupted:
-                    raise KeyboardInterrupt("Process interrupted by user")
+                    raise KeyboardInterrupt(INTERRUPT_EXCEPTION_MESSAGE)
                 batch = fact_rows[i : i + batch_size]
                 batch_number = (i // batch_size) + 1
                 self._load_batch_to_fact(batch, insert_query, batch_number)

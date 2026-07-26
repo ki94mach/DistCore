@@ -45,6 +45,7 @@ from src.orchestrator.pipelines.distributor_inventory import DistributorInventor
 from src.orchestrator.pipelines.sales_snapshot import SalesSnapshotPipeline
 from src.orchestrator.pipelines.target import TargetPipeline
 from src.orchestrator.pipelines.distributor_deliveries import DistributorDeliveriesPipeline
+from src.orchestrator.pipelines.utils import INTERRUPT_MESSAGE
 from src.orchestrator.services.sql_server_db.factory import DBConnectionFactory
 from src.orchestrator.services.sql_server_db.executors.sql_executor import SQLExecutor
 from src.orchestrator.services.vpn import ensure_vpn_connected
@@ -122,12 +123,12 @@ def finish_active_pipeline_on_interrupt() -> None:
     try:
         mark = getattr(pipeline, '_mark_batch_failed', None)
         if callable(mark):
-            mark("Process interrupted by user (Ctrl+C)")
+            mark(INTERRUPT_MESSAGE)
         else:
             pipeline.finish_batch(
                 batch_id,
                 'FAILED',
-                'Process interrupted by user (Ctrl+C)',
+                INTERRUPT_MESSAGE,
             )
     except Exception as finish_error:
         print_warning(f"Could not mark batch {batch_id} as FAILED: {finish_error}")
@@ -466,12 +467,12 @@ def run_full_pipeline(pipeline_info):
                     try:
                         mark = getattr(pipeline, '_mark_batch_failed', None)
                         if callable(mark):
-                            mark("Process interrupted by user (Ctrl+C)")
+                            mark(INTERRUPT_MESSAGE)
                         else:
                             pipeline.finish_batch(
                                 pipeline.batch_id,
                                 'FAILED',
-                                'Process interrupted by user (Ctrl+C)',
+                                INTERRUPT_MESSAGE,
                             )
                     except Exception:
                         pass

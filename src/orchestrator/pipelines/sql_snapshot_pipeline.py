@@ -9,7 +9,11 @@ from datetime import date
 from typing import Callable, Optional
 
 from src.orchestrator.pipelines.pipeline_base import BasePipeline
-from src.orchestrator.pipelines.utils import has_valid_batch_id
+from src.orchestrator.pipelines.utils import (
+    has_valid_batch_id,
+    INTERRUPT_MESSAGE,
+    INTERRUPT_EXCEPTION_MESSAGE,
+)
 from src.orchestrator.services.sql_server_db.factory import DBConnectionFactory
 
 
@@ -109,8 +113,8 @@ class SqlSnapshotPipeline(BasePipeline):
     def _signal_handler(self, signum, frame) -> None:
         del signum, frame
         self._interrupted = True
-        self._mark_batch_failed("Process interrupted by user (Ctrl+C)")
-        raise KeyboardInterrupt("Process interrupted by user")
+        self._mark_batch_failed(INTERRUPT_MESSAGE)
+        raise KeyboardInterrupt(INTERRUPT_EXCEPTION_MESSAGE)
 
     def _finish_success_if_standalone(self, message: str = "OK") -> None:
         """Mark batch SUCCESS when load/publish is called outside run()."""
@@ -168,5 +172,5 @@ class SqlSnapshotPipeline(BasePipeline):
         try:
             super().run()
         except KeyboardInterrupt:
-            self._mark_batch_failed("Process interrupted by user (Ctrl+C)")
+            self._mark_batch_failed(INTERRUPT_MESSAGE)
             raise
