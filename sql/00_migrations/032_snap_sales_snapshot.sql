@@ -2,7 +2,8 @@
 Purpose: Create snapshot table for distributor sales metrics at a monthly grain.
 Grain: One row per (snapshot_month, distributor_id, product_id) combination.
 Assumptions: T-SQL on SQL Server; [Data] schema already exists; requires permissions to create tables and indexes.
-Usage: This table stores month-level sales metrics derived from staging data, including month-to-date totals and moving averages. Used by downstream optimization processes that require consistent snapshot inputs.
+Usage: This table stores month-level sales metrics built by etl_usp_build_sales_snapshot from
+       DWOrchid Flat_Fact_Sale, including month-to-date totals and moving averages.
 How to run: Execute in SSMS or via sqlcmd against the target database; script is idempotent.
 */
 

@@ -177,6 +177,7 @@ def main() -> None:
             failed.append(relative_path)
             break
 
+<<<<<<< HEAD
     if failed:
         print()
         print(f"Stopped after failure in {failed[0]}. Fix the issue above, then re-run migrations.")
@@ -185,6 +186,10 @@ def main() -> None:
     print()
     print("All migrations completed successfully.")
 
+=======
+            traceback.print_exc()
+            sys.exit(1)
+>>>>>>> d7239e5495e98b0da8dea3949475eddf77a58207
 
 if __name__ == "__main__":
     main()

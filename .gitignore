@@ -13,6 +13,7 @@
 *.json
 *.csv
 *.txt
+!requirements.txt
 *.log
 *.err
 *.out

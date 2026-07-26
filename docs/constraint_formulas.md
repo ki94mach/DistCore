@@ -5,7 +5,7 @@
 - **x[d,p]**: Decision variable - shipment quantity from factory to distributor `d` for product `p` (x[d,p] ≥ 0)
 - **Inv[d,p]**: Inventory on-hand at distributor `d` for product `p`
 - **FactoryInv[p]**: Factory inventory/supply available for product `p`
-- **DelMA₆[d,p]**: 6-month moving average of historical deliveries to distributor `d` for product `p`
+- **DelMA₆[d,p]**: 6-month moving average of *monthly* historical delivery totals to distributor `d` for product `p` (average of per-month SUMs over the last 6 Jalali months)
 - **SalesMA_k[d,p]**: k-month moving average of sales (k ∈ {3,6}, configurable via `SalesWindow`)
 - **SalesMTD[d,p]**: Sales month-to-date at distributor `d` for product `p`
 - **TargetUnits[p]**: Target units for product `p`
@@ -15,8 +15,8 @@
 
 ### Parameters (from OptimizationSettings)
 
-- **CoverageRatio**: Multiplier for target coverage vs demand (default: 1.0)
-- **TargetCoverageRatio**: Multiplier for target units coverage (default: 1.5)
+- **CoverageRatio**: Multiplier for demand coverage (SC1) vs CoverageDemand (default: 1.5)
+- **TargetCoverageRatio**: Multiplier for target units coverage (SC2) (default: 1.5)
 - **DeliveryLowerBound**: Minimum delivery as fraction of 6-month delivery average (default: 0.9)
 - **DeliveryUpperBound**: Maximum delivery as fraction of 6-month delivery average (default: 1.2)
 - **weight_demand**: Objective weight for demand coverage slack (default: 1.0)
@@ -132,7 +132,7 @@ RemainingTargetUnits[p] = max(0, TargetUnits[p] - TotalSalesMTD[p])
 
 ---
 
-### SC3 – Delivery Smoothing vs Historical Deliveries
+### SC5 – Delivery Smoothing vs Historical Deliveries
 **Constraint Type**: `DeliverySmoothingConstraint` (Soft)
 
 For every distributor `d` and product `p`:
@@ -221,7 +221,7 @@ For a problem with:
 2. **Delivery History (HC2)** prevents shipments to inactive distributor-product pairs
 3. **Demand Coverage (SC1)** encourages sufficient inventory at each distributor
 4. **Target Units (SC2)** encourages sufficient total inventory across all distributors
-5. **Delivery Smoothing (SC3)** keeps shipments consistent with historical patterns
+5. **Delivery Smoothing (SC5)** keeps shipments consistent with historical patterns
 6. **Shipment Minimization** (in objective) discourages unnecessary shipments
 
 All constraints work together to find an optimal allocation that:

@@ -24,6 +24,9 @@ BEGIN
     DECLARE @snapshot_jalali_month INT;
     DECLARE @snapshot_month DATE;
     DECLARE @window_start DATE;
+    DECLARE @window_start_jalali INT;
+    DECLARE @y INT;
+    DECLARE @m INT;
 
     SELECT TOP (1)
         @snapshot_jalali_yyyymm = TRY_CONVERT(INT, LongShamsiYearMonth),
@@ -35,16 +38,46 @@ BEGIN
     IF @snapshot_jalali_yyyymm IS NULL OR @snapshot_jalali_year IS NULL OR @snapshot_jalali_month IS NULL
         THROW 50000, N'Could not resolve Jalali year/month from [$(source_database)].[$(source_schema)].[DimDate] for @snapshot_date.', 1;
 
+    -- Normalize day-level YYYYMMDD to month-level YYYYMM when DimDate stores 8 digits
+    IF @snapshot_jalali_yyyymm >= 1000000
+        SET @snapshot_jalali_yyyymm = @snapshot_jalali_yyyymm / 100;
+
     SELECT TOP (1)
         @snapshot_month = DateID
     FROM [$(source_database)].[$(source_schema)].[DimDate]
     WHERE ShamsiDay = 1
-      AND TRY_CONVERT(INT, LongShamsiYearMonth) = @snapshot_jalali_yyyymm;
+      AND (
+            CASE
+                WHEN TRY_CONVERT(INT, LongShamsiYearMonth) >= 1000000
+                    THEN TRY_CONVERT(INT, LongShamsiYearMonth) / 100
+                ELSE TRY_CONVERT(INT, LongShamsiYearMonth)
+            END
+          ) = @snapshot_jalali_yyyymm;
 
     IF @snapshot_month IS NULL
         THROW 50000, N'Could not resolve Jalali month start date from [$(source_database)].[$(source_schema)].[DimDate] for @snapshot_date.', 1;
 
-    SET @window_start = DATEADD(MONTH, -6, @snapshot_month);
+    -- 7 Jalali months inclusive (current + 6 prior) for MA6 support
+    SET @y = @snapshot_jalali_yyyymm / 100;
+    SET @m = @snapshot_jalali_yyyymm % 100;
+    SET @m = @m - 6;
+    IF @m < 1 BEGIN SET @m = @m + 12; SET @y = @y - 1; END;
+    SET @window_start_jalali = @y * 100 + @m;
+
+    SELECT TOP (1)
+        @window_start = DateID
+    FROM [DWOrchid].[Data].[DimDate]
+    WHERE ShamsiDay = 1
+      AND (
+            CASE
+                WHEN TRY_CONVERT(INT, LongShamsiYearMonth) >= 1000000
+                    THEN TRY_CONVERT(INT, LongShamsiYearMonth) / 100
+                ELSE TRY_CONVERT(INT, LongShamsiYearMonth)
+            END
+          ) = @window_start_jalali;
+
+    IF @window_start IS NULL
+        THROW 50000, N'Could not resolve Jalali window start from [DWOrchid].[Data].[DimDate].', 1;
 
     DECLARE @MergeResults TABLE (
         ActionType NVARCHAR(10),
@@ -61,9 +94,19 @@ BEGIN
             CAST(s.[FKProduct] AS INT) AS product_id,
             CAST(s.[FKDate] AS DATE) AS as_of_datetime,
             CAST(s.[DQty] AS BIGINT) AS sales_qty,
+<<<<<<< HEAD:sql/10_routines/procedures/etl_build_sales_snapshot.sql
             d.LongShamsiYearMonth
         FROM [$(source_database)].[dbo].[Flat_Fact_Sale] AS s
         INNER JOIN [$(source_database)].[$(source_schema)].[DimDate] AS d
+=======
+            CASE
+                WHEN TRY_CONVERT(INT, d.LongShamsiYearMonth) >= 1000000
+                    THEN TRY_CONVERT(INT, d.LongShamsiYearMonth) / 100
+                ELSE TRY_CONVERT(INT, d.LongShamsiYearMonth)
+            END AS jalali_yyyymm
+        FROM [DWOrchid].[dbo].[Flat_Fact_Sale] AS s
+        INNER JOIN [DWOrchid].[Data].[DimDate] AS d
+>>>>>>> d7239e5495e98b0da8dea3949475eddf77a58207:sql/10_routines/procedures/etl_usp_build_sales_snapshot.sql
             ON d.DateID = CAST(s.[FKDate] AS DATE)
         WHERE s.[FkDistributor] IS NOT NULL
           AND s.[FkCenter] IS NOT NULL
@@ -79,9 +122,9 @@ BEGIN
             product_id,
             as_of_datetime,
             SUM(sales_qty) AS sales_qty,
-            LongShamsiYearMonth
+            jalali_yyyymm
         FROM SourceMapped
-        GROUP BY distributor_id, product_id, as_of_datetime, LongShamsiYearMonth
+        GROUP BY distributor_id, product_id, as_of_datetime, jalali_yyyymm
     ),
     MonthlyTotals AS (
         SELECT
@@ -92,7 +135,13 @@ BEGIN
         FROM DailyTotals AS sm
         INNER JOIN [$(source_database)].[$(source_schema)].[DimDate] AS month_start
             ON month_start.ShamsiDay = 1
-           AND TRY_CONVERT(INT, month_start.LongShamsiYearMonth) = TRY_CONVERT(INT, sm.LongShamsiYearMonth)
+           AND (
+                CASE
+                    WHEN TRY_CONVERT(INT, month_start.LongShamsiYearMonth) >= 1000000
+                        THEN TRY_CONVERT(INT, month_start.LongShamsiYearMonth) / 100
+                    ELSE TRY_CONVERT(INT, month_start.LongShamsiYearMonth)
+                END
+               ) = sm.jalali_yyyymm
         GROUP BY product_id, distributor_id, month_start.DateID
     ),
     ZeroCurrentMonth AS (

@@ -10,7 +10,6 @@ from datetime import date
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from src.optimization.data import OptimizationData, OptimizationSettings
-from src.orchestrator.pipelines.utils import get_jalali_year
 
 if TYPE_CHECKING:
     from src.orchestrator.services.sql_server_db import SQLExecutor
@@ -65,6 +64,21 @@ class SnapshotDataLoader:
         sales_data = self._load_sales_snapshot(snapshot_month)
         target_data = self._load_target_snapshot(snapshot_date)
         distributor_deliveries = self._load_distributor_deliveries_snapshot(snapshot_date)
+
+        missing = []
+        if not factory_inventory:
+            missing.append("snp_FactoryInventorySnapshot")
+        if not distributor_inventory:
+            missing.append("snp_DistributorInventorySnapshot")
+        if not sales_data:
+            missing.append("snp_SalesSnapshot")
+        if not target_data:
+            missing.append("snp_TargetSnapshot")
+        if missing:
+            raise ValueError(
+                f"Required snapshot data missing for snapshot_date={snapshot_date!s}: "
+                + ", ".join(missing)
+            )
 
         # Extract unique distributors and products
         distributors = self._extract_distributors(
@@ -128,12 +142,11 @@ class SnapshotDataLoader:
             for row in distributor_deliveries
         }
 
-        # Aggregate target data by product (sum across year/month combinations)
-        target_units_map: Dict[str, float] = {}
-        for row in target_data:
-            product_id = str(row["product_id"])
-            target_qty = float(row["target_quantity"] or 0.0)
-            target_units_map[product_id] = target_units_map.get(product_id, 0.0) + target_qty
+        # Target ETL keeps one Jalali month; filter year+month (no cross-month sum).
+        target_units_map: Dict[str, float] = {
+            str(row["product_id"]): float(row["target_quantity"] or 0.0)
+            for row in target_data
+        }
 
         # Load dimension names from DWOrchid for output display
         distributor_names = self._load_distributor_names(sorted(distributors))
@@ -195,7 +208,19 @@ class SnapshotDataLoader:
         FROM {dim_date} AS d
         INNER JOIN {dim_date} AS month_start
             ON month_start.ShamsiDay = 1
-           AND TRY_CONVERT(INT, month_start.LongShamsiYearMonth) = TRY_CONVERT(INT, d.LongShamsiYearMonth)
+           AND (
+                CASE
+                    WHEN TRY_CONVERT(INT, month_start.LongShamsiYearMonth) >= 1000000
+                        THEN TRY_CONVERT(INT, month_start.LongShamsiYearMonth) / 100
+                    ELSE TRY_CONVERT(INT, month_start.LongShamsiYearMonth)
+                END
+               ) = (
+                CASE
+                    WHEN TRY_CONVERT(INT, d.LongShamsiYearMonth) >= 1000000
+                        THEN TRY_CONVERT(INT, d.LongShamsiYearMonth) / 100
+                    ELSE TRY_CONVERT(INT, d.LongShamsiYearMonth)
+                END
+               )
         WHERE d.DateID = ?
         """
         rows = self._execute_parameterized_query(query, (snapshot_date,), database_type="source")
@@ -206,6 +231,22 @@ class SnapshotDataLoader:
             )
         val = rows[0]["snapshot_month"]
         return val.date() if hasattr(val, "date") else val
+
+    def _get_jalali_year_month(self, snapshot_date: date) -> tuple[int, int]:
+        """Resolve ShamsiYear / ShamsiMonth from DimDate (same source as ETL procs)."""
+        dim_date = self._qualify_source("DimDate")
+        query = f"""
+        SELECT TOP (1) ShamsiYear AS jalali_year, ShamsiMonth AS jalali_month
+        FROM {dim_date}
+        WHERE DateID = ?
+        """
+        rows = self._execute_parameterized_query(query, (snapshot_date,), database_type="source")
+        if not rows or rows[0].get("jalali_year") is None or rows[0].get("jalali_month") is None:
+            raise ValueError(
+                f"Could not resolve Jalali year/month from {dim_date} "
+                f"for snapshot_date={snapshot_date!s}."
+            )
+        return int(rows[0]["jalali_year"]), int(rows[0]["jalali_month"])
 
     def _load_sales_snapshot(self, snapshot_month: date) -> List[Dict[str, Any]]:
         """Load sales snapshot data."""
@@ -223,8 +264,8 @@ class SnapshotDataLoader:
         return self._execute_parameterized_query(query, (snapshot_month,))
 
     def _load_target_snapshot(self, snapshot_date: date) -> List[Dict[str, Any]]:
-        """Load target snapshot data."""
-        year = get_jalali_year(snapshot_date)
+        """Load target snapshot for the Jalali year+month of snapshot_date (via DimDate)."""
+        year, month = self._get_jalali_year_month(snapshot_date)
         table = self._qualify("snp_TargetSnapshot", self._database_type)
         query = f"""
         SELECT 
@@ -233,8 +274,9 @@ class SnapshotDataLoader:
         FROM {table}
         WHERE snapshot_date = ?
           AND year = ?
+          AND month = ?
         """
-        return self._execute_parameterized_query(query, (snapshot_date, year))
+        return self._execute_parameterized_query(query, (snapshot_date, year, month))
 
     def _load_distributor_deliveries_snapshot(
         self, snapshot_date: date

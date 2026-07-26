@@ -35,15 +35,18 @@ class TestFactoryInventoryPipeline(unittest.TestCase):
         self.assertEqual(self.pipeline.snapshot_date, self.snapshot_date)
         self.assertIsNotNone(self.pipeline._sql_executor)
 
+    @patch.object(FactoryInventoryPipeline, "finish_batch")
     @patch.object(FactoryInventoryPipeline, "_ensure_batch_created")
     @patch.object(FactoryInventoryPipeline, "_ensure_snapshot_date")
-    def test_load_stage_prepares_batch(self, mock_ensure_date, mock_ensure_batch):
+    def test_load_stage_prepares_batch(self, mock_ensure_date, mock_ensure_batch, mock_finish):
         self.pipeline.load_stage()
         mock_ensure_date.assert_called_once()
         mock_ensure_batch.assert_called_once()
+        mock_finish.assert_called_once_with(self.batch_id, "SUCCESS", "Batch prepared")
 
+    @patch.object(FactoryInventoryPipeline, "finish_batch")
     @patch.object(FactoryInventoryPipeline, "execute_procedure")
-    def test_publish(self, mock_execute):
+    def test_publish(self, mock_execute, mock_finish):
         self.pipeline.publish()
 
         mock_execute.assert_called_once_with(
@@ -53,6 +56,9 @@ class TestFactoryInventoryPipeline(unittest.TestCase):
                 "snapshot_date": self.snapshot_date,
             },
             database_type="prod",
+        )
+        mock_finish.assert_called_once_with(
+            self.batch_id, "SUCCESS", "Snapshot publish complete"
         )
 
     def test_finish_batch(self):

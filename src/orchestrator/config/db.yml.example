@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Copy to db.yml and adjust for your environment.
 # source: read-only DWOrchid (facts + dimensions).
 # prod: DistCore operational database (ctl, snapshots, fact tables, procs).
@@ -16,3 +17,23 @@ databases:
     server: op-db1-srv
     database: Iris_DW
     schema: Sale
+=======
+# Copy to db.yml and adjust for your environment.
+# source: read-only DWOrchid (facts + dimensions).
+# prod: DistCore operational database (ctl, snapshots, fact tables, procs).
+# schema: SQL schema for objects on each connection. Defaults to Data if omitted.
+
+databases:
+  driver: ODBC Driver 17 for SQL Server
+  use_windows_auth: true
+
+  source:
+    server: op-db1-srv
+    database: DWOrchid
+    schema: Data
+
+  prod:
+    server: op-db1-srv
+    database: Iris_DW
+    schema: Sale
+>>>>>>> d7239e5495e98b0da8dea3949475eddf77a58207

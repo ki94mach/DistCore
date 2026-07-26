@@ -2,7 +2,9 @@
 Purpose: Create snapshot table for distributor inventory used by optimization logic.
 Grain: One row per (snapshot_date, distributor_id, product_id) combination.
 Assumptions: T-SQL on SQL Server; [Data] schema already exists; requires permissions to create tables and indexes.
-Usage: This table stores point-in-time snapshots of distributor inventory levels, typically refreshed weekly from staging data. The snapshot_date represents the as-of date for the inventory levels. Data is aggregated by product_id and distributor_id and snapshot_date, summing quantities across all centers. Used by downstream optimization processes that require consistent snapshot inputs.
+Usage: This table stores point-in-time snapshots of distributor inventory levels, typically refreshed
+       from DWOrchid via etl_usp_build_distributor_inventory_snapshot. The snapshot_date is both the
+       source FKDate filter and the as-of key. Aggregated by product_id and distributor_id across centers.
 How to run: Execute in SSMS or via sqlcmd against the target database; script is idempotent.
 */
 
