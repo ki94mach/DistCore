@@ -209,54 +209,7 @@ def build_pipeline_kwargs(pipeline_info, batch_id, snapshot_date, log: bool = Tr
     return kwargs
 
 
-<<<<<<< HEAD
-def build_load_stage_kwargs(pipeline_info, config, staging_mode: str) -> dict:
-    """Build load_stage keyword arguments for a pipeline and staging mode."""
-    if is_sql_source_pipeline(pipeline_info):
-        return {}
-
-    kwargs = {
-        'batch_size': config['batch_size'],
-        'max_verification_retries': config.get('max_verification_retries', 3),
-    }
-
-    if pipeline_info['name'] in ('Factory Inventory', 'Distributor Inventory', 'Target'):
-        kwargs['incremental'] = config['incremental']
-        kwargs['single_date_only'] = config['single_date_only']
-
-    if staging_mode == 'extract_only':
-        kwargs['extract_only'] = True
-        kwargs['force_extract'] = config.get('force_extract', False)
-    elif staging_mode == 'load_from_cache':
-        kwargs['load_from_cache_only'] = True
-    elif staging_mode == 'full' and is_sql_source_pipeline(pipeline_info):
-        kwargs['force_extract'] = config.get('force_extract', False)
-
-    return kwargs
-
-
-def invoke_load_stage(pipeline_info, pipeline, config, staging_mode: str = 'full') -> None:
-    """Call load_stage with the correct kwargs for each pipeline type."""
-    if is_sql_source_pipeline(pipeline_info):
-        pipeline.load_stage(**build_load_stage_kwargs(pipeline_info, config, staging_mode))
-    elif pipeline_info['name'] == 'Distributor Deliveries':
-        pipeline.load_stage(
-            batch_size=config['batch_size'],
-            force_historical_reload=config.get('force_historical_reload', False),
-        )
-    else:
-        pipeline.load_stage()
-
-
 def start_new_batch(batch_type: str, triggered_by: str = 'MANUAL_TEST', database_type: str = 'prod', pipeline_name: str = None) -> int:
-=======
-def start_new_batch(
-    batch_type: str,
-    triggered_by: str = 'MANUAL_TEST',
-    database_type: str = 'test',
-    pipeline_name: str = None,
-) -> int:
->>>>>>> d7239e5495e98b0da8dea3949475eddf77a58207
     """Start a new batch and return the batch_id."""
     connection_factory = DBConnectionFactory()
     sql_executor = SQLExecutor(connection_factory)
@@ -479,9 +432,9 @@ def run_full_pipeline(pipeline_info):
 
 
 def run_full_automate_pipeline():
-    """Run all pipelines with today's date and auto-created batches on the test DB."""
+    """Run all pipelines with today's date and auto-created batches on prod."""
     print_header("Full Automate Pipeline - Running All Pipelines", Colors.BRIGHT_MAGENTA)
-    print_info("All pipelines run with today's snapshot date and auto-created batches.")
+    print_info("All pipelines run with today's snapshot date and auto-created batches on prod.")
     print()
 
     total = len(PIPELINES)
@@ -547,30 +500,7 @@ def handle_error(e):
         print(colorize("This will deploy all stored procedures to the 'prod' database.", Colors.DIM))
         print(colorize("If you need to deploy to a different database, use:", Colors.DIM))
         print(colorize("  python scripts/deploy_procedures.py <database_type>", Colors.BRIGHT_WHITE))
-<<<<<<< HEAD
         print(colorize("  (where <database_type> is 'source' or 'prod')", Colors.DIM))
-    
-    if isinstance(e, StageVerificationError):
-        print_warning("Row counts did not match — see log lines above for source/cache/staging details.")
-
-
-def view_cache_status_interactive(pipeline_info):
-    """Show extract cache for a batch (no pipeline run)."""
-    print_header("Cache status", Colors.BRIGHT_CYAN)
-    batch_id_str = print_prompt("Batch ID: ").strip()
-    try:
-        batch_id = int(batch_id_str)
-    except ValueError:
-        print_error("Invalid batch ID.")
-        return
-
-    pipeline = pipeline_info['class'](
-        **build_pipeline_kwargs(pipeline_info, batch_id, None, log=False)
-    )
-    print_cache_status(pipeline, batch_id)
-=======
-        print(colorize("  (where <database_type> is 'source' or 'test')", Colors.DIM))
->>>>>>> d7239e5495e98b0da8dea3949475eddf77a58207
 
 
 def main():

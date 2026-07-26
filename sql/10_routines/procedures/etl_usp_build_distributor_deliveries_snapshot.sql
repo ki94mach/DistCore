@@ -1,5 +1,4 @@
 /*
-<<<<<<< HEAD
 Purpose: Build distributor deliveries snapshots from [$(prod_schema)].[fact_DistributorDeliveries] into the snapshot table 
         ([$(prod_schema)].[snp_DistributorDeliveriesSnapshot]) for a given snapshot date.
 Data sources:
@@ -7,15 +6,6 @@ Data sources:
       records fall inside the 6-month window. Must not be used as the "current" snapshot month.
     - Current Jalali YYYYMM (snapshot month): Comes from @snapshot_jalali_yyyymm or from [$(source_database)].[$(source_schema)].[DimDate]
       via @effective_snapshot_date; never from staging.
-=======
-Purpose: Build distributor deliveries snapshots from [Data].[fact_DistributorDeliveries] into
-        [Data].[snp_DistributorDeliveriesSnapshot] for a given snapshot date.
-Data sources:
-    - Fact [month]: Jalali YYYYMM of the requested delivery month (per row). Used to decide which
-      delivery records fall inside the 6-month window. Must not be used as the "current" snapshot month.
-    - Current Jalali YYYYMM (snapshot month): From @snapshot_jalali_yyyymm or [DWOrchid].[Data].[DimDate]
-      via @effective_snapshot_date; never from the fact month column.
->>>>>>> d7239e5495e98b0da8dea3949475eddf77a58207
 Aggregation Logic:
     - Maps fact rows to (product_id, distributor_id) via dimension tables.
     - DelMA6 = average of *monthly* delivery totals over the last 6 Jalali months (including current):
@@ -25,7 +15,6 @@ Aggregation Logic:
     - Sets flag indicating if there was any delivery in the last 6 months.
     - Snapshot grain is pairs with activity in the 6-month window.
 Grain: One row per (snapshot_date, product_id, distributor_id) in the snapshot table.
-<<<<<<< HEAD
 Assumptions: T-SQL on SQL Server; fact table [$(prod_schema)].[fact_DistributorDeliveries] exists (see 036_fact_distributor_deliveries.sql);
             snapshot table [$(prod_schema)].[snp_DistributorDeliveriesSnapshot] exists (see 034_snap_distributor_deliveries_snapshot.sql);
             dimension tables [$(source_database)].[$(source_schema)].[DimProduct], [$(source_database)].[$(source_schema)].[DimDistrbutor], and [$(source_database)].[$(source_schema)].[DimDate] exist and are populated.
@@ -41,19 +30,6 @@ Parameters:
 Returns: A resultset with columns: inserted_count, updated_count, total_count (one row summary).
 How to run: EXEC [$(prod_schema)].[etl_usp_build_distributor_deliveries_snapshot] @batch_id = 123, @snapshot_jalali_yyyymm = 140410;
              Or EXEC [$(prod_schema)].[etl_usp_build_distributor_deliveries_snapshot] @batch_id = 123, @snapshot_date = '2025-01-15'.
-=======
-Assumptions: fact table [Data].[fact_DistributorDeliveries] exists (see 036_fact_distributor_deliveries.sql);
-            snapshot table exists (see 034_snap_distributor_deliveries_snapshot.sql);
-            DimProduct, DimDistrbutor, DimDate exist and are populated.
-Usage: Called after fact load. Clears the snapshot table (latest-only), then recomputes DelMA6 and merges.
-Parameters:
-    @batch_id BIGINT - Audit lineage stamped on published snapshot rows. Fact table is read in full.
-    @snapshot_date DATE - Gregorian snapshot date stamped on rows; used to resolve Jalali month when
-        @snapshot_jalali_yyyymm is NULL.
-    @snapshot_jalali_yyyymm INT - Optional Jalali YYYYMM for the current/snapshot month.
-Returns: inserted_count, updated_count, total_count.
-How to run: EXEC [Data].[etl_usp_build_distributor_deliveries_snapshot] @batch_id = 123, @snapshot_date = '2025-01-15';
->>>>>>> d7239e5495e98b0da8dea3949475eddf77a58207
 */
 
 CREATE OR ALTER PROCEDURE [$(prod_schema)].[etl_usp_build_distributor_deliveries_snapshot]
@@ -79,7 +55,7 @@ BEGIN
 
         SELECT TOP (1)
             @effective_snapshot_date = DateID
-        FROM [$(source_database)].[$(source_schema)].[DimDate]
+        FROM [$(source_database)].[dbo].[DimDate]
         WHERE ShamsiDay = 1
           AND (
                 CASE
@@ -90,13 +66,9 @@ BEGIN
               ) = @param_yyyymm;
 
         IF @effective_snapshot_date IS NULL
-<<<<<<< HEAD
         BEGIN
             THROW 50000, N'Invalid @snapshot_jalali_yyyymm. No matching DateID in [$(source_database)].[$(source_schema)].[DimDate].', 1;
         END;
-=======
-            THROW 50000, N'Invalid @snapshot_jalali_yyyymm. No matching DateID in [DWOrchid].[Data].[DimDate].', 1;
->>>>>>> d7239e5495e98b0da8dea3949475eddf77a58207
     END;
 
     DECLARE @snapshot_jalali_yyyymm_resolved INT = @snapshot_jalali_yyyymm;
@@ -107,7 +79,7 @@ BEGIN
     BEGIN
         SELECT TOP (1)
             @snapshot_jalali_yyyymm_resolved = TRY_CONVERT(INT, LongShamsiYearMonth)
-        FROM [$(source_database)].[$(source_schema)].[DimDate]
+        FROM [$(source_database)].[dbo].[DimDate]
         WHERE DateID = @effective_snapshot_date;
 
         IF @snapshot_jalali_yyyymm_resolved IS NOT NULL AND @snapshot_jalali_yyyymm_resolved >= 1000000
@@ -130,12 +102,8 @@ BEGIN
         distributor_id INT
     );
 
-<<<<<<< HEAD
     -- Clear snapshot table (latest-only) before reloading
     TRUNCATE TABLE [$(prod_schema)].[snp_DistributorDeliveriesSnapshot];
-=======
-    TRUNCATE TABLE [Data].[snp_DistributorDeliveriesSnapshot];
->>>>>>> d7239e5495e98b0da8dea3949475eddf77a58207
 
     WITH FactMapped AS (
         SELECT
@@ -200,12 +168,8 @@ BEGIN
         FROM FactInWindow
         GROUP BY product_id, distributor_id
     )
-<<<<<<< HEAD
     -- MERGE into snapshot table
     MERGE [$(prod_schema)].[snp_DistributorDeliveriesSnapshot] AS target
-=======
-    MERGE [Data].[snp_DistributorDeliveriesSnapshot] AS target
->>>>>>> d7239e5495e98b0da8dea3949475eddf77a58207
     USING (
         SELECT
             lma.product_id,
