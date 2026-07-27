@@ -42,7 +42,6 @@ class OptimizationSettingsModel(BaseModel):
 
 class RefreshBody(BaseModel):
     snapshot_date: date
-    include_deliveries: bool = False
 
 
 class OptimizeBody(BaseModel):

@@ -3,7 +3,7 @@ Purpose: Build target snapshots directly from [$(source_database)].[dbo].[FactTa
 Grain: One row per (snapshot_date, product_id, year, month) for the Jalali month of @snapshot_date.
 Parameters:
     @batch_id BIGINT - Audit lineage stamped on snapshot rows.
-    @snapshot_date DATE - Used to resolve Jalali year/month via [$(source_database)].[dbo].[DimDate].
+    @snapshot_date DATE - Used to resolve Jalali year/month via [$(source_database)].[$(source_schema)].[DimDate].
 */
 
 CREATE OR ALTER PROCEDURE [$(prod_schema)].[etl_usp_build_target_snapshot]
@@ -25,11 +25,11 @@ BEGIN
     SELECT TOP (1)
         @target_year = ShamsiYear,
         @target_month = ShamsiMonth
-    FROM [$(source_database)].[dbo].[DimDate]
+    FROM [$(source_database)].[$(source_schema)].[DimDate]
     WHERE DateID = @snapshot_date;
 
     IF @target_year IS NULL OR @target_month IS NULL
-        THROW 50000, N'Could not resolve Jalali year/month from [$(source_database)].[dbo].[DimDate] for @snapshot_date.', 1;
+        THROW 50000, N'Could not resolve Jalali year/month from [$(source_database)].[$(source_schema)].[DimDate] for @snapshot_date.', 1;
 
     DECLARE @MergeResults TABLE (
         ActionType NVARCHAR(10),

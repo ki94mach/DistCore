@@ -32,11 +32,11 @@ BEGIN
         @snapshot_jalali_yyyymm = TRY_CONVERT(INT, LongShamsiYearMonth),
         @snapshot_jalali_year = ShamsiYear,
         @snapshot_jalali_month = ShamsiMonth
-    FROM [$(source_database)].[dbo].[DimDate]
+    FROM [$(source_database)].[$(source_schema)].[DimDate]
     WHERE DateID = @snapshot_date;
 
     IF @snapshot_jalali_yyyymm IS NULL OR @snapshot_jalali_year IS NULL OR @snapshot_jalali_month IS NULL
-        THROW 50000, N'Could not resolve Jalali year/month from [$(source_database)].[dbo].[DimDate] for @snapshot_date.', 1;
+        THROW 50000, N'Could not resolve Jalali year/month from [$(source_database)].[$(source_schema)].[DimDate] for @snapshot_date.', 1;
 
     -- Normalize day-level YYYYMMDD to month-level YYYYMM when DimDate stores 8 digits
     IF @snapshot_jalali_yyyymm >= 1000000
@@ -44,7 +44,7 @@ BEGIN
 
     SELECT TOP (1)
         @snapshot_month = DateID
-    FROM [$(source_database)].[dbo].[DimDate]
+    FROM [$(source_database)].[$(source_schema)].[DimDate]
     WHERE ShamsiDay = 1
       AND (
             CASE
@@ -66,7 +66,7 @@ BEGIN
 
     SELECT TOP (1)
         @window_start = DateID
-    FROM [$(source_database)].[dbo].[DimDate]
+    FROM [$(source_database)].[$(source_schema)].[DimDate]
     WHERE ShamsiDay = 1
       AND (
             CASE
@@ -77,7 +77,7 @@ BEGIN
           ) = @window_start_jalali;
 
     IF @window_start IS NULL
-        THROW 50000, N'Could not resolve Jalali window start from [$(source_database)].[dbo].[DimDate].', 1;
+        THROW 50000, N'Could not resolve Jalali window start from [$(source_database)].[$(source_schema)].[DimDate].', 1;
 
     DECLARE @MergeResults TABLE (
         ActionType NVARCHAR(10),
@@ -96,7 +96,7 @@ BEGIN
             CAST(s.[DQty] AS BIGINT) AS sales_qty,
             d.LongShamsiYearMonth AS jalali_yyyymm
         FROM [$(source_database)].[dbo].[Flat_Fact_Sale] AS s
-        INNER JOIN [$(source_database)].[dbo].[DimDate] AS d
+        INNER JOIN [$(source_database)].[$(source_schema)].[DimDate] AS d
             ON d.DateID = CAST(s.[FKDate] AS DATE)
         WHERE s.[FkDistributor] IS NOT NULL
           AND s.[FkCenter] IS NOT NULL
@@ -123,7 +123,7 @@ BEGIN
             month_start.DateID AS snapshot_month,
             SUM(sales_qty) AS monthly_sales
         FROM DailyTotals AS sm
-        INNER JOIN [$(source_database)].[dbo].[DimDate] AS month_start
+        INNER JOIN [$(source_database)].[$(source_schema)].[DimDate] AS month_start
             ON month_start.ShamsiDay = 1
            AND (
                 CASE

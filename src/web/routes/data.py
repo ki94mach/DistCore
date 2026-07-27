@@ -103,7 +103,7 @@ def data_refresh(body: RefreshBody, background_tasks: BackgroundTasks) -> JobAcc
         runner.run_refresh,
         job_id,
         body.snapshot_date,
-        body.include_deliveries,
+        True,  # always include distributor deliveries
     )
     return JobAccepted(job_id=job_id, kind="refresh", status="queued")
 

@@ -91,15 +91,10 @@ class TestWebRoutes(unittest.TestCase):
             self.assertNotIn("ensure_vpn_connected", text)
             self.assertNotIn("from src.orchestrator.services.vpn", text)
 
-    def test_ui_include_deliveries_defaults_unchecked(self) -> None:
+    def test_ui_has_no_include_deliveries_checkbox(self) -> None:
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        html = response.text
-        self.assertIn('id="include_deliveries"', html)
-        self.assertNotIn(
-            'id="include_deliveries" type="checkbox" checked',
-            html,
-        )
+        self.assertNotIn('id="include_deliveries"', response.text)
 
     def test_ui_has_settings_and_sa_form(self) -> None:
         response = self.client.get("/")
@@ -120,11 +115,11 @@ class TestWebRoutes(unittest.TestCase):
         ):
             self.assertIn(f'id="{field_id}"', html)
 
-    def test_refresh_body_defaults_include_deliveries_false(self) -> None:
+    def test_refresh_body_has_no_include_deliveries_field(self) -> None:
         from src.web.schemas import RefreshBody
 
         body = RefreshBody(snapshot_date=date(2026, 7, 27))
-        self.assertFalse(body.include_deliveries)
+        self.assertNotIn("include_deliveries", body.model_dump())
 
     def test_db_dms_error_copy_never_mentions_vpn(self) -> None:
         from src.optimization.errors import DatabaseUnavailableError
@@ -191,7 +186,7 @@ class TestWebRoutes(unittest.TestCase):
         self.lock.try_acquire("existing", "optimize")
         response = self.client.post(
             "/data/refresh",
-            json={"snapshot_date": "2026-07-27", "include_deliveries": False},
+            json={"snapshot_date": "2026-07-27"},
         )
         self.assertEqual(response.status_code, 409)
         self.assertIn("Another job is running", response.json()["detail"])
@@ -215,7 +210,7 @@ class TestWebRoutes(unittest.TestCase):
         )
         response = self.client.post(
             "/data/refresh",
-            json={"snapshot_date": "2026-07-27", "include_deliveries": True},
+            json={"snapshot_date": "2026-07-27"},
         )
         self.assertEqual(response.status_code, 202)
         job_id = response.json()["job_id"]

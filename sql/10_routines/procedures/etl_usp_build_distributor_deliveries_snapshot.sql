@@ -17,7 +17,7 @@ Aggregation Logic:
 Grain: One row per (snapshot_date, product_id, distributor_id) in the snapshot table.
 Assumptions: T-SQL on SQL Server; fact table [$(prod_schema)].[fact_DistributorDeliveries] exists (see 036_fact_distributor_deliveries.sql);
             snapshot table [$(prod_schema)].[snp_DistributorDeliveriesSnapshot] exists (see 034_snap_distributor_deliveries_snapshot.sql);
-            dimension tables [$(source_database)].[dbo].[DimProduct], [$(source_database)].[dbo].[DimDistrbutor], and [$(source_database)].[dbo].[DimDate] exist and are populated.
+            dimension tables [$(source_database)].[$(source_schema)].[DimProduct], [$(source_database)].[$(source_schema)].[DimDistrbutor], and [$(source_database)].[$(source_schema)].[DimDate] exist and are populated.
 Usage: This stored procedure is typically called as part of an ETL pipeline after staging load. 
         It clears the snapshot table (latest-only), then computes average delivery per event (SUM/COUNT) over the last 6 months and merges into the snapshot table. 
         The procedure is idempotent: re-running with the same @batch_id and @snapshot_date will replace the snapshot data.
@@ -55,7 +55,7 @@ BEGIN
 
         SELECT TOP (1)
             @effective_snapshot_date = DateID
-        FROM [$(source_database)].[dbo].[DimDate]
+        FROM [$(source_database)].[$(source_schema)].[DimDate]
         WHERE ShamsiDay = 1
           AND (
                 CASE
@@ -79,7 +79,7 @@ BEGIN
     BEGIN
         SELECT TOP (1)
             @snapshot_jalali_yyyymm_resolved = TRY_CONVERT(INT, LongShamsiYearMonth)
-        FROM [$(source_database)].[dbo].[DimDate]
+        FROM [$(source_database)].[$(source_schema)].[DimDate]
         WHERE DateID = @effective_snapshot_date;
 
         IF @snapshot_jalali_yyyymm_resolved IS NOT NULL AND @snapshot_jalali_yyyymm_resolved >= 1000000
@@ -116,9 +116,9 @@ BEGIN
             sd.delivered_quantity
         FROM [$(prod_schema)].[fact_DistributorDeliveries] AS sd
         -- Cross-db string compare: Iris_DW (SQL_Latin1...) vs DWOrchid dims (Persian_100...).
-        INNER JOIN [$(source_database)].[dbo].[DimProduct] AS dp
+        INNER JOIN [$(source_database)].[$(source_schema)].[DimProduct] AS dp
             ON dp.ProductTitle = sd.product_name COLLATE Persian_100_CI_AS
-        INNER JOIN [$(source_database)].[dbo].[DimDistrbutor] AS dd
+        INNER JOIN [$(source_database)].[$(source_schema)].[DimDistrbutor] AS dd
             ON dd.DistrbutorTitle = sd.distributor_name COLLATE Persian_100_CI_AS
         WHERE sd.product_name IS NOT NULL
           AND sd.distributor_name IS NOT NULL

@@ -22,7 +22,7 @@ Health and API errors mean **network / credentials / ODBC / DMS reachability**, 
 | File | Role |
 | --- | --- |
 | `src/orchestrator/config/db.yml` | SQL `source` / `prod` (start from `db.yml.example`) |
-| `src/orchestrator/config/dms.yml` | SharePoint folder URLs — only if `include_deliveries=true` |
+| `src/orchestrator/config/dms.yml` | SharePoint folder URLs for distributor deliveries refresh |
 | `src/orchestrator/config/vpn.yml` | **CLI only** — not used by the app |
 
 Windows auth or SQL auth are both supported by `DBConnectionFactory`.
@@ -75,11 +75,10 @@ No automatic in-app garbage collection in MVP.
 
 ## Distributor deliveries / DMS
 
-Treat deliveries as **optional** on the server UI (checkbox defaults unchecked).
+Web refresh **always** includes distributor deliveries (no UI toggle).
 
-- `include_deliveries=true` requires the **app host** to have Windows + SSPI SharePoint access and a valid `dms.yml` (same path as CLI DMS).
-- If the server cannot reach DMS, refresh with `include_deliveries=false` (SQL snapshots only) and run DMS load / deliveries publish on the **laptop** via `pipeline_cli` after VPN.
-- Freshness marks deliveries `optional_for_optimize`; optimize can proceed when the four required snapshots are `ready`.
+- The **app host** needs Windows + SSPI SharePoint access and a valid `dms.yml` (same path as CLI DMS).
+- Freshness still marks deliveries `optional_for_optimize`; optimize can proceed when the four required SQL snapshots are `ready` even if deliveries are missing/partial.
 
 Errors: DB → **503**, DMS → **502**, busy lock → **409**.
 
@@ -89,7 +88,7 @@ Against the deployed host:
 
 1. `GET /health` → `status=ok` and prod DB healthy.
 2. `GET /data/status?snapshot_date=YYYY-MM-DD` → overall state + per-pipeline last updated / row counts.
-3. `POST /data/refresh` with `{ "snapshot_date": "YYYY-MM-DD", "include_deliveries": false }` → `job_id`; poll `GET /jobs/{id}` until `succeeded`.
+3. `POST /data/refresh` with `{ "snapshot_date": "YYYY-MM-DD" }` → `job_id`; poll `GET /jobs/{id}` until `succeeded` (includes deliveries).
 4. While refresh is `running`, `POST /optimizations` → **409** lock message.
 5. After data is ready, `POST /optimizations` with solver/preset → poll until `succeeded`.
 6. `GET /optimizations/{id}/download` → `.xlsx` with `Content-Disposition`; open Shipments / Summary / Parameters.

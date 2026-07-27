@@ -40,7 +40,7 @@ When SQL files are executed via `scripts/migrations.py`, `scripts/deploy_procedu
 | `$(prod_schema)` | `prod.schema` | `[$(prod_schema)].[snp_SalesSnapshot]` |
 | `$(prod_database)` | `prod.database` | comments / cross-db (rare on prod) |
 | `$(source_database)` | `source.database` | `[$(source_database)].[dbo].[FactInventory]` |
-| `$(source_schema)` | `source.schema` | `[$(source_database)].[$(source_schema)].[DimDate]` |
+| `$(source_schema)` | `source.schema` | `[$(source_database)].[$(source_schema)].[DimDate]` (dims; usually `dbo`) |
 | `$(schema)` | schema for the connection running the script | same as `prod_schema` when deploying to prod |
 | `$(database)` | database for the connection running the script | same as `prod_database` when deploying to prod |
 

@@ -29,11 +29,6 @@
             </div>
           </div>
         </div>
-        <label>
-          <input id="include_deliveries" type="checkbox" />
-          Include distributor deliveries
-        </label>
-        <p class="muted">Leave unchecked unless this host can reach SharePoint/DMS. Otherwise refresh SQL snapshots only and load deliveries via laptop pipeline_cli.</p>
         <p class="muted" id="freshness-summary">Pick a date and check status.</p>
         <div id="freshness-table"></div>
         <p class="muted" id="job-status">No job running.</p>
@@ -321,13 +316,12 @@
       const rows = (data.pipelines || [])
         .map((p) => {
           const updated = p.created_at || "—";
-          const required = p.optional_for_optimize ? "no" : "yes";
-          return `<tr><td>${p.pipeline}</td><td>${p.state}</td><td>${p.row_count ?? "—"}</td><td>${updated}</td><td>${required}</td></tr>`;
+          return `<tr><td>${p.pipeline}</td><td>${p.state}</td><td>${p.row_count ?? "—"}</td><td>${updated}</td></tr>`;
         })
         .join("");
       freshnessTable.innerHTML = `
         <table class="table">
-          <thead><tr><th>Pipeline</th><th>State</th><th>Rows</th><th>Last updated</th><th>Required?</th></tr></thead>
+          <thead><tr><th>Pipeline</th><th>State</th><th>Rows</th><th>Last updated</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`;
       applyOptimizeGate();
@@ -353,7 +347,6 @@
       downloadLink.hidden = true;
       const payload = {
         snapshot_date: snapshotInput.value,
-        include_deliveries: document.getElementById("include_deliveries").checked,
       };
       const res = await fetch("/data/refresh", {
         method: "POST",

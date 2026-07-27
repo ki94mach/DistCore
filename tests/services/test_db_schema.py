@@ -42,19 +42,33 @@ class TestDBConnectionFactorySchema(unittest.TestCase):
         cls.factory = DBConnectionFactory()
 
     def test_get_schema_from_config(self):
-        self.assertEqual(self.factory.get_schema("source"), "Data")
-        self.assertEqual(self.factory.get_schema("prod"), "Sale")
+        source_schema = self.factory.get_schema("source")
+        prod_schema = self.factory.get_schema("prod")
+        self.assertTrue(source_schema)
+        self.assertTrue(prod_schema)
+        # Live DWOrchid dims are under dbo; keep this as a soft check when configured.
+        self.assertEqual(
+            source_schema,
+            self.factory.get_database_config("source").get("schema", DEFAULT_SCHEMA),
+        )
 
     def test_qualify_uses_configured_schema(self):
+        prod_schema = self.factory.get_schema("prod")
         self.assertEqual(
             self.factory.qualify("snp_SalesSnapshot", "prod"),
-            "[Sale].[snp_SalesSnapshot]",
+            f"[{prod_schema}].[snp_SalesSnapshot]",
         )
 
     def test_qualify_cross_db_uses_source_config(self):
+        source_db = self.factory.get_database_config("source")["database"]
+        source_schema = self.factory.get_schema("source")
         qualified = self.factory.qualify_cross_db("DimProduct", "source")
-        self.assertEqual(qualified, "[DWOrchid].[Data].[DimProduct]")
-
+        self.assertEqual(qualified, f"[{source_db}].[{source_schema}].[DimProduct]")
+        # DimDate must follow the same centralized source.schema (not a hardcoded dbo).
+        self.assertEqual(
+            self.factory.qualify_cross_db("DimDate", "source"),
+            f"[{source_db}].[{source_schema}].[DimDate]",
+        )
 
 if __name__ == "__main__":
     unittest.main()

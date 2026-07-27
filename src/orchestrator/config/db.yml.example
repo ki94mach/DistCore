@@ -1,7 +1,11 @@
 # Copy to db.yml and adjust for your environment.
 # source: read-only DWOrchid (facts + dimensions).
 # prod: DistCore operational database (ctl, snapshots, fact tables, procs).
-# schema: SQL schema for objects on each connection. Defaults to Data if omitted.
+# schema: SQL schema for objects on each connection.
+#   source.schema — used for Dim* cross-DB reads ($(source_schema) / qualify_cross_db).
+#                   Fact* tables in SQL procs stay on [dbo] by convention.
+#   prod.schema — ctl / snp / etl objects on the DistCore database.
+# Defaults to Data if omitted (set explicitly for DWOrchid dims, usually dbo).
 
 databases:
   driver: ODBC Driver 17 for SQL Server
@@ -10,9 +14,9 @@ databases:
   source:
     server: op-db1-srv
     database: DWOrchid
-    schema: Data
+    schema: dbo
 
   prod:
     server: op-db1-srv
     database: Iris_DW
-    schema: Sale
+    schema: sale

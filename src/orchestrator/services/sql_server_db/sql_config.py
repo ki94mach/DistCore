@@ -18,8 +18,8 @@ def build_sql_substitution_vars(
 
     Common placeholders in SQL files:
       [$(prod_schema)].[snp_*]                         — prod objects (procs, snapshots, ctl)
-      [$(source_database)].[$(source_schema)].[Dim*]   — cross-DB dimension reads
-      [$(source_database)].[dbo].[Fact*]               — cross-DB fact reads
+      [$(source_database)].[$(source_schema)].[Dim*]   — cross-DB dimension reads (from source.schema)
+      [$(source_database)].[dbo].[Fact*]               — cross-DB fact reads (facts stay on dbo)
       [$(schema)] / [$(database)]                        — connection executing the script
     """
     source_cfg = factory.get_database_config(SOURCE_DATABASE_TYPE)
