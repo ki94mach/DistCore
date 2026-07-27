@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import signal
 import sys
+import threading
 from abc import abstractmethod
 from datetime import date
 from typing import Callable, Optional
@@ -44,9 +45,12 @@ class SqlSnapshotPipeline(BasePipeline):
         self._batch_failed_marked = False
         self._log_fn = log_fn
 
-        signal.signal(signal.SIGINT, self._signal_handler)
-        if sys.platform != "win32":
-            signal.signal(signal.SIGTERM, self._signal_handler)
+        # Web requests may construct pipelines outside the process main thread.
+        # Python only permits signal registration from the main thread.
+        if threading.current_thread() is threading.main_thread():
+            signal.signal(signal.SIGINT, self._signal_handler)
+            if sys.platform != "win32":
+                signal.signal(signal.SIGTERM, self._signal_handler)
 
         placeholder_date = snapshot_date if snapshot_date is not None else date.today()
         super().__init__(

@@ -40,11 +40,17 @@ if sys.platform == 'win32':
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.orchestrator.pipelines.factory_inventory import FactoryInventoryPipeline
-from src.orchestrator.pipelines.distributor_inventory import DistributorInventoryPipeline
-from src.orchestrator.pipelines.sales_snapshot import SalesSnapshotPipeline
-from src.orchestrator.pipelines.target import TargetPipeline
-from src.orchestrator.pipelines.distributor_deliveries import DistributorDeliveriesPipeline
+from src.orchestrator.pipelines.catalog import (
+    PIPELINE_CATALOG,
+    PIPELINES_BY_KEY,
+    PIPELINES_BY_MENU_KEY,
+    PipelineKey,
+)
+from src.orchestrator.pipelines.service import (
+    PipelineService,
+    RefreshAllRequest,
+    RefreshRequest,
+)
 from src.orchestrator.pipelines.utils import INTERRUPT_MESSAGE
 from src.orchestrator.services.sql_server_db.factory import DBConnectionFactory
 from src.orchestrator.services.sql_server_db.executors.sql_executor import SQLExecutor
@@ -63,40 +69,21 @@ from src.orchestrator.ui.terminal_ui import (
 )
 
 
-PIPELINES = {
-    '1': {
-        'name': 'Factory Inventory',
-        'class': FactoryInventoryPipeline,
-        'batch_type': 'FACTORY_INVENTORY'
-    },
-    '2': {
-        'name': 'Distributor Inventory',
-        'class': DistributorInventoryPipeline,
-        'batch_type': 'DISTRIBUTOR_INVENTORY'
-    },
-    '3': {
-        'name': 'Sales Snapshot',
-        'class': SalesSnapshotPipeline,
-        'batch_type': 'SALES_SNAPSHOT'
-    },
-    '4': {
-        'name': 'Target',
-        'class': TargetPipeline,
-        'batch_type': 'TARGET'
-    },
-    '5': {
-        'name': 'Distributor Deliveries',
-        'class': DistributorDeliveriesPipeline,
-        'batch_type': 'DISTRIBUTOR_DELIVERIES'
-    }
-}
-
 SQL_SOURCE_PIPELINES = frozenset({
     'Factory Inventory',
     'Distributor Inventory',
     'Sales Snapshot',
     'Target',
 })
+
+
+def to_pipeline_info(definition):
+    return {
+        "key": definition.key,
+        "name": definition.name,
+        "class": definition.pipeline_class,
+        "batch_type": definition.batch_type,
+    }
 
 # Pipeline currently running; used to finish ctl_BatchRun on Ctrl+C at process exit.
 _active_pipeline = None
@@ -273,8 +260,8 @@ def start_new_batch(batch_type: str, triggered_by: str = 'MANUAL_TEST', database
 def select_pipeline():
     """First layer: Select a pipeline."""
     print_header("Available Pipelines", Colors.BRIGHT_CYAN)
-    for key, pipeline_info in PIPELINES.items():
-        print_menu_item(key, pipeline_info['name'], Colors.BRIGHT_WHITE)
+    for definition in PIPELINE_CATALOG:
+        print_menu_item(definition.menu_key, definition.name, Colors.BRIGHT_WHITE)
     print()
     print_menu_item('a', 'Full Automate Pipeline (Run All)', Colors.BRIGHT_GREEN)
     print_menu_item('q', 'Quit', Colors.BRIGHT_YELLOW)
@@ -284,7 +271,8 @@ def select_pipeline():
         return None
     if choice == 'a':
         return 'ALL'
-    return PIPELINES.get(choice)
+    definition = PIPELINES_BY_MENU_KEY.get(choice)
+    return to_pipeline_info(definition) if definition else None
 
 
 def select_operation(pipeline_info):
@@ -428,7 +416,7 @@ def run_publish(pipeline_info, config):
 
 
 def run_full_pipeline(pipeline_info):
-    """Run the full pipeline (prepare/load, then publish)."""
+    """Run one pipeline end-to-end through the non-interactive service."""
     if is_sql_source_pipeline(pipeline_info):
         config = configure_sql_options(pipeline_info)
         operation = "Full pipeline (prepare batch + publish)"
@@ -436,74 +424,45 @@ def run_full_pipeline(pipeline_info):
         config = configure_deliveries_load()
         operation = "Full pipeline (load fact + publish)"
 
-    batch_id = configure_batch(pipeline_info)
     print_run_plan(
         pipeline_info,
         operation=operation,
-        batch_id=batch_id,
+        batch_id="auto",
         config=config,
     )
 
-    pipeline = pipeline_info['class'](
-        **build_pipeline_kwargs(pipeline_info, batch_id, config['snapshot_date'])
-    )
-    set_active_pipeline(pipeline)
+    service = PipelineService(DBConnectionFactory(), database_type="prod")
+    snapshot_date = config.get("snapshot_date") or date.today()
+    definition = PIPELINES_BY_KEY[pipeline_info["key"]]
 
     started = time.monotonic()
     try:
-        if pipeline_info['name'] == 'Distributor Deliveries':
-            # Keep _in_run_method True so load_stage does not finish SUCCESS mid-run.
-            pipeline._in_run_method = True
-            try:
-                pipeline.load_stage(
-                    batch_size=config.get('batch_size', 10000),
-                    force_historical_reload=config.get('force_historical_reload', False),
-                )
-                pipeline.publish()
-                if pipeline.batch_id:
-                    pipeline.finish_batch(pipeline.batch_id, 'SUCCESS', 'OK')
-            except KeyboardInterrupt:
-                if pipeline.batch_id:
-                    try:
-                        mark = getattr(pipeline, '_mark_batch_failed', None)
-                        if callable(mark):
-                            mark(INTERRUPT_MESSAGE)
-                        else:
-                            pipeline.finish_batch(
-                                pipeline.batch_id,
-                                'FAILED',
-                                INTERRUPT_MESSAGE,
-                            )
-                    except Exception:
-                        pass
-                raise
-            except Exception as e:
-                if pipeline.batch_id:
-                    try:
-                        mark = getattr(pipeline, '_mark_batch_failed', None)
-                        if callable(mark):
-                            mark(str(e))
-                        else:
-                            pipeline.finish_batch(pipeline.batch_id, 'FAILED', str(e))
-                    except Exception:
-                        pass
-                raise
-            finally:
-                pipeline._in_run_method = False
-        else:
-            pipeline.run()
+        result = service.refresh_one(
+            RefreshRequest(
+                pipeline=definition.key,
+                snapshot_date=snapshot_date,
+                triggered_by="MANUAL_TEST",
+            )
+        )
         elapsed = time.monotonic() - started
-        print_run_footer(pipeline, "Full pipeline", elapsed, success=True)
-        return pipeline
+        print_run_footer(
+            type("PipelineRef", (), {"batch_id": result.batch_id})(),
+            "Full pipeline",
+            elapsed,
+            success=True,
+        )
+        return result
     except KeyboardInterrupt:
         raise
     except Exception:
         elapsed = time.monotonic() - started
-        print_run_footer(pipeline, "Full pipeline", elapsed, success=False)
+        print_run_footer(
+            type("PipelineRef", (), {"batch_id": None})(),
+            "Full pipeline",
+            elapsed,
+            success=False,
+        )
         raise
-    finally:
-        if sys.exc_info()[0] is not KeyboardInterrupt:
-            clear_active_pipeline()
 
 
 def run_full_automate_pipeline():
@@ -512,49 +471,20 @@ def run_full_automate_pipeline():
     print_info("All pipelines run with today's snapshot date and auto-created batches on prod.")
     print()
 
-    total = len(PIPELINES)
-    succeeded = []
-    failed = []
-
-    for key, pipeline_info in PIPELINES.items():
-        pipeline_name = pipeline_info['name']
-        print_header(f"[{key}/{total}] {pipeline_name}", Colors.BRIGHT_CYAN)
-        try:
-            print_action(f"[{pipeline_name}] Creating batch...")
-            batch_id = start_new_batch(
-                batch_type=pipeline_info['batch_type'],
-                triggered_by='MANUAL_TEST',
-                database_type='prod',
-                pipeline_name=pipeline_name
-            )
-
-            pipeline = pipeline_info['class'](
-                **build_pipeline_kwargs(pipeline_info, batch_id, None)
-            )
-            set_active_pipeline(pipeline)
-            step_started = time.monotonic()
-
-            print_action(f"[{pipeline_name}] Running pipeline...")
-            pipeline.run()
-
-            elapsed = time.monotonic() - step_started
-            print_success(
-                f"[{pipeline_name}] Completed successfully in {format_duration(elapsed)}!"
-            )
-            succeeded.append(pipeline_name)
-
-        except KeyboardInterrupt:
-            raise
-        except Exception as e:
-            print_error(f"[{pipeline_name}] Failed: {e}")
-            import traceback
-            traceback.print_exc()
-            failed.append(pipeline_name)
-        finally:
-            if sys.exc_info()[0] is not KeyboardInterrupt:
-                clear_active_pipeline()
-
-        print()
+    total = len(PIPELINE_CATALOG)
+    service = PipelineService(DBConnectionFactory(), database_type="prod")
+    result = service.refresh_all(
+        RefreshAllRequest(
+            snapshot_date=date.today(),
+            include_deliveries=True,
+            triggered_by="MANUAL_TEST",
+        )
+    )
+    succeeded = [
+        PIPELINES_BY_KEY[item].name
+        for item in result.succeeded
+    ]
+    failed = [PIPELINES_BY_KEY[item].name for item in result.failed]
 
     print_header("Full Automate Pipeline - Summary", Colors.BRIGHT_MAGENTA)
     print_info(f"Total pipelines: {total}")
