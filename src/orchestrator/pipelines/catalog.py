@@ -84,6 +84,7 @@ PIPELINE_CATALOG: tuple[PipelineDefinition, ...] = (
         "DISTRIBUTOR_DELIVERIES",
         "snp_DistributorDeliveriesSnapshot",
         BusinessKeyType.SNAPSHOT_DATE,
+        optional_for_optimize=True,
     ),
 )
 

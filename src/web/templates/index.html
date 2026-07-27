@@ -31,6 +31,10 @@
         </div>
         <p class="muted" id="freshness-summary">Pick a date and check status.</p>
         <div id="freshness-table"></div>
+        <div id="refresh-progress-wrap" class="progress-wrap" hidden>
+          <label id="refresh-progress-label" for="refresh-progress">Refreshing…</label>
+          <progress id="refresh-progress" max="100" value="0"></progress>
+        </div>
         <p class="muted" id="job-status">No job running.</p>
         <details class="muted">
           <summary>Job details</summary>
@@ -51,67 +55,71 @@
           <option value="">— defaults / custom —</option>
         </select>
 
-        <fieldset class="settings-grid" id="settings-fields">
-          <legend>Optimization settings</legend>
-          <label for="coverage_ratio">coverage_ratio
-            <input id="coverage_ratio" type="number" step="any" min="0" data-setting />
-          </label>
-          <label for="target_coverage_ratio">target_coverage_ratio
-            <input id="target_coverage_ratio" type="number" step="any" min="0" data-setting />
-          </label>
-          <label for="sales_window">sales_window
-            <select id="sales_window" data-setting>
-              <option value="3">3</option>
-              <option value="6">6</option>
-            </select>
-          </label>
-          <label for="delivery_lower_bound">delivery_lower_bound
-            <input id="delivery_lower_bound" type="number" step="any" min="0" data-setting />
-          </label>
-          <label for="delivery_upper_bound">delivery_upper_bound
-            <input id="delivery_upper_bound" type="number" step="any" min="0" data-setting />
-          </label>
-          <label for="weight_demand">weight_demand
-            <input id="weight_demand" type="number" step="any" min="0" data-setting />
-          </label>
-          <label for="weight_target_units">weight_target_units
-            <input id="weight_target_units" type="number" step="any" min="0" data-setting />
-          </label>
-          <label for="weight_smoothing">weight_smoothing
-            <input id="weight_smoothing" type="number" step="any" min="0" data-setting />
-          </label>
-          <label for="weight_shipment">weight_shipment
-            <input id="weight_shipment" type="number" step="any" min="0" data-setting />
-          </label>
-        </fieldset>
+        <details class="collapsible-panel" id="settings-fields">
+          <summary>Optimization settings</summary>
+          <div class="settings-grid">
+            <label for="coverage_ratio">coverage_ratio
+              <input id="coverage_ratio" type="number" step="any" min="0" data-setting />
+            </label>
+            <label for="target_coverage_ratio">target_coverage_ratio
+              <input id="target_coverage_ratio" type="number" step="any" min="0" data-setting />
+            </label>
+            <label for="sales_window">sales_window
+              <select id="sales_window" data-setting>
+                <option value="3">3</option>
+                <option value="6">6</option>
+              </select>
+            </label>
+            <label for="delivery_lower_bound">delivery_lower_bound
+              <input id="delivery_lower_bound" type="number" step="any" min="0" data-setting />
+            </label>
+            <label for="delivery_upper_bound">delivery_upper_bound
+              <input id="delivery_upper_bound" type="number" step="any" min="0" data-setting />
+            </label>
+            <label for="weight_demand">weight_demand
+              <input id="weight_demand" type="number" step="any" min="0" data-setting />
+            </label>
+            <label for="weight_target_units">weight_target_units
+              <input id="weight_target_units" type="number" step="any" min="0" data-setting />
+            </label>
+            <label for="weight_smoothing">weight_smoothing
+              <input id="weight_smoothing" type="number" step="any" min="0" data-setting />
+            </label>
+            <label for="weight_shipment">weight_shipment
+              <input id="weight_shipment" type="number" step="any" min="0" data-setting />
+            </label>
+          </div>
+        </details>
 
-        <fieldset class="settings-grid" id="sa-options" hidden>
-          <legend>Simulated Annealing options</legend>
-          <label for="sa_max_iter">max_iter
-            <input id="sa_max_iter" type="number" step="1" min="1" data-sa />
-          </label>
-          <label for="sa_initial_temp">initial_temp
-            <input id="sa_initial_temp" type="number" step="any" min="0" data-sa />
-          </label>
-          <label for="sa_min_temp">min_temp
-            <input id="sa_min_temp" type="number" step="any" min="0" data-sa />
-          </label>
-          <label for="sa_cooling_rate">cooling_rate
-            <input id="sa_cooling_rate" type="number" step="any" min="0" data-sa />
-          </label>
-          <label for="sa_step_scale">step_scale
-            <input id="sa_step_scale" type="number" step="any" min="0" data-sa />
-          </label>
-          <label for="sa_transfer_fraction">transfer_fraction
-            <input id="sa_transfer_fraction" type="number" step="any" min="0" data-sa />
-          </label>
-          <label for="sa_initial_scale">initial_scale
-            <input id="sa_initial_scale" type="number" step="any" min="0" data-sa />
-          </label>
-          <label for="sa_decrease_bias">decrease_bias
-            <input id="sa_decrease_bias" type="number" step="any" min="0" data-sa />
-          </label>
-        </fieldset>
+        <details class="collapsible-panel" id="sa-options" hidden>
+          <summary>Simulated Annealing options</summary>
+          <div class="settings-grid">
+            <label for="sa_max_iter">max_iter
+              <input id="sa_max_iter" type="number" step="1" min="1" data-sa />
+            </label>
+            <label for="sa_initial_temp">initial_temp
+              <input id="sa_initial_temp" type="number" step="any" min="0" data-sa />
+            </label>
+            <label for="sa_min_temp">min_temp
+              <input id="sa_min_temp" type="number" step="any" min="0" data-sa />
+            </label>
+            <label for="sa_cooling_rate">cooling_rate
+              <input id="sa_cooling_rate" type="number" step="any" min="0" data-sa />
+            </label>
+            <label for="sa_step_scale">step_scale
+              <input id="sa_step_scale" type="number" step="any" min="0" data-sa />
+            </label>
+            <label for="sa_transfer_fraction">transfer_fraction
+              <input id="sa_transfer_fraction" type="number" step="any" min="0" data-sa />
+            </label>
+            <label for="sa_initial_scale">initial_scale
+              <input id="sa_initial_scale" type="number" step="any" min="0" data-sa />
+            </label>
+            <label for="sa_decrease_bias">decrease_bias
+              <input id="sa_decrease_bias" type="number" step="any" min="0" data-sa />
+            </label>
+          </div>
+        </details>
 
         <label>
           <input id="include_export_variables" type="checkbox" />
@@ -159,6 +167,9 @@
     const freshnessTable = document.getElementById("freshness-table");
     const jobStatus = document.getElementById("job-status");
     const jobLog = document.getElementById("job-log");
+    const refreshProgressWrap = document.getElementById("refresh-progress-wrap");
+    const refreshProgress = document.getElementById("refresh-progress");
+    const refreshProgressLabel = document.getElementById("refresh-progress-label");
     const optimizeBanner = document.getElementById("optimize-banner");
     const optimizeSummary = document.getElementById("optimize-summary");
     const optimizeResult = document.getElementById("optimize-result");
@@ -194,6 +205,30 @@
       if (data.message) parts.push(data.message);
       if (data.error) parts.push(`Error: ${data.error}`);
       return parts.join(" — ");
+    }
+
+    function hideRefreshProgress() {
+      refreshProgressWrap.hidden = true;
+      refreshProgress.value = 0;
+      refreshProgressLabel.textContent = "Refreshing…";
+    }
+
+    function updateRefreshProgress(data) {
+      if (data.kind !== "refresh" || !data.progress) {
+        if (data.kind !== "refresh") hideRefreshProgress();
+        return;
+      }
+      const p = data.progress;
+      refreshProgressWrap.hidden = false;
+      refreshProgress.value = p.percent ?? 0;
+      refreshProgressLabel.textContent =
+        p.message ||
+        (p.pipeline_name
+          ? `Running ${p.pipeline_name} (${p.current}/${p.total})`
+          : "Refreshing…");
+      if (data.status === "succeeded") {
+        refreshProgress.value = 100;
+      }
     }
 
     function applyOptimizeGate() {
@@ -335,9 +370,13 @@
         const data = await res.json();
         jobStatus.textContent = formatJobStatus(data);
         jobLog.textContent = JSON.stringify(data, null, 2);
+        updateRefreshProgress(data);
         if (data.status === "succeeded" || data.status === "failed") {
           clearInterval(pollTimer);
           setBusy(false);
+          if (data.status === "failed" || data.kind !== "refresh") {
+            hideRefreshProgress();
+          }
           onDone(data);
         }
       }, 1500);
@@ -345,6 +384,10 @@
 
     async function refreshData() {
       downloadLink.hidden = true;
+      hideRefreshProgress();
+      refreshProgressWrap.hidden = false;
+      refreshProgress.value = 0;
+      refreshProgressLabel.textContent = "Queued…";
       const payload = {
         snapshot_date: snapshotInput.value,
       };
@@ -358,6 +401,7 @@
         const msg = formatError(data, "Refresh failed to start");
         jobStatus.textContent = msg;
         jobLog.textContent = JSON.stringify(data, null, 2);
+        hideRefreshProgress();
         return;
       }
       jobStatus.textContent = `Refresh queued (${data.job_id})`;
@@ -365,6 +409,10 @@
       pollJob(data.job_id, async (job) => {
         if (job.status === "failed") {
           jobStatus.textContent = formatJobStatus(job);
+          hideRefreshProgress();
+        } else if (job.status === "succeeded") {
+          refreshProgress.value = 100;
+          refreshProgressLabel.textContent = job.message || "Refresh completed";
         }
         await checkStatus();
       });
@@ -372,6 +420,7 @@
 
     async function runOptimize() {
       downloadLink.hidden = true;
+      hideRefreshProgress();
       optimizeResult.textContent = "";
       const payload = {
         snapshot_date: snapshotInput.value,

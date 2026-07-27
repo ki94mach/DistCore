@@ -8,6 +8,7 @@ from typing import Any, Callable, Optional
 from src.optimization.data import OptimizationSettings
 from src.optimization.export import ExportRequestMeta, write_optimization_xlsx
 from src.optimization.service import OptimizationService, RunRequest, RunResult
+from src.orchestrator.pipelines.catalog import PIPELINE_CATALOG
 from src.orchestrator.pipelines.service import (
     PipelineService,
     RefreshAllRequest,
@@ -80,14 +81,36 @@ class JobRunner:
         include_deliveries: bool,
     ) -> None:
         try:
-            self._store.mark_running(job_id, "Refreshing snapshots")
+            planned = [
+                definition
+                for definition in PIPELINE_CATALOG
+                if not (definition.optional_for_optimize and not include_deliveries)
+            ]
+            total = len(planned)
+            self._store.mark_running(
+                job_id, f"Refreshing snapshots (0/{total})"
+            )
             service = self._pipeline_service_factory()
+
+            def on_progress(current: int, total_count: int, definition) -> None:
+                self._store.update_progress(
+                    job_id,
+                    current=current,
+                    total=total_count,
+                    pipeline=definition.key.value,
+                    pipeline_name=definition.name,
+                    message=(
+                        f"Running {definition.name} ({current}/{total_count})"
+                    ),
+                )
+
             result = service.refresh_all(
                 RefreshAllRequest(
                     snapshot_date=snapshot_date,
                     include_deliveries=include_deliveries,
                     triggered_by="WEB_UI",
-                )
+                ),
+                on_progress=on_progress,
             )
             self._store.write_result(job_id, serialize_refresh_result(result))
             if result.is_successful:

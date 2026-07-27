@@ -94,6 +94,47 @@ class TestPipelineService(unittest.TestCase):
         self.assertIn(PipelineKey.SALES, result.failed)
         self.assertNotIn(PipelineKey.DISTRIBUTOR_DELIVERIES, [r.pipeline for r in result.results])
 
+    def test_refresh_all_invokes_on_progress_per_pipeline(self) -> None:
+        progress_calls: list[tuple[int, int, str]] = []
+
+        def on_progress(current: int, total: int, definition) -> None:
+            progress_calls.append((current, total, definition.key.value))
+
+        def make_runner(key: PipelineKey):
+            def _runner(**_kwargs):
+                return _pipeline_with_batch()
+
+            return _runner
+
+        service = PipelineService(
+            Mock(),
+            pipeline_factories={
+                PipelineKey.FACTORY_INVENTORY: make_runner(PipelineKey.FACTORY_INVENTORY),
+                PipelineKey.DISTRIBUTOR_INVENTORY: make_runner(
+                    PipelineKey.DISTRIBUTOR_INVENTORY
+                ),
+                PipelineKey.SALES: make_runner(PipelineKey.SALES),
+                PipelineKey.TARGET: make_runner(PipelineKey.TARGET),
+                PipelineKey.DISTRIBUTOR_DELIVERIES: make_runner(
+                    PipelineKey.DISTRIBUTOR_DELIVERIES
+                ),
+            },
+        )
+        service.refresh_all(
+            RefreshAllRequest(snapshot_date=date(2026, 7, 27), include_deliveries=True),
+            on_progress=on_progress,
+        )
+        self.assertEqual(
+            progress_calls,
+            [
+                (1, 5, "factory_inventory"),
+                (2, 5, "distributor_inventory"),
+                (3, 5, "sales"),
+                (4, 5, "target"),
+                (5, 5, "distributor_deliveries"),
+            ],
+        )
+
     def test_typed_error_translation(self) -> None:
         failing_db = Mock()
         failing_db.return_value = _pipeline_with_batch()

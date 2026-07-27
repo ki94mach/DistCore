@@ -16,6 +16,7 @@ class TestJobStore(unittest.TestCase):
             job_id = store.create("refresh", {"snapshot_date": "2026-07-27"})
             meta = store.read_meta(job_id)
             self.assertEqual(meta["status"], "queued")
+            self.assertIsNone(meta.get("progress"))
             store.mark_running(job_id)
             self.assertEqual(store.read_meta(job_id)["status"], "running")
             store.write_result(job_id, {"ok": True})
@@ -23,6 +24,34 @@ class TestJobStore(unittest.TestCase):
             done = store.read_meta(job_id)
             self.assertEqual(done["status"], "succeeded")
             self.assertEqual(store.read_result(job_id), {"ok": True})
+
+    def test_update_progress_and_succeed_sets_percent_100(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = JobStore(Path(tmp))
+            job_id = store.create("refresh", {})
+            store.mark_running(job_id, "Refreshing snapshots (0/5)")
+            store.update_progress(
+                job_id,
+                current=3,
+                total=5,
+                pipeline="sales",
+                pipeline_name="Sales Snapshot",
+                message="Running Sales Snapshot (3/5)",
+            )
+            meta = store.read_meta(job_id)
+            self.assertEqual(meta["message"], "Running Sales Snapshot (3/5)")
+            progress = meta["progress"]
+            self.assertEqual(progress["current"], 3)
+            self.assertEqual(progress["total"], 5)
+            self.assertEqual(progress["pipeline"], "sales")
+            self.assertEqual(progress["pipeline_name"], "Sales Snapshot")
+            self.assertEqual(progress["percent"], 40)
+            self.assertEqual(progress["message"], "Running Sales Snapshot (3/5)")
+
+            store.mark_succeeded(job_id, "Refresh completed")
+            done = store.read_meta(job_id)
+            self.assertEqual(done["progress"]["percent"], 100)
+            self.assertEqual(done["progress"]["pipeline"], "sales")
 
     def test_mark_stale_on_startup(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

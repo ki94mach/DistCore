@@ -112,6 +112,9 @@ class TestWebRoutes(unittest.TestCase):
             "sa-options",
             "btn-refresh-cta",
             "job-status",
+            "refresh-progress",
+            "refresh-progress-label",
+            "refresh-progress-wrap",
         ):
             self.assertIn(f'id="{field_id}"', html)
 

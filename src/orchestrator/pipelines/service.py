@@ -12,6 +12,7 @@ import requests
 from .catalog import (
     PIPELINE_CATALOG,
     PIPELINES_BY_KEY,
+    PipelineDefinition,
     PipelineKey,
     get_pipeline_definition,
 )
@@ -147,15 +148,31 @@ class PipelineService:
                 batch_id=self._batch_id(pipeline),
             ) from exc
 
-    def refresh_all(self, request: RefreshAllRequest) -> RefreshAllResult:
+    def refresh_all(
+        self,
+        request: RefreshAllRequest,
+        *,
+        on_progress: Optional[
+            Callable[[int, int, PipelineDefinition], None]
+        ] = None,
+    ) -> RefreshAllResult:
         self._validate_request(PipelineKey.FACTORY_INVENTORY, request.triggered_by)
         results: list[PipelineRefreshResult] = []
         succeeded: list[PipelineKey] = []
         failed: list[PipelineKey] = []
 
-        for definition in PIPELINE_CATALOG:
-            if definition.optional_for_optimize and not request.include_deliveries:
-                continue
+        definitions = [
+            definition
+            for definition in PIPELINE_CATALOG
+            if not (
+                definition.optional_for_optimize and not request.include_deliveries
+            )
+        ]
+        total = len(definitions)
+
+        for index, definition in enumerate(definitions, start=1):
+            if on_progress is not None:
+                on_progress(index, total, definition)
             try:
                 result = self.refresh_one(
                     RefreshRequest(

@@ -36,6 +36,7 @@ class JobStore:
             "request": request,
             "error": None,
             "message": "Queued",
+            "progress": None,
         }
         self._write_meta(job_dir, meta)
         return job_id
@@ -47,12 +48,41 @@ class JobStore:
         meta["message"] = message
         self._write_meta(self.root / job_id, meta)
 
+    def update_progress(
+        self,
+        job_id: str,
+        *,
+        current: int,
+        total: int,
+        pipeline: str,
+        pipeline_name: str,
+        message: str,
+    ) -> None:
+        """Update coarse per-pipeline progress while a refresh job is running."""
+        meta = self.read_meta(job_id)
+        percent = int((current - 1) / total * 100) if total > 0 else 0
+        meta["progress"] = {
+            "current": current,
+            "total": total,
+            "pipeline": pipeline,
+            "pipeline_name": pipeline_name,
+            "percent": percent,
+            "message": message,
+        }
+        meta["message"] = message
+        self._write_meta(self.root / job_id, meta)
+
     def mark_succeeded(self, job_id: str, message: str = "OK") -> None:
         meta = self.read_meta(job_id)
         meta["status"] = "succeeded"
         meta["finished_at"] = _utc_now()
         meta["message"] = message
         meta["error"] = None
+        progress = meta.get("progress")
+        if isinstance(progress, dict):
+            progress = dict(progress)
+            progress["percent"] = 100
+            meta["progress"] = progress
         self._write_meta(self.root / job_id, meta)
 
     def mark_failed(self, job_id: str, error: str) -> None:

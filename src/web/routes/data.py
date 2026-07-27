@@ -9,7 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
 from src.web.deps import get_freshness_repository, get_job_runner, get_job_store, get_lock
 from src.web.errors import JobConflictError
-from src.web.schemas import JobAccepted, JobStatus, RefreshBody
+from src.web.schemas import JobAccepted, JobProgress, JobStatus, RefreshBody
 
 router = APIRouter(tags=["data"])
 
@@ -23,6 +23,8 @@ def _job_status(job_id: str) -> JobStatus:
     result = store.read_result(job_id) if meta.get("status") == "succeeded" else None
     if meta.get("status") == "failed":
         result = store.read_result(job_id)
+    progress_raw = meta.get("progress")
+    progress = JobProgress(**progress_raw) if progress_raw else None
     return JobStatus(
         job_id=meta["job_id"],
         kind=meta["kind"],
@@ -33,6 +35,7 @@ def _job_status(job_id: str) -> JobStatus:
         request=meta.get("request") or {},
         error=meta.get("error"),
         message=meta.get("message"),
+        progress=progress,
         result=result,
     )
 

@@ -65,6 +65,15 @@ class JobAccepted(BaseModel):
     status: str = "queued"
 
 
+class JobProgress(BaseModel):
+    current: int
+    total: int
+    pipeline: str
+    pipeline_name: str
+    percent: int
+    message: str
+
+
 class JobStatus(BaseModel):
     job_id: str
     kind: str
@@ -75,6 +84,7 @@ class JobStatus(BaseModel):
     request: dict[str, Any]
     error: Optional[str] = None
     message: Optional[str] = None
+    progress: Optional[JobProgress] = None
     result: Optional[dict[str, Any]] = None
 
 
