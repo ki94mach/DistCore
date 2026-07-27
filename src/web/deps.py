@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -27,10 +28,39 @@ def get_project_root() -> Path:
     return _PROJECT_ROOT
 
 
+def resolve_db_config_path() -> Optional[Path]:
+    """Return DISTCORE_DB_CONFIG path when set, else None (use factory default)."""
+    raw = os.environ.get("DISTCORE_DB_CONFIG", "").strip()
+    if not raw:
+        return None
+    return Path(raw).expanduser().resolve()
+
+
+def resolve_jobs_root() -> Path:
+    """Jobs directory: DISTCORE_JOBS_DIR or {repo}/data/jobs."""
+    raw = os.environ.get("DISTCORE_JOBS_DIR", "").strip()
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return _DEFAULT_JOBS_ROOT
+
+
+def resolve_bind_host() -> str:
+    return os.environ.get("DISTCORE_HOST", "0.0.0.0").strip() or "0.0.0.0"
+
+
+def resolve_bind_port() -> int:
+    raw = os.environ.get("DISTCORE_PORT", "8000").strip() or "8000"
+    return int(raw)
+
+
 def get_connection_factory() -> DBConnectionFactory:
     global _factory
     if _factory is None:
-        _factory = DBConnectionFactory()
+        config_path = resolve_db_config_path()
+        if config_path is not None:
+            _factory = DBConnectionFactory.from_config_file(config_path)
+        else:
+            _factory = DBConnectionFactory()
     return _factory
 
 
@@ -57,7 +87,7 @@ def get_health_checker() -> DatabaseHealthChecker:
 def get_job_store(root: Optional[Path] = None) -> JobStore:
     global _job_store
     if _job_store is None:
-        _job_store = JobStore(root or _DEFAULT_JOBS_ROOT)
+        _job_store = JobStore(root or resolve_jobs_root())
     return _job_store
 
 

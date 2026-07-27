@@ -31,9 +31,10 @@
           </div>
         </div>
         <label>
-          <input id="include_deliveries" type="checkbox" checked />
+          <input id="include_deliveries" type="checkbox" />
           Include distributor deliveries
         </label>
+        <p class="muted">Leave unchecked unless this host can reach SharePoint/DMS. Otherwise refresh SQL snapshots only and load deliveries via laptop pipeline_cli.</p>
         <p class="muted" id="freshness-summary">Pick a date and check status.</p>
         <div id="freshness-table"></div>
         <pre id="job-log" class="muted">No job running.</pre>

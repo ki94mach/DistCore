@@ -89,6 +89,17 @@ class TestWebRoutes(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             self.assertNotIn("services.vpn", text)
             self.assertNotIn("ensure_vpn_connected", text)
+            self.assertNotIn("from src.orchestrator.services.vpn", text)
+
+    def test_ui_include_deliveries_defaults_unchecked(self) -> None:
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        html = response.text
+        self.assertIn('id="include_deliveries"', html)
+        self.assertNotIn(
+            'id="include_deliveries" type="checkbox" checked',
+            html,
+        )
 
     def test_data_status(self) -> None:
         from datetime import UTC, datetime
