@@ -12,9 +12,11 @@ pandas>=2.0.0
 openpyxl>=3.1.0
 requests>=2.31.0
 
-# Windows-only: DMS SharePoint integrated auth
-# Install on domain-joined Windows: pip install requests-negotiate-sspi
+# DMS SharePoint auth
+# Windows: integrated SSPI (optional when username/password are set)
 requests-negotiate-sspi>=0.3.0; platform_system=="Windows"
+# Linux / Docker (and Windows fallback): NTLM with username + password
+requests-ntlm>=1.2.0
 
 # --- Optimization ---
 pulp>=2.7.0

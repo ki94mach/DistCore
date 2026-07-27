@@ -1,0 +1,33 @@
+# DistCore Web MVP
+#
+# 1. Copy db.yml.example / dms.yml.example → ./secrets/ (SQL auth + DMS NTLM)
+# 2. Or set DISTCORE_DMS_USERNAME / DISTCORE_DMS_PASSWORD in the environment
+# 3. docker compose up --build
+#
+# UI: http://localhost:8000  |  Health: http://localhost:8000/health
+
+services:
+  web:
+    build: .
+    image: distcore-web:latest
+    ports:
+      - "${DISTCORE_PORT:-8000}:8000"
+    environment:
+      DISTCORE_HOST: "0.0.0.0"
+      DISTCORE_PORT: "8000"
+      DISTCORE_JOBS_DIR: /app/data/jobs
+      DISTCORE_DB_CONFIG: /config/db.yml
+      DISTCORE_DMS_CONFIG: /config/dms.yml
+      DISTCORE_DMS_AUTH: "${DISTCORE_DMS_AUTH:-ntlm}"
+      DISTCORE_DMS_USERNAME: "${DISTCORE_DMS_USERNAME:-}"
+      DISTCORE_DMS_PASSWORD: "${DISTCORE_DMS_PASSWORD:-}"
+    volumes:
+      # SQL + DMS config (do not bake secrets into the image)
+      - ${DISTCORE_DB_CONFIG_HOST:-./secrets/db.yml}:/config/db.yml:ro
+      - ${DISTCORE_DMS_CONFIG_HOST:-./secrets/dms.yml}:/config/dms.yml:ro
+      # Persist job artifacts across restarts
+      - distcore-jobs:/app/data/jobs
+    restart: unless-stopped
+
+volumes:
+  distcore-jobs:

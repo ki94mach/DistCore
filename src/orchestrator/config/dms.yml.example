@@ -1,0 +1,18 @@
+# Copy to dms.yml and adjust for your environment.
+# On Linux / Docker: use NTLM (or Basic) with username + password.
+# On domain-joined Windows: omit credentials to use integrated SSPI auth.
+#
+# Prefer env vars for secrets in production:
+#   DISTCORE_DMS_USERNAME
+#   DISTCORE_DMS_PASSWORD
+#   DISTCORE_DMS_AUTH=ntlm   # optional: auto | ntlm | sspi | basic
+#   DISTCORE_DMS_CONFIG=/path/to/dms.yml
+
+dms:
+  # auth: ntlm
+  # username: mohajeri.k@orchidpharmed.com
+  # password: "****"
+
+  distributor_deliveries:
+    historical_folder_url: "https://dms.orchidpharmed.com/OneDrive/Supply%20Chain/Supply%20Chain%20Team_DMS/%D8%AA%D8%AD%D9%88%DB%8C%D9%84%20%D8%A8%D9%87%20%D9%BE%D8%AE%D8%B4%20%D9%87%D8%A7%20.49/1404"
+    current_folder_url: "https://dms.orchidpharmed.com/OneDrive/Supply%20Chain/Supply%20Chain%20Team_DMS/%D8%AA%D8%AD%D9%88%DB%8C%D9%84%20%D8%A8%D9%87%20%D9%BE%D8%AE%D8%B4%20%D9%87%D8%A7%20.49/1405"

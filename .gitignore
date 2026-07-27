@@ -14,6 +14,7 @@
 *.csv
 *.txt
 !requirements.txt
+!docker-compose.yml
 *.log
 *.err
 *.out

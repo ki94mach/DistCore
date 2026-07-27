@@ -22,7 +22,7 @@ Health and API errors mean **network / credentials / ODBC / DMS reachability**, 
 | File | Role |
 | --- | --- |
 | `src/orchestrator/config/db.yml` | SQL `source` / `prod` (start from `db.yml.example`) |
-| `src/orchestrator/config/dms.yml` | SharePoint folder URLs for distributor deliveries refresh |
+| `src/orchestrator/config/dms.yml` | SharePoint folder URLs + optional NTLM credentials (start from `dms.yml.example`) |
 | `src/orchestrator/config/vpn.yml` | **CLI only** — not used by the app |
 
 Windows auth or SQL auth are both supported by `DBConnectionFactory`.
@@ -32,6 +32,10 @@ Windows auth or SQL auth are both supported by `DBConnectionFactory`.
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `DISTCORE_DB_CONFIG` | Path to `db.yml` | Factory default under `src/orchestrator/config/db.yml` |
+| `DISTCORE_DMS_CONFIG` | Path to `dms.yml` | `src/orchestrator/config/dms.yml` |
+| `DISTCORE_DMS_USERNAME` | DMS NTLM/Basic username | From `dms.yml` if unset |
+| `DISTCORE_DMS_PASSWORD` | DMS NTLM/Basic password | From `dms.yml` if unset |
+| `DISTCORE_DMS_AUTH` | `auto` / `ntlm` / `sspi` / `basic` | `auto` |
 | `DISTCORE_JOBS_DIR` | Jobs root | `{repo}/data/jobs` |
 | `DISTCORE_HOST` | Bind address | `0.0.0.0` |
 | `DISTCORE_PORT` | Bind port | `8000` |
@@ -77,7 +81,9 @@ No automatic in-app garbage collection in MVP.
 
 Web refresh **always** includes distributor deliveries (no UI toggle).
 
-- The **app host** needs Windows + SSPI SharePoint access and a valid `dms.yml` (same path as CLI DMS).
+- Valid `dms.yml` folder URLs are required (see `dms.yml.example`).
+- **Windows (domain-joined):** SSPI by default when no DMS credentials are set.
+- **Linux / Docker:** set `DISTCORE_DMS_USERNAME` + `DISTCORE_DMS_PASSWORD` (NTLM; `DISTCORE_DMS_AUTH=ntlm`) or put `username` / `password` under the `dms:` key in `dms.yml`.
 - Freshness still marks deliveries `optional_for_optimize`; optimize can proceed when the four required SQL snapshots are `ready` even if deliveries are missing/partial.
 
 Errors: DB → **503**, DMS → **502**, busy lock → **409**.

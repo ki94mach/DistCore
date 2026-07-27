@@ -11,20 +11,18 @@ def main():
     Example: Load distributor deliveries from DMS SharePoint folders.
 
     Prerequisites:
-    1. Configure folder URLs in src/orchestrator/config/dms.yml:
-       dms:
-         distributor_deliveries:
-           historical_folder_url: https://dms.orchidpharmed.com/.../1404
-           current_folder_url: https://dms.orchidpharmed.com/.../1405
+    1. Configure folder URLs in src/orchestrator/config/dms.yml
+       (see dms.yml.example).
 
-    2. Run on a domain-joined Windows machine (Windows integrated auth).
+    2. Auth:
+       - Domain-joined Windows: SSPI by default (pip install requests-negotiate-sspi)
+       - Linux / Docker: NTLM via DISTCORE_DMS_USERNAME + DISTCORE_DMS_PASSWORD
+         (pip install requests-ntlm)
 
-    3. Install dependency: pip install requests-negotiate-sspi
-
-    4. Ensure Excel files follow the pattern:
+    3. Ensure Excel files follow the pattern:
        "دیتابیس تحویل به پخش ها - [Factory Name] - 1404/1405.xlsx"
 
-    5. Run prod migration: python scripts/migrations.py --prod
+    4. Run prod migration: python scripts/migrations.py --prod
        (creates [Data].[fact_DistributorDeliveries] on the prod database)
     """
     deliveries_config = DmsConfigLoader.get_distributor_deliveries_config()
