@@ -86,7 +86,12 @@ class TestOptimizationXlsxExport(unittest.TestCase):
         self.assertEqual(shipments["B2"].value, "محصول یک")
 
         parameters = workbook["Parameters"]
-        values = {row[0].value: row[1].value for row in parameters.iter_rows(min_row=1, max_col=2)}
+        values = {
+            row[0].value: row[1].value
+            for row in parameters.iter_rows(min_row=2, max_col=2)
+        }
+        self.assertEqual(parameters["A1"].value, "parameter")
+        self.assertEqual(parameters["B1"].value, "value")
         self.assertEqual(values["snapshot_date"], "2026-07-27")
         self.assertEqual(values["solver"], "Greedy")
         self.assertEqual(values["settings_preset"], "default")
@@ -155,6 +160,43 @@ class TestOptimizationXlsxExport(unittest.TestCase):
             download_filename(date(2026, 7, 27), "SimulatedAnnealing"),
             "optimization_2026-07-27_SimulatedAnnealing.xlsx",
         )
+
+    def test_shipments_sheet_formatting(self) -> None:
+        result = _fake_result()
+        # Two data rows so alternating fill is observable on row 3
+        result = RunResult(
+            status=result.status,
+            objective=result.objective,
+            solver_name=result.solver_name,
+            is_optimal=result.is_optimal,
+            is_feasible=result.is_feasible,
+            shipments=result.shipments,
+            summary=result.summary,
+            table=TabularData(
+                columns=result.table.columns,
+                rows=(
+                    result.table.rows[0],
+                    {
+                        "distributor": "Distributor Two",
+                        "product": "محصول دو",
+                        "quantity": 3.0,
+                    },
+                ),
+            ),
+        )
+        workbook = build_optimization_workbook(
+            result,
+            request=ExportRequestMeta(snapshot_date=date(2026, 7, 27), solver="Greedy"),
+        )
+        sheet = workbook["Shipments"]
+        self.assertEqual(sheet["A1"].font.color.rgb, "00FFFFFF")
+        self.assertEqual(sheet["A1"].fill.fgColor.rgb, "00102A43")
+        self.assertTrue(sheet["A1"].font.bold)
+        self.assertEqual(sheet.freeze_panes, "A2")
+        self.assertGreaterEqual(sheet.column_dimensions["A"].width, 10)
+        # Second data row (row 3) should have alternate fill
+        self.assertEqual(sheet["A3"].fill.fgColor.rgb, "00F0F4F8")
+        self.assertFalse(sheet.sheet_view.showGridLines)
 
 
 if __name__ == "__main__":
