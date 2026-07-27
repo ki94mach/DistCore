@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DistCore — Refresh & Optimize</title>
+  <link rel="stylesheet" href="/static/app.css" />
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <h1>DistCore</h1>
+      <p>One-user MVP: refresh SQL snapshots, run optimization, download Excel.</p>
+    </header>
+
+    <div class="grid">
+      <section class="card">
+        <h2>1. Data freshness</h2>
+        <div class="row">
+          <div>
+            <label for="snapshot_date">Snapshot date</label>
+            <input id="snapshot_date" type="date" />
+          </div>
+          <div>
+            <label>&nbsp;</label>
+            <div class="actions">
+              <button id="btn-status" type="button">Check status</button>
+              <button id="btn-refresh" class="secondary" type="button">Refresh data</button>
+            </div>
+          </div>
+        </div>
+        <label>
+          <input id="include_deliveries" type="checkbox" checked />
+          Include distributor deliveries
+        </label>
+        <p class="muted" id="freshness-summary">Pick a date and check status.</p>
+        <div id="freshness-table"></div>
+        <pre id="job-log" class="muted">No job running.</pre>
+      </section>
+
+      <section class="card">
+        <h2>2. Optimize</h2>
+        <label for="solver">Solver</label>
+        <select id="solver"></select>
+
+        <label for="preset">Settings preset (optional)</label>
+        <select id="preset">
+          <option value="">— defaults / custom —</option>
+        </select>
+
+        <label>
+          <input id="include_export_variables" type="checkbox" />
+          Include input variables in Excel
+        </label>
+
+        <div class="actions">
+          <button id="btn-optimize" type="button">Run optimization</button>
+          <a id="download-link" class="download" href="#" hidden>Download Excel</a>
+        </div>
+        <p class="muted" id="optimize-summary">Ready when data status is ready.</p>
+        <pre id="optimize-result"></pre>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const today = new Date().toISOString().slice(0, 10);
+    const snapshotInput = document.getElementById("snapshot_date");
+    snapshotInput.value = today;
+
+    const freshnessSummary = document.getElementById("freshness-summary");
+    const freshnessTable = document.getElementById("freshness-table");
+    const jobLog = document.getElementById("job-log");
+    const optimizeSummary = document.getElementById("optimize-summary");
+    const optimizeResult = document.getElementById("optimize-result");
+    const downloadLink = document.getElementById("download-link");
+    const btnStatus = document.getElementById("btn-status");
+    const btnRefresh = document.getElementById("btn-refresh");
+    const btnOptimize = document.getElementById("btn-optimize");
+    let pollTimer = null;
+
+    function setBusy(busy) {
+      btnStatus.disabled = busy;
+      btnRefresh.disabled = busy;
+      btnOptimize.disabled = busy;
+    }
+
+    async function loadMeta() {
+      const [solvers, presets] = await Promise.all([
+        fetch("/solvers").then((r) => r.json()),
+        fetch("/presets").then((r) => r.json()),
+      ]);
+      const solverSelect = document.getElementById("solver");
+      solverSelect.innerHTML = "";
+      (solvers.priority || []).forEach((name) => {
+        const opt = document.createElement("option");
+        opt.value = name;
+        const available = (solvers.available || []).includes(name);
+        opt.textContent = available ? name : `${name} (unavailable)`;
+        opt.disabled = !available;
+        solverSelect.appendChild(opt);
+      });
+      const presetSelect = document.getElementById("preset");
+      (presets.presets || []).forEach((item) => {
+        const opt = document.createElement("option");
+        opt.value = item.name;
+        opt.textContent = item.name;
+        presetSelect.appendChild(opt);
+      });
+    }
+
+    async function checkStatus() {
+      const date = snapshotInput.value;
+      const res = await fetch(`/data/status?snapshot_date=${encodeURIComponent(date)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        freshnessSummary.textContent = data.detail || "Status check failed";
+        freshnessSummary.className = "status-pill bad";
+        return;
+      }
+      freshnessSummary.textContent = `Overall: ${data.state}`;
+      freshnessSummary.className = data.state === "ready" ? "status-pill" : "status-pill bad";
+      const rows = (data.pipelines || [])
+        .map(
+          (p) =>
+            `<tr><td>${p.pipeline}</td><td>${p.state}</td><td>${p.row_count}</td><td>${p.optional_for_optimize ? "yes" : "no"}</td></tr>`
+        )
+        .join("");
+      freshnessTable.innerHTML = `
+        <table class="table">
+          <thead><tr><th>Pipeline</th><th>State</th><th>Rows</th><th>Optional</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    }
+
+    async function pollJob(jobId, onDone) {
+      clearInterval(pollTimer);
+      setBusy(true);
+      pollTimer = setInterval(async () => {
+        const res = await fetch(`/jobs/${jobId}`);
+        const data = await res.json();
+        jobLog.textContent = JSON.stringify(data, null, 2);
+        if (data.status === "succeeded" || data.status === "failed") {
+          clearInterval(pollTimer);
+          setBusy(false);
+          onDone(data);
+        }
+      }, 1500);
+    }
+
+    async function refreshData() {
+      downloadLink.hidden = true;
+      const payload = {
+        snapshot_date: snapshotInput.value,
+        include_deliveries: document.getElementById("include_deliveries").checked,
+      };
+      const res = await fetch("/data/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        jobLog.textContent = data.detail || JSON.stringify(data);
+        return;
+      }
+      jobLog.textContent = `Refresh queued: ${data.job_id}`;
+      pollJob(data.job_id, async () => {
+        await checkStatus();
+      });
+    }
+
+    async function runOptimize() {
+      downloadLink.hidden = true;
+      optimizeResult.textContent = "";
+      const preset = document.getElementById("preset").value;
+      const payload = {
+        snapshot_date: snapshotInput.value,
+        solver: document.getElementById("solver").value,
+        include_export_variables: document.getElementById("include_export_variables").checked,
+      };
+      if (preset) payload.settings_preset = preset;
+      const res = await fetch("/optimizations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        optimizeSummary.textContent = data.detail || "Optimize failed to start";
+        optimizeSummary.className = "status-pill bad";
+        return;
+      }
+      optimizeSummary.textContent = `Optimize queued: ${data.job_id}`;
+      optimizeSummary.className = "status-pill";
+      pollJob(data.job_id, (job) => {
+        if (job.status === "succeeded") {
+          optimizeSummary.textContent = "Optimization succeeded";
+          optimizeResult.textContent = JSON.stringify(job.result, null, 2);
+          downloadLink.href = `/optimizations/${job.job_id}/download`;
+          downloadLink.hidden = false;
+        } else {
+          optimizeSummary.textContent = job.error || "Optimization failed";
+          optimizeSummary.className = "status-pill bad";
+        }
+      });
+    }
+
+    btnStatus.addEventListener("click", checkStatus);
+    btnRefresh.addEventListener("click", refreshData);
+    btnOptimize.addEventListener("click", runOptimize);
+    loadMeta().catch((err) => {
+      jobLog.textContent = String(err);
+    });
+  </script>
+</body>
+</html>

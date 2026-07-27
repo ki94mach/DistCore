@@ -27,3 +27,6 @@
 
 # ETL extract cache (SQL pipeline staging checkpoints)
 data/etl_cache/
+
+# Web MVP job artifacts
+data/jobs/

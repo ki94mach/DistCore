@@ -1,0 +1,95 @@
+"""Shared dependency wiring for the web MVP."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Optional
+
+from src.optimization.service import OptimizationService
+from src.orchestrator.health.db_health import DatabaseHealthChecker
+from src.orchestrator.pipelines.freshness import SnapshotFreshnessRepository
+from src.orchestrator.pipelines.service import PipelineService
+from src.orchestrator.services.sql_server_db import DBConnectionFactory, SQLExecutor
+from src.web.jobs.lock import SingleFlightLock
+from src.web.jobs.runner import JobRunner
+from src.web.jobs.store import JobStore
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_JOBS_ROOT = _PROJECT_ROOT / "data" / "jobs"
+
+_factory: Optional[DBConnectionFactory] = None
+_job_store: Optional[JobStore] = None
+_lock: Optional[SingleFlightLock] = None
+_job_runner: Optional[JobRunner] = None
+
+
+def get_project_root() -> Path:
+    return _PROJECT_ROOT
+
+
+def get_connection_factory() -> DBConnectionFactory:
+    global _factory
+    if _factory is None:
+        _factory = DBConnectionFactory()
+    return _factory
+
+
+def get_sql_executor() -> SQLExecutor:
+    return SQLExecutor(get_connection_factory())
+
+
+def get_pipeline_service() -> PipelineService:
+    return PipelineService(get_connection_factory(), database_type="prod")
+
+
+def get_freshness_repository() -> SnapshotFreshnessRepository:
+    return SnapshotFreshnessRepository(get_connection_factory(), database_type="prod")
+
+
+def get_optimization_service() -> OptimizationService:
+    return OptimizationService(get_sql_executor(), database_type="prod")
+
+
+def get_health_checker() -> DatabaseHealthChecker:
+    return DatabaseHealthChecker(get_connection_factory())
+
+
+def get_job_store(root: Optional[Path] = None) -> JobStore:
+    global _job_store
+    if _job_store is None:
+        _job_store = JobStore(root or _DEFAULT_JOBS_ROOT)
+    return _job_store
+
+
+def get_lock() -> SingleFlightLock:
+    global _lock
+    if _lock is None:
+        _lock = SingleFlightLock()
+    return _lock
+
+
+def get_job_runner() -> JobRunner:
+    global _job_runner
+    if _job_runner is None:
+        _job_runner = JobRunner(
+            get_job_store(),
+            get_lock(),
+            pipeline_service_factory=get_pipeline_service,
+            optimization_service_factory=get_optimization_service,
+        )
+    return _job_runner
+
+
+def reset_runtime_singletons(
+    *,
+    job_store: Optional[JobStore] = None,
+    lock: Optional[SingleFlightLock] = None,
+    job_runner: Optional[JobRunner] = None,
+    factory: Optional[DBConnectionFactory] = None,
+) -> None:
+    """Test helper to replace process-wide singletons."""
+    global _job_store, _lock, _job_runner, _factory
+    _job_store = job_store
+    _lock = lock
+    _job_runner = job_runner
+    _factory = factory

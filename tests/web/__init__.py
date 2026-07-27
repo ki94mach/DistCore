@@ -1,0 +1,1 @@
+"""Web MVP tests package."""
