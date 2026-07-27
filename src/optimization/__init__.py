@@ -19,6 +19,21 @@ from src.optimization.solvers.pulp_solver import CBCSolver, GLPKSolver, PuLPSolv
 from src.optimization.solvers.scipy_solver import ScipyLinprogSolver, ScipySolver
 from src.optimization.solvers.greedy_solver import GreedySolver
 from src.optimization.solvers.simulated_annealing_solver import SimulatedAnnealingSolver
+from src.optimization.errors import (
+    DatabaseUnavailableError,
+    InvalidRunRequestError,
+    MissingSnapshotError,
+    OptimizationServiceError,
+    SolverUnavailableError,
+)
+from src.optimization.service import (
+    OptimizationService,
+    RunRequest,
+    RunResult,
+    RunSummary,
+    Shipment,
+    TabularData,
+)
 
 
 def solve_with_pulp(model, decision_variables, solver_name="CBC"):
@@ -34,6 +49,19 @@ __all__ = [
     # Data
     "OptimizationData",
     "OptimizationSettings",
+    # Application service
+    "OptimizationService",
+    "RunRequest",
+    "RunResult",
+    "RunSummary",
+    "Shipment",
+    "TabularData",
+    # Service errors
+    "OptimizationServiceError",
+    "InvalidRunRequestError",
+    "MissingSnapshotError",
+    "SolverUnavailableError",
+    "DatabaseUnavailableError",
     # Builder / Loader
     "ModelBuilder",
     "SnapshotDataLoader",

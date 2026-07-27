@@ -25,9 +25,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.optimization import (
     OptimizationSettings,
-    ModelBuilder,
-    solve,
-    SnapshotDataLoader,
+    OptimizationService,
+    RunRequest,
+    RunResult,
+)
+from src.optimization.errors import (
+    DatabaseUnavailableError,
+    InvalidRunRequestError,
+    MissingSnapshotError,
+    SolverUnavailableError,
 )
 from src.optimization.solvers import (
     SOLVER_PRIORITY,
@@ -42,14 +48,6 @@ from src.optimization.solvers import (
     get_constraint_preset,
     merge_settings,
     get_constraint_settings_description,
-)
-from src.optimization.constraints import (
-    DeliveryHistoryConstraint,
-    DeliverySmoothingConstraint,
-    FactorySupplyConstraint,
-    DemandCoverageConstraint,
-    ProductTargetUnitsConstraint,
-    ShipmentMinimizationConstraint,
 )
 from src.orchestrator.services.sql_server_db import DBConnectionFactory, SQLExecutor
 from src.orchestrator.services.vpn import ensure_vpn_connected
@@ -522,276 +520,91 @@ def initialize_database(config_path: Optional[str] = None) -> SQLExecutor:
         raise
 
 
-def load_optimization_data(
-    sql_executor: SQLExecutor,
-    snapshot_date: date,
-    snapshot_month: Optional[date],
-    database_type: str,
-    settings: OptimizationSettings
-):
-    """Load optimization data from database."""
-    print_action(f"Loading optimization data from {database_type} database...")
-    print_info(f"Snapshot date: {snapshot_date}")
-    if snapshot_month:
-        print_info(f"Snapshot month: {snapshot_month}")
-    
-    try:
-        loader = SnapshotDataLoader(
-            sql_executor=sql_executor,
-            database_type=database_type
-        )
-        
-        data = loader.load_optimization_data(
-            snapshot_date=snapshot_date,
-            snapshot_month=snapshot_month,
-            settings=settings
-        )
-        
-        print_success(f"Loaded data: {len(data.distributors)} distributors, {len(data.products)} products")
-        return data
-    except Exception as e:
-        print_error(f"Failed to load optimization data: {e}")
-        raise
-
-
-def build_and_solve_model(data, solver_name: str, settings=None, solver_options=None):
-    """Build optimization model and solve. Pass settings to force their use in the model.
-    
-    Args:
-        data: OptimizationData
-        solver_name: Name of the solver to use
-        settings: Optional OptimizationSettings to override defaults
-        solver_options: Optional dict in format {solver_name: options_dict}
-    """
-    print_action("Building optimization model...")
-    
-    # Define constraints
-    constraints = [
-        FactorySupplyConstraint(),            # Hard: factory capacity
-        DeliveryHistoryConstraint(),          # Hard: no delivery without history
-        DeliverySmoothingConstraint(),        # Soft: delivery smoothing
-        DemandCoverageConstraint(),      # Soft: demand coverage
-        ProductTargetUnitsConstraint(),       # Soft: product targets
-        ShipmentMinimizationConstraint(),     # Soft: penalize unnecessary shipment
-    ]
-    
-    constraint_names = [c.__class__.__name__ for c in constraints]
-    print_info(f"Constraints: {', '.join(constraint_names)}")
-    
-    # Build model (settings_override ensures CLI parameters are used in the optimization layer)
-    builder = ModelBuilder(constraints)
-    result = builder.build(data, settings_override=settings)
-    
-    print_success(f"Model built: {len(result.decision_variables)} decision variables, "
-                  f"{len(result.model.constraints)} constraints, "
-                  f"{len(result.slack_variables)} slack variables")
-    
-    # Solve
-    print_action(f"Solving optimization problem with {solver_name} solver...")
-    if solver_options:
-        print_info(f"Solver options: {solver_options.get(solver_name, {})}")
-    try:
-        solution = solve(
-            result.model,
-            result.decision_variables,
-            method=solver_name,
-            data=data,
-            solver_options=solver_options,
-        )
-        print_success(f"Solution status: {solution.status}")
-        return result, solution
-    except ValueError as e:
-        print_error(f"Configuration error: {e}")
-        raise
-    except ImportError as e:
-        print_error(f"Solver not available: {e}")
-        print_error("For LP: pip install pulp  |  For Scipy: pip install scipy")
-        raise
-    except Exception as e:
-        print_error(f"Solver error: {e}")
-        raise
-
-
-def _distributor_label(data, distributor_id: str) -> str:
-    """Display name for distributor (from dimension) or ID if name not available."""
-    return (data.distributor_names or {}).get(distributor_id, distributor_id)
-
-
-def _product_label(data, product_id: str) -> str:
-    """Display name for product (English, for terminal) or ID if name not available."""
-    return (data.product_names_en or {}).get(product_id, product_id)
-
-
-def _product_label_persian(data, product_id: str) -> str:
-    """Display name for product (Persian, for CSV) or ID if name not available."""
-    return (data.product_names or {}).get(product_id, product_id)
-
-
-def format_results(result, solution, data) -> dict:
-    """Format results as dictionary. Uses distributor and product names from dimensions when available."""
-    # Extract shipment quantities; use names for output when available
-    shipments = {}
-    for (distributor_id, product_id), variable in result.decision_variables.items():
-        quantity = solution.variable_values.get(variable, 0.0)
-        shipments[f"{distributor_id}_{product_id}"] = {
-            "distributor": _distributor_label(data, distributor_id),
-            "product": _product_label(data, product_id),
-            "quantity": round(quantity, 2),
-        }
-    total_shipments = sum(
-        solution.variable_values.get(variable, 0.0)
-        for variable in result.decision_variables.values()
-    )
-    # Group by product name (or ID) for summary
-    shipments_by_product: dict[str, float] = {}
-    for (distributor_id, product_id), variable in result.decision_variables.items():
-        quantity = solution.variable_values.get(variable, 0.0)
-        key = _product_label(data, product_id)
-        shipments_by_product[key] = shipments_by_product.get(key, 0.0) + quantity
-    shipments_by_distributor: dict[str, float] = {}
-    for (distributor_id, product_id), variable in result.decision_variables.items():
-        quantity = solution.variable_values.get(variable, 0.0)
-        key = _distributor_label(data, distributor_id)
-        shipments_by_distributor[key] = shipments_by_distributor.get(key, 0.0) + quantity
-    return {
-        "status": solution.status,
-        "is_optimal": solution.is_optimal,
-        "is_feasible": solution.is_feasible,
-        "objective_value": round(solution.objective_value, 2) if solution.objective_value else None,
-        "solver_name": solution.solver_name,
-        "summary": {
-            "total_shipments": round(total_shipments, 2),
-            "num_distributors": len(data.distributors),
-            "num_products": len(data.products),
-            "shipments_by_product": {k: round(v, 2) for k, v in shipments_by_product.items()},
-            "shipments_by_distributor": {k: round(v, 2) for k, v in shipments_by_distributor.items()},
-        },
-        "shipments": list(shipments.values()),
-    }
-
-
-def save_results(results: dict, output_file: str):
-    """Save results to JSON file."""
+def save_results(result: RunResult, output_file: str) -> None:
+    """Save a service result to JSON using the existing CLI schema."""
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
     with open(output_path, 'w') as f:
-        json.dump(results, f, indent=2)
+        json.dump(result.to_dict(), f, indent=2)
     
     print_success(f"Results saved to: {output_path}")
 
 
-def save_results_csv(result, solution, data, csv_path: str, include_variables: bool = False):
-    """Save optimization results to CSV. Optionally include input variables per (distributor, product)."""
+def save_results_csv(result: RunResult, csv_path: str) -> None:
+    """Save the service's Excel-ready table as UTF-8 CSV."""
     output_path = Path(csv_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if include_variables:
-        fieldnames = [
-            "distributor",
-            "product",
-            "quantity",
-            "distributor_inventory",
-            "sales_ma_3",
-            "sales_ma_6",
-            "sales_mtd",
-            "coverage_demand",
-            "delivery_ma_6",
-            "has_delivery_last_6m",
-            "target_units",
-            "factory_supply",
-        ]
-    else:
-        fieldnames = ["distributor", "product", "quantity"]
-
-    rows: list[dict[str, Any]] = []
-    for (distributor_id, product_id), variable in sorted(result.decision_variables.items()):
-        quantity = round(solution.variable_values.get(variable, 0.0), 2)
-        row: dict[str, Any] = {
-            "distributor": _distributor_label(data, distributor_id),
-            "product": _product_label_persian(data, product_id),  # Use Persian names for CSV
-            "quantity": quantity,
-        }
-        if include_variables:
-            row["distributor_inventory"] = round(data.inventory(distributor_id, product_id), 2)
-            row["sales_ma_3"] = round(data.sales_ma_3.get((distributor_id, product_id), 0.0), 2)
-            row["sales_ma_6"] = round(data.sales_ma_6.get((distributor_id, product_id), 0.0), 2)
-            row["sales_mtd"] = round(data.sales_mtd.get((distributor_id, product_id), 0.0), 2)
-            row["coverage_demand"] = round(data.coverage_demand(distributor_id, product_id), 2)
-            row["delivery_ma_6"] = round(data.delivery_moving_average(distributor_id, product_id), 2)
-            row["has_delivery_last_6m"] = data.has_recent_delivery(distributor_id, product_id)
-            row["target_units"] = round(data.target_units.get(product_id, 0.0), 2)
-            row["factory_supply"] = round(data.factory_supply(product_id), 2)
-        rows.append(row)
-
     with open(output_path, "w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=result.table.columns)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(result.table.rows)
 
     print_success(f"CSV results saved to: {output_path}")
 
 
-def run_optimization(config: dict):
+def run_optimization(config: dict[str, Any]) -> bool:
     """Run the optimization with provided configuration."""
     print_header("Running Optimization", Colors.BRIGHT_GREEN)
     
     try:
-        # Initialize database
         sql_executor = initialize_database(config.get('config_path'))
-        
-        # Load data
-        data = load_optimization_data(
+        service = OptimizationService(
             sql_executor=sql_executor,
-            snapshot_date=config['snapshot_date'],
-            snapshot_month=config.get('snapshot_month'),
             database_type=config['database_type'],
-            settings=config['settings']
         )
 
-        # Confirm settings used (so parameter changes are visible)
         s = config["settings"]
         print_info(
             f"Settings for this run: coverage_ratio={s.coverage_ratio}, target_coverage_ratio={s.target_coverage_ratio}, sales_window={s.sales_window}, "
             f"delivery_bounds=[{s.delivery_lower_bound}, {s.delivery_upper_bound}], "
             f"weights=(demand={s.weight_demand}, target_units={s.weight_target_units}, smoothing={s.weight_smoothing})"
         )
-        
-        # Build and solve (pass settings and solver_options so optimization layer uses CLI parameters)
-        result, solution = build_and_solve_model(
-            data,
-            config['solver'],
-            settings=config['settings'],
-            solver_options=config.get('solver_options'),
+
+        print_action(
+            f"Loading data, building model, and solving with {config['solver']}..."
         )
-        
-        # Format results
-        results = format_results(result, solution, data)
-        
-        # Save results if requested
-        if config.get('output_file'):
-            save_results(results, config['output_file'])
-        if config.get('csv_file'):
-            save_results_csv(
-                result,
-                solution,
-                data,
-                config['csv_file'],
-                include_variables=config.get('csv_include_variables', False),
+        result = service.run(
+            RunRequest(
+                snapshot_date=config["snapshot_date"],
+                snapshot_month=config.get("snapshot_month"),
+                settings=config["settings"],
+                solver=config["solver"],
+                solver_options=config.get("solver_options"),
+                include_export_variables=config.get(
+                    "csv_include_variables", False
+                ),
             )
+        )
+        print_success(f"Solution status: {result.status}")
+
+        if config.get('output_file'):
+            save_results(result, config['output_file'])
+        if config.get('csv_file'):
+            save_results_csv(result, config['csv_file'])
 
         print_success("Optimization completed successfully")
-        
-        # Warn if solution is not optimal/feasible
-        if not solution.is_feasible:
+
+        if not result.is_feasible:
             print_warning("Solution is not feasible - check constraints and data")
             return False
-        elif not solution.is_optimal:
+        if not result.is_optimal:
             print_warning("Solution is feasible but not proven optimal")
-            return True
-        else:
-            return True
-            
+        return True
+    except MissingSnapshotError as e:
+        print_error(f"Failed to load optimization data: {e}")
+        raise
+    except DatabaseUnavailableError as e:
+        print_error(f"Database is unreachable: {e}")
+        raise
+    except SolverUnavailableError as e:
+        print_error(f"Solver not available: {e}")
+        print_error("For LP: pip install pulp  |  For Scipy: pip install scipy")
+        raise
+    except InvalidRunRequestError as e:
+        print_error(f"Configuration error: {e}")
+        raise
     except Exception as e:
         print_error(f"Optimization failed: {e}")
         raise
