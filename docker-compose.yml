@@ -1,14 +1,24 @@
 # DistCore Web MVP
 #
-# 1. Copy db.yml.example / dms.yml.example → ./secrets/ (SQL auth + DMS NTLM)
-# 2. Or set DISTCORE_DMS_USERNAME / DISTCORE_DMS_PASSWORD in the environment
-# 3. docker compose up --build
+# Pip uses Orchid Nexus by default (same pip-proxy as other services).
+# Before first build on an air‑gapped host: put ODBC .debs in vendor/ (vendor/README.txt).
+#
+# 1. secrets/db.yml + secrets/dms.yml
+# 2. docker compose up --build
 #
 # UI: http://localhost:8000  |  Health: http://localhost:8000/health
 
 services:
   web:
-    build: .
+    build:
+      context: .
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-python:3.12-slim-bookworm}
+        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-}
+        DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://nexus.orchidpharmed.com/repository/pip-proxy/simple}
+        PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-nexus.orchidpharmed.com}
+        MSODBCSQL_DEB_URL: ${MSODBCSQL_DEB_URL:-}
     image: distcore-web:latest
     ports:
       - "${DISTCORE_PORT:-8000}:8000"
@@ -22,10 +32,8 @@ services:
       DISTCORE_DMS_USERNAME: "${DISTCORE_DMS_USERNAME:-}"
       DISTCORE_DMS_PASSWORD: "${DISTCORE_DMS_PASSWORD:-}"
     volumes:
-      # SQL + DMS config (do not bake secrets into the image)
       - ${DISTCORE_DB_CONFIG_HOST:-./secrets/db.yml}:/config/db.yml:ro
       - ${DISTCORE_DMS_CONFIG_HOST:-./secrets/dms.yml}:/config/dms.yml:ro
-      # Persist job artifacts across restarts
       - distcore-jobs:/app/data/jobs
     restart: unless-stopped
 

@@ -31,3 +31,8 @@ data/etl_cache/
 
 # Web MVP job artifacts
 data/jobs/
+
+# Vendored ODBC .debs (download per vendor/README.txt; do not commit binaries)
+vendor/*.deb
+!vendor/.gitkeep
+!vendor/README.txt
