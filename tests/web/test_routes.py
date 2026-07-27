@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 from fastapi.testclient import TestClient
 
 from src.optimization.data import OptimizationSettings
+from src.optimization.export import ExportRequestMeta, write_optimization_xlsx
 from src.optimization.service import RunResult, RunSummary, Shipment, TabularData
 from src.orchestrator.pipelines.catalog import PipelineKey
 from src.orchestrator.pipelines.freshness import FreshnessReport, PipelineFreshness
@@ -22,7 +23,7 @@ from src.orchestrator.pipelines.service import (
 from src.web.app import create_app
 from src.web.deps import reset_runtime_singletons
 from src.web.jobs.lock import SingleFlightLock
-from src.web.jobs.runner import JobRunner, build_excel_bytes
+from src.web.jobs.runner import JobRunner
 from src.web.jobs.store import JobStore
 
 
@@ -179,6 +180,8 @@ class TestWebRoutes(unittest.TestCase):
             download.headers["content-type"],
         )
         self.assertTrue(download.content.startswith(b"PK"))
+        disposition = download.headers.get("content-disposition", "")
+        self.assertIn("optimization_2026-07-27_Greedy.xlsx", disposition)
 
     def test_optimize_rejects_dual_settings(self) -> None:
         response = self.client.post(
@@ -193,8 +196,17 @@ class TestWebRoutes(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
 
     def test_excel_builder_contains_persian_product(self) -> None:
-        payload = build_excel_bytes(_sample_run_result())
-        self.assertTrue(payload.startswith(b"PK"))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "result.xlsx"
+            write_optimization_xlsx(
+                _sample_run_result(),
+                path,
+                request=ExportRequestMeta(
+                    snapshot_date=date(2026, 7, 27),
+                    solver="Greedy",
+                ),
+            )
+            self.assertTrue(path.read_bytes().startswith(b"PK"))
 
     def test_solvers_endpoint(self) -> None:
         response = self.client.get("/solvers")

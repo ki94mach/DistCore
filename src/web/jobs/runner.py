@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import io
 from datetime import date
 from typing import Any, Callable, Optional
 
-from openpyxl import Workbook
-
 from src.optimization.data import OptimizationSettings
+from src.optimization.export import ExportRequestMeta, write_optimization_xlsx
 from src.optimization.service import OptimizationService, RunRequest, RunResult
 from src.orchestrator.pipelines.service import (
     PipelineService,
@@ -57,39 +55,6 @@ def serialize_optimize_result(result: RunResult) -> dict[str, Any]:
         "rows": [dict(row) for row in result.table.rows],
     }
     return payload
-
-
-def build_excel_bytes(result: RunResult) -> bytes:
-    workbook = Workbook()
-    summary = workbook.active
-    summary.title = "Summary"
-    summary.append(["status", result.status])
-    summary.append(["solver_name", result.solver_name])
-    summary.append(["objective", result.objective])
-    summary.append(["is_optimal", result.is_optimal])
-    summary.append(["is_feasible", result.is_feasible])
-    summary.append(["total_shipments", result.summary.total_shipments])
-    summary.append(["num_distributors", result.summary.num_distributors])
-    summary.append(["num_products", result.summary.num_products])
-
-    by_product = workbook.create_sheet("ByProduct")
-    by_product.append(["product", "quantity"])
-    for key, value in result.summary.shipments_by_product.items():
-        by_product.append([key, value])
-
-    by_distributor = workbook.create_sheet("ByDistributor")
-    by_distributor.append(["distributor", "quantity"])
-    for key, value in result.summary.shipments_by_distributor.items():
-        by_distributor.append([key, value])
-
-    table_sheet = workbook.create_sheet("Shipments")
-    table_sheet.append(list(result.table.columns))
-    for row in result.table.rows:
-        table_sheet.append([row.get(column) for column in result.table.columns])
-
-    buffer = io.BytesIO()
-    workbook.save(buffer)
-    return buffer.getvalue()
 
 
 class JobRunner:
@@ -159,7 +124,18 @@ class JobRunner:
                 )
             )
             self._store.write_result(job_id, serialize_optimize_result(result))
-            self._store.write_excel(job_id, build_excel_bytes(result))
+            write_optimization_xlsx(
+                result,
+                self._store.excel_path(job_id),
+                request=ExportRequestMeta(
+                    snapshot_date=snapshot_date,
+                    solver=solver,
+                    settings=settings,
+                    settings_preset=settings_preset,
+                    solver_options=solver_options,
+                    include_export_variables=include_export_variables,
+                ),
+            )
             self._store.mark_succeeded(job_id, "Optimization completed")
         except Exception as exc:
             self._store.mark_failed(job_id, str(exc))

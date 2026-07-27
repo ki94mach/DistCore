@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse
 
+from src.optimization.export import download_filename
 from src.web.deps import get_job_runner, get_job_store, get_lock
 from src.web.errors import JobConflictError
 from src.web.routes.data import _job_status
@@ -66,8 +69,21 @@ def optimization_download(job_id: str) -> FileResponse:
     path = store.excel_path(job_id)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Excel file missing")
+
+    request = meta.get("request") or {}
+    snapshot_raw = request.get("snapshot_date")
+    solver = str(request.get("solver") or "solver")
+    try:
+        snapshot_date = (
+            date.fromisoformat(snapshot_raw)
+            if isinstance(snapshot_raw, str)
+            else date.today()
+        )
+    except ValueError:
+        snapshot_date = date.today()
+
     return FileResponse(
         path,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"optimization_{job_id}.xlsx",
+        filename=download_filename(snapshot_date, solver),
     )
