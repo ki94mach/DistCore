@@ -47,7 +47,7 @@ python -m src.web
 # uvicorn src.web.app:app --host 0.0.0.0 --port 8000
 ```
 
-- UI: `/`
+- UI: `/` — one page with **Data freshness** (status + refresh) and **Optimize** (settings/solver → Excel download)
 - OpenAPI: `/docs`
 - Health: `GET /health` (prod DB ping only)
 

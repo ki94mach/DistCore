@@ -183,3 +183,36 @@ a.download {
   color: white;
   text-decoration: none;
 }
+
+.settings-grid {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem 0.25rem;
+  margin: 0 0 0.85rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.35rem 0.75rem;
+}
+
+.settings-grid legend {
+  padding: 0 0.35rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.settings-grid label {
+  margin-bottom: 0.5rem;
+}
+
+details {
+  margin-top: 0.5rem;
+}
+
+details summary {
+  cursor: pointer;
+  margin-bottom: 0.35rem;
+}
+
+#btn-refresh-cta {
+  margin-bottom: 0.85rem;
+}

@@ -38,7 +38,10 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=409,
             content={
-                "detail": str(exc),
+                "detail": (
+                    "Another job is running — wait for it to finish "
+                    f"(active {exc.holder.kind} job_id={exc.holder.job_id})"
+                ),
                 "active_job_id": exc.holder.job_id,
                 "active_kind": exc.holder.kind,
             },
@@ -62,11 +65,29 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(DatabaseUnavailableError)
     @app.exception_handler(PipelineDatabaseError)
     async def _database_unavailable(_request: Request, exc: Exception) -> JSONResponse:
-        return JSONResponse(status_code=503, content={"detail": str(exc)})
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": (
+                    "Database unreachable — check network connectivity "
+                    "and db.yml credentials/ODBC"
+                ),
+                "reason": str(exc),
+            },
+        )
 
     @app.exception_handler(PipelineDmsError)
     async def _dms_unavailable(_request: Request, exc: PipelineDmsError) -> JSONResponse:
-        return JSONResponse(status_code=502, content={"detail": str(exc)})
+        return JSONResponse(
+            status_code=502,
+            content={
+                "detail": (
+                    "Deliveries/DMS unreachable — check SharePoint access "
+                    "and dms.yml"
+                ),
+                "reason": str(exc),
+            },
+        )
 
     @app.exception_handler(PipelineExecutionError)
     @app.exception_handler(PipelineServiceError)

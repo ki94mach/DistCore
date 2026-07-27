@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>DistCore — Refresh & Optimize</title>
   <link rel="stylesheet" href="/static/app.css" />
-  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 </head>
 <body>
   <main class="shell">
@@ -26,7 +25,7 @@
             <label>&nbsp;</label>
             <div class="actions">
               <button id="btn-status" type="button">Check status</button>
-              <button id="btn-refresh" class="secondary" type="button">Refresh data</button>
+              <button id="btn-refresh" class="secondary" type="button">Refresh all</button>
             </div>
           </div>
         </div>
@@ -37,11 +36,18 @@
         <p class="muted">Leave unchecked unless this host can reach SharePoint/DMS. Otherwise refresh SQL snapshots only and load deliveries via laptop pipeline_cli.</p>
         <p class="muted" id="freshness-summary">Pick a date and check status.</p>
         <div id="freshness-table"></div>
-        <pre id="job-log" class="muted">No job running.</pre>
+        <p class="muted" id="job-status">No job running.</p>
+        <details class="muted">
+          <summary>Job details</summary>
+          <pre id="job-log">No job running.</pre>
+        </details>
       </section>
 
       <section class="card">
         <h2>2. Optimize</h2>
+        <p class="muted" id="optimize-banner">Checking data readiness…</p>
+        <button id="btn-refresh-cta" class="secondary" type="button" hidden>Refresh data first</button>
+
         <label for="solver">Solver</label>
         <select id="solver"></select>
 
@@ -49,6 +55,68 @@
         <select id="preset">
           <option value="">— defaults / custom —</option>
         </select>
+
+        <fieldset class="settings-grid" id="settings-fields">
+          <legend>Optimization settings</legend>
+          <label for="coverage_ratio">coverage_ratio
+            <input id="coverage_ratio" type="number" step="any" min="0" data-setting />
+          </label>
+          <label for="target_coverage_ratio">target_coverage_ratio
+            <input id="target_coverage_ratio" type="number" step="any" min="0" data-setting />
+          </label>
+          <label for="sales_window">sales_window
+            <select id="sales_window" data-setting>
+              <option value="3">3</option>
+              <option value="6">6</option>
+            </select>
+          </label>
+          <label for="delivery_lower_bound">delivery_lower_bound
+            <input id="delivery_lower_bound" type="number" step="any" min="0" data-setting />
+          </label>
+          <label for="delivery_upper_bound">delivery_upper_bound
+            <input id="delivery_upper_bound" type="number" step="any" min="0" data-setting />
+          </label>
+          <label for="weight_demand">weight_demand
+            <input id="weight_demand" type="number" step="any" min="0" data-setting />
+          </label>
+          <label for="weight_target_units">weight_target_units
+            <input id="weight_target_units" type="number" step="any" min="0" data-setting />
+          </label>
+          <label for="weight_smoothing">weight_smoothing
+            <input id="weight_smoothing" type="number" step="any" min="0" data-setting />
+          </label>
+          <label for="weight_shipment">weight_shipment
+            <input id="weight_shipment" type="number" step="any" min="0" data-setting />
+          </label>
+        </fieldset>
+
+        <fieldset class="settings-grid" id="sa-options" hidden>
+          <legend>Simulated Annealing options</legend>
+          <label for="sa_max_iter">max_iter
+            <input id="sa_max_iter" type="number" step="1" min="1" data-sa />
+          </label>
+          <label for="sa_initial_temp">initial_temp
+            <input id="sa_initial_temp" type="number" step="any" min="0" data-sa />
+          </label>
+          <label for="sa_min_temp">min_temp
+            <input id="sa_min_temp" type="number" step="any" min="0" data-sa />
+          </label>
+          <label for="sa_cooling_rate">cooling_rate
+            <input id="sa_cooling_rate" type="number" step="any" min="0" data-sa />
+          </label>
+          <label for="sa_step_scale">step_scale
+            <input id="sa_step_scale" type="number" step="any" min="0" data-sa />
+          </label>
+          <label for="sa_transfer_fraction">transfer_fraction
+            <input id="sa_transfer_fraction" type="number" step="any" min="0" data-sa />
+          </label>
+          <label for="sa_initial_scale">initial_scale
+            <input id="sa_initial_scale" type="number" step="any" min="0" data-sa />
+          </label>
+          <label for="sa_decrease_bias">decrease_bias
+            <input id="sa_decrease_bias" type="number" step="any" min="0" data-sa />
+          </label>
+        </fieldset>
 
         <label>
           <input id="include_export_variables" type="checkbox" />
@@ -66,33 +134,150 @@
   </main>
 
   <script>
+    const SETTING_KEYS = [
+      "coverage_ratio",
+      "target_coverage_ratio",
+      "sales_window",
+      "delivery_lower_bound",
+      "delivery_upper_bound",
+      "weight_demand",
+      "weight_target_units",
+      "weight_smoothing",
+      "weight_shipment",
+    ];
+    const SA_KEYS = [
+      "max_iter",
+      "initial_temp",
+      "min_temp",
+      "cooling_rate",
+      "step_scale",
+      "transfer_fraction",
+      "initial_scale",
+      "decrease_bias",
+    ];
+
     const today = new Date().toISOString().slice(0, 10);
     const snapshotInput = document.getElementById("snapshot_date");
     snapshotInput.value = today;
 
     const freshnessSummary = document.getElementById("freshness-summary");
     const freshnessTable = document.getElementById("freshness-table");
+    const jobStatus = document.getElementById("job-status");
     const jobLog = document.getElementById("job-log");
+    const optimizeBanner = document.getElementById("optimize-banner");
     const optimizeSummary = document.getElementById("optimize-summary");
     const optimizeResult = document.getElementById("optimize-result");
     const downloadLink = document.getElementById("download-link");
     const btnStatus = document.getElementById("btn-status");
     const btnRefresh = document.getElementById("btn-refresh");
     const btnOptimize = document.getElementById("btn-optimize");
-    let pollTimer = null;
+    const btnRefreshCta = document.getElementById("btn-refresh-cta");
+    const saOptions = document.getElementById("sa-options");
+    const presetSelect = document.getElementById("preset");
+    const solverSelect = document.getElementById("solver");
 
-    function setBusy(busy) {
+    let pollTimer = null;
+    let busy = false;
+    let lastState = null;
+    let settingsDirty = false;
+    let presetsByName = {};
+    let saDefaults = {};
+
+    function formatError(data, fallback) {
+      if (!data) return fallback;
+      if (typeof data.detail === "string") {
+        return data.reason ? `${data.detail} (${data.reason})` : data.detail;
+      }
+      if (Array.isArray(data.detail)) {
+        return data.detail.map((d) => d.msg || JSON.stringify(d)).join("; ");
+      }
+      return fallback;
+    }
+
+    function formatJobStatus(data) {
+      const parts = [`Status: ${data.status || "unknown"}`];
+      if (data.message) parts.push(data.message);
+      if (data.error) parts.push(`Error: ${data.error}`);
+      return parts.join(" — ");
+    }
+
+    function applyOptimizeGate() {
+      const ready = lastState === "ready";
+      btnOptimize.disabled = busy || !ready;
+      if (busy) {
+        optimizeBanner.textContent = "A job is running…";
+        optimizeBanner.className = "status-pill";
+        btnRefreshCta.hidden = true;
+      } else if (lastState == null) {
+        optimizeBanner.textContent = "Check data status before optimizing.";
+        optimizeBanner.className = "muted";
+        btnRefreshCta.hidden = true;
+      } else if (ready) {
+        optimizeBanner.textContent = "Data is ready for optimization.";
+        optimizeBanner.className = "status-pill";
+        btnRefreshCta.hidden = true;
+      } else {
+        optimizeBanner.textContent = `Data is ${lastState}. Refresh before optimizing.`;
+        optimizeBanner.className = "status-pill bad";
+        btnRefreshCta.hidden = false;
+      }
+    }
+
+    function setBusy(nextBusy) {
+      busy = nextBusy;
       btnStatus.disabled = busy;
       btnRefresh.disabled = busy;
-      btnOptimize.disabled = busy;
+      btnRefreshCta.disabled = busy;
+      applyOptimizeGate();
+    }
+
+    function fillSettings(settings) {
+      if (!settings) return;
+      SETTING_KEYS.forEach((key) => {
+        const el = document.getElementById(key);
+        if (el && settings[key] != null) el.value = settings[key];
+      });
+    }
+
+    function readSettings() {
+      const out = {};
+      SETTING_KEYS.forEach((key) => {
+        const el = document.getElementById(key);
+        if (!el) return;
+        out[key] = key === "sales_window" ? Number(el.value) : Number(el.value);
+      });
+      return out;
+    }
+
+    function fillSaOptions(options) {
+      SA_KEYS.forEach((key) => {
+        const el = document.getElementById(`sa_${key}`);
+        if (el && options && options[key] != null) el.value = options[key];
+      });
+    }
+
+    function readSaOptions() {
+      const out = {};
+      SA_KEYS.forEach((key) => {
+        const el = document.getElementById(`sa_${key}`);
+        if (!el || el.value === "") return;
+        out[key] = Number(el.value);
+      });
+      return out;
+    }
+
+    function toggleSaOptions() {
+      const show = solverSelect.value === "SimulatedAnnealing";
+      saOptions.hidden = !show;
     }
 
     async function loadMeta() {
-      const [solvers, presets] = await Promise.all([
+      const [solvers, presets, defaults] = await Promise.all([
         fetch("/solvers").then((r) => r.json()),
         fetch("/presets").then((r) => r.json()),
+        fetch("/defaults").then((r) => r.json()),
       ]);
-      const solverSelect = document.getElementById("solver");
+
       solverSelect.innerHTML = "";
       (solvers.priority || []).forEach((name) => {
         const opt = document.createElement("option");
@@ -102,13 +287,21 @@
         opt.disabled = !available;
         solverSelect.appendChild(opt);
       });
-      const presetSelect = document.getElementById("preset");
+
+      presetsByName = {};
       (presets.presets || []).forEach((item) => {
+        presetsByName[item.name] = item.settings || {};
         const opt = document.createElement("option");
         opt.value = item.name;
         opt.textContent = item.name;
         presetSelect.appendChild(opt);
       });
+
+      fillSettings(defaults.settings || {});
+      saDefaults = (defaults.solver_options || {}).SimulatedAnnealing || {};
+      fillSaOptions(saDefaults);
+      settingsDirty = false;
+      toggleSaOptions();
     }
 
     async function checkStatus() {
@@ -116,23 +309,28 @@
       const res = await fetch(`/data/status?snapshot_date=${encodeURIComponent(date)}`);
       const data = await res.json();
       if (!res.ok) {
-        freshnessSummary.textContent = data.detail || "Status check failed";
+        freshnessSummary.textContent = formatError(data, "Status check failed");
         freshnessSummary.className = "status-pill bad";
+        lastState = null;
+        applyOptimizeGate();
         return;
       }
+      lastState = data.state;
       freshnessSummary.textContent = `Overall: ${data.state}`;
       freshnessSummary.className = data.state === "ready" ? "status-pill" : "status-pill bad";
       const rows = (data.pipelines || [])
-        .map(
-          (p) =>
-            `<tr><td>${p.pipeline}</td><td>${p.state}</td><td>${p.row_count}</td><td>${p.optional_for_optimize ? "yes" : "no"}</td></tr>`
-        )
+        .map((p) => {
+          const updated = p.created_at || "—";
+          const required = p.optional_for_optimize ? "no" : "yes";
+          return `<tr><td>${p.pipeline}</td><td>${p.state}</td><td>${p.row_count ?? "—"}</td><td>${updated}</td><td>${required}</td></tr>`;
+        })
         .join("");
       freshnessTable.innerHTML = `
         <table class="table">
-          <thead><tr><th>Pipeline</th><th>State</th><th>Rows</th><th>Optional</th></tr></thead>
+          <thead><tr><th>Pipeline</th><th>State</th><th>Rows</th><th>Last updated</th><th>Required?</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`;
+      applyOptimizeGate();
     }
 
     async function pollJob(jobId, onDone) {
@@ -141,6 +339,7 @@
       pollTimer = setInterval(async () => {
         const res = await fetch(`/jobs/${jobId}`);
         const data = await res.json();
+        jobStatus.textContent = formatJobStatus(data);
         jobLog.textContent = JSON.stringify(data, null, 2);
         if (data.status === "succeeded" || data.status === "failed") {
           clearInterval(pollTimer);
@@ -163,11 +362,17 @@
       });
       const data = await res.json();
       if (!res.ok) {
-        jobLog.textContent = data.detail || JSON.stringify(data);
+        const msg = formatError(data, "Refresh failed to start");
+        jobStatus.textContent = msg;
+        jobLog.textContent = JSON.stringify(data, null, 2);
         return;
       }
-      jobLog.textContent = `Refresh queued: ${data.job_id}`;
-      pollJob(data.job_id, async () => {
+      jobStatus.textContent = `Refresh queued (${data.job_id})`;
+      jobLog.textContent = JSON.stringify(data, null, 2);
+      pollJob(data.job_id, async (job) => {
+        if (job.status === "failed") {
+          jobStatus.textContent = formatJobStatus(job);
+        }
         await checkStatus();
       });
     }
@@ -175,13 +380,20 @@
     async function runOptimize() {
       downloadLink.hidden = true;
       optimizeResult.textContent = "";
-      const preset = document.getElementById("preset").value;
       const payload = {
         snapshot_date: snapshotInput.value,
-        solver: document.getElementById("solver").value,
+        solver: solverSelect.value,
         include_export_variables: document.getElementById("include_export_variables").checked,
       };
-      if (preset) payload.settings_preset = preset;
+      const preset = presetSelect.value;
+      if (preset && !settingsDirty) {
+        payload.settings_preset = preset;
+      } else {
+        payload.settings = readSettings();
+      }
+      if (solverSelect.value === "SimulatedAnnealing") {
+        payload.solver_options = { SimulatedAnnealing: readSaOptions() };
+      }
       const res = await fetch("/optimizations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -189,15 +401,18 @@
       });
       const data = await res.json();
       if (!res.ok) {
-        optimizeSummary.textContent = data.detail || "Optimize failed to start";
+        optimizeSummary.textContent = formatError(data, "Optimize failed to start");
         optimizeSummary.className = "status-pill bad";
         return;
       }
       optimizeSummary.textContent = `Optimize queued: ${data.job_id}`;
       optimizeSummary.className = "status-pill";
+      jobStatus.textContent = `Optimize queued (${data.job_id})`;
       pollJob(data.job_id, (job) => {
+        jobStatus.textContent = formatJobStatus(job);
         if (job.status === "succeeded") {
           optimizeSummary.textContent = "Optimization succeeded";
+          optimizeSummary.className = "status-pill";
           optimizeResult.textContent = JSON.stringify(job.result, null, 2);
           downloadLink.href = `/optimizations/${job.job_id}/download`;
           downloadLink.hidden = false;
@@ -208,12 +423,40 @@
       });
     }
 
+    SETTING_KEYS.forEach((key) => {
+      const el = document.getElementById(key);
+      el.addEventListener("input", () => {
+        settingsDirty = true;
+      });
+      el.addEventListener("change", () => {
+        settingsDirty = true;
+      });
+    });
+
+    presetSelect.addEventListener("change", () => {
+      const name = presetSelect.value;
+      if (name && presetsByName[name]) {
+        fillSettings(presetsByName[name]);
+        settingsDirty = false;
+      }
+    });
+
+    solverSelect.addEventListener("change", toggleSaOptions);
     btnStatus.addEventListener("click", checkStatus);
     btnRefresh.addEventListener("click", refreshData);
-    btnOptimize.addEventListener("click", runOptimize);
-    loadMeta().catch((err) => {
-      jobLog.textContent = String(err);
+    btnRefreshCta.addEventListener("click", () => {
+      btnRefresh.focus();
+      refreshData();
     });
+    btnOptimize.addEventListener("click", runOptimize);
+
+    setBusy(false);
+    loadMeta()
+      .then(() => checkStatus())
+      .catch((err) => {
+        jobStatus.textContent = String(err);
+        jobLog.textContent = String(err);
+      });
   </script>
 </body>
 </html>

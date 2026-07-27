@@ -101,6 +101,60 @@ class TestWebRoutes(unittest.TestCase):
             html,
         )
 
+    def test_ui_has_settings_and_sa_form(self) -> None:
+        response = self.client.get("/")
+        html = response.text
+        for field_id in (
+            "coverage_ratio",
+            "target_coverage_ratio",
+            "sales_window",
+            "delivery_lower_bound",
+            "delivery_upper_bound",
+            "weight_demand",
+            "weight_target_units",
+            "weight_smoothing",
+            "weight_shipment",
+            "sa-options",
+            "btn-refresh-cta",
+            "job-status",
+        ):
+            self.assertIn(f'id="{field_id}"', html)
+
+    def test_refresh_body_defaults_include_deliveries_false(self) -> None:
+        from src.web.schemas import RefreshBody
+
+        body = RefreshBody(snapshot_date=date(2026, 7, 27))
+        self.assertFalse(body.include_deliveries)
+
+    def test_db_dms_error_copy_never_mentions_vpn(self) -> None:
+        from src.optimization.errors import DatabaseUnavailableError
+        from src.orchestrator.pipelines.errors import PipelineDmsError
+        from src.web.errors import register_exception_handlers
+
+        app = create_app()
+        register_exception_handlers(app)
+
+        @app.get("/_test/db-error")
+        def _db_error() -> None:
+            raise DatabaseUnavailableError("odbc failure")
+
+        @app.get("/_test/dms-error")
+        def _dms_error() -> None:
+            raise PipelineDmsError("sharepoint failure")
+
+        client = TestClient(app)
+        db = client.get("/_test/db-error")
+        self.assertEqual(db.status_code, 503)
+        self.assertIn("connectivity", db.json()["detail"].lower())
+        self.assertNotIn("vpn", db.json()["detail"].lower())
+        self.assertNotIn("vpn", (db.json().get("reason") or "").lower())
+
+        dms = client.get("/_test/dms-error")
+        self.assertEqual(dms.status_code, 502)
+        self.assertIn("dms.yml", dms.json()["detail"].lower())
+        self.assertNotIn("vpn", dms.json()["detail"].lower())
+        self.assertNotIn("vpn", (dms.json().get("reason") or "").lower())
+
     def test_data_status(self) -> None:
         from datetime import UTC, datetime
 
@@ -140,7 +194,8 @@ class TestWebRoutes(unittest.TestCase):
             json={"snapshot_date": "2026-07-27", "include_deliveries": False},
         )
         self.assertEqual(response.status_code, 409)
-        self.assertIn("already running", response.json()["detail"])
+        self.assertIn("Another job is running", response.json()["detail"])
+        self.assertNotIn("vpn", response.json()["detail"].lower())
 
     def test_refresh_success_path(self) -> None:
         self.pipeline_service.refresh_all.return_value = RefreshAllResult(
