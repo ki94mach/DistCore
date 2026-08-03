@@ -39,7 +39,8 @@ class DBConnectionFactory:
     def __init__(
         self,
         config_path: Optional[Path] = None,
-        config_dict: Optional[Dict[str, Any]] = None
+        config_dict: Optional[Dict[str, Any]] = None,
+        use_pool: bool = True,
     ):
         """
         Initialize the factory by loading configuration and setting up components.
@@ -48,6 +49,7 @@ class DBConnectionFactory:
             config_path: Optional path to configuration YAML file. If None, uses default path.
             config_dict: Optional configuration dictionary. If provided, config_path is ignored.
                         This allows using the factory without a YAML file.
+            use_pool: Default pooling behavior for context-managed connections.
         """
         if self._initialized:
             return
@@ -56,11 +58,17 @@ class DBConnectionFactory:
             if self._initialized:
                 return
             
-            self._initialize_factory_components(config_path, config_dict)
+            self._initialize_factory_components(config_path, config_dict, use_pool)
             self._initialized = True
     
-    def __new__(cls, config_path: Optional[Path] = None, config_dict: Optional[Dict[str, Any]] = None):
+    def __new__(
+        cls,
+        config_path: Optional[Path] = None,
+        config_dict: Optional[Dict[str, Any]] = None,
+        use_pool: bool = True,
+    ):
         """Thread-safe singleton pattern implementation."""
+        del config_path, config_dict, use_pool
         if cls._instance is None:
             with cls._singleton_lock:
                 if cls._instance is None:
@@ -71,9 +79,11 @@ class DBConnectionFactory:
     def _initialize_factory_components(
         self,
         config_path: Optional[Path] = None,
-        config_dict: Optional[Dict[str, Any]] = None
+        config_dict: Optional[Dict[str, Any]] = None,
+        use_pool: bool = True,
     ) -> None:
         """Initialize all factory components with configuration."""
+        self._use_pool = use_pool
         if config_dict is not None:
             self._config = config_dict
         else:
@@ -97,12 +107,17 @@ class DBConnectionFactory:
         return current_file_directory.parent / 'config' / 'db.yml'
     
     @classmethod
-    def from_config_file(cls, config_path: Path) -> 'DBConnectionFactory':
+    def from_config_file(
+        cls,
+        config_path: Path,
+        use_pool: bool = True,
+    ) -> 'DBConnectionFactory':
         """
         Create a factory instance from a configuration file.
         
         Args:
             config_path: Path to the configuration YAML file
+            use_pool: Default pooling behavior for context-managed connections
             
         Returns:
             DBConnectionFactory instance
@@ -110,15 +125,20 @@ class DBConnectionFactory:
         Example:
             factory = DBConnectionFactory.from_config_file(Path('/path/to/config.yml'))
         """
-        return cls(config_path=config_path)
+        return cls(config_path=config_path, use_pool=use_pool)
     
     @classmethod
-    def from_config_dict(cls, config_dict: Dict[str, Any]) -> 'DBConnectionFactory':
+    def from_config_dict(
+        cls,
+        config_dict: Dict[str, Any],
+        use_pool: bool = True,
+    ) -> 'DBConnectionFactory':
         """
         Create a factory instance from a configuration dictionary.
         
         Args:
             config_dict: Configuration dictionary with 'databases' key
+            use_pool: Default pooling behavior for context-managed connections
             
         Returns:
             DBConnectionFactory instance
@@ -136,12 +156,18 @@ class DBConnectionFactory:
             }
             factory = DBConnectionFactory.from_config_dict(config)
         """
-        return cls(config_dict=config_dict)
+        return cls(config_dict=config_dict, use_pool=use_pool)
+
+    def should_use_pool(self, use_pool: Optional[bool] = None) -> bool:
+        """Resolve per-call pooling against the factory default."""
+        if use_pool is None:
+            return self._use_pool
+        return use_pool
     
     def get_connection(
         self,
         database_type: str = DEFAULT_DATABASE_TYPE,
-        use_pool: bool = True
+        use_pool: Optional[bool] = None
     ) -> pyodbc.Connection:
         """
         Get a database connection for the specified database type.
@@ -149,6 +175,7 @@ class DBConnectionFactory:
         Args:
             database_type: Type of database ('source' or 'prod')
             use_pool: If True, reuse connections from pool. If False, create new connection.
+                      If None, use the factory default.
             
         Returns:
             Database connection object
@@ -157,7 +184,7 @@ class DBConnectionFactory:
             ValueError: If database_type is not found in configuration
             pyodbc.Error: If connection fails
         """
-        if not use_pool:
+        if not self.should_use_pool(use_pool):
             return self._create_new_connection(database_type)
         
         return self._get_connection_from_pool_or_create_new(database_type)
@@ -289,6 +316,10 @@ class DBConnectionFactory:
                           If None, close all connections for all database types.
         """
         self._connection_pool_manager.close_all_connections_in_pool(database_type)
+
+    def close_connection(self, connection: pyodbc.Connection) -> None:
+        """Close a single connection without returning it to the pool."""
+        self._close_connection_safely(connection)
     
     def get_source_connection(self) -> pyodbc.Connection:
         """Get a connection to the source database."""
@@ -330,7 +361,11 @@ class DBConnectionFactory:
         schema = get_schema_from_config(db_config)
         return qualify_cross_db(db_config['database'], schema, object_name)
     
-    def connection(self, database_type: str = DEFAULT_DATABASE_TYPE) -> 'ConnectionContextManager':  # type: ignore
+    def connection(
+        self,
+        database_type: str = DEFAULT_DATABASE_TYPE,
+        use_pool: Optional[bool] = None,
+    ) -> 'ConnectionContextManager':  # type: ignore
         """
         Context manager for automatic connection management.
         
@@ -341,12 +376,13 @@ class DBConnectionFactory:
         
         Args:
             database_type: Type of database ('source' or 'prod')
+            use_pool: Override factory default pooling for this context.
             
         Returns:
             ConnectionContextManager that handles connection lifecycle
         """
         from .context import ConnectionContextManager
-        return ConnectionContextManager(self, database_type)
+        return ConnectionContextManager(self, database_type, use_pool=use_pool)
     
     @staticmethod
     def _close_connection_safely(connection: pyodbc.Connection) -> None:

@@ -53,7 +53,8 @@ python -m src.web
 
 - UI: `/` — one page with **Data freshness** (status + refresh) and **Optimize** (settings/solver → Excel download)
 - OpenAPI: `/docs`
-- Health: `GET /health` (prod DB ping only)
+- Liveness: `GET /live` (process only; no SQL)
+- DB check: `GET /health` or `GET /ready` (prod DB ping only; use manually/on demand)
 
 Process stdout carries uvicorn access logs plus app INFO/WARNING (startup, stale jobs, failures). Point your service manager at stdout; there is no separate log database.
 
@@ -92,12 +93,13 @@ Errors: DB → **503**, DMS → **502**, busy lock → **409**.
 
 Against the deployed host:
 
-1. `GET /health` → `status=ok` and prod DB healthy.
-2. `GET /data/status?snapshot_date=YYYY-MM-DD` → overall state + per-pipeline last updated / row counts.
-3. `POST /data/refresh` with `{ "snapshot_date": "YYYY-MM-DD" }` → `job_id`; poll `GET /jobs/{id}` until `succeeded` (includes deliveries).
-4. While refresh is `running`, `POST /optimizations` → **409** lock message.
-5. After data is ready, `POST /optimizations` with solver/preset → poll until `succeeded`.
-6. `GET /optimizations/{id}/download` → `.xlsx` with `Content-Disposition`; open Shipments / Summary / Parameters.
+1. `GET /live` → `status=ok` without opening a SQL connection.
+2. `GET /health` → `status=ok` and prod DB healthy.
+3. `GET /data/status?snapshot_date=YYYY-MM-DD` → overall state + per-pipeline last updated / row counts.
+4. `POST /data/refresh` with `{ "snapshot_date": "YYYY-MM-DD" }` → `job_id`; poll `GET /jobs/{id}` until `succeeded` (includes deliveries).
+5. While refresh is `running`, `POST /optimizations` → **409** lock message.
+6. After data is ready, `POST /optimizations` with solver/preset → poll until `succeeded`.
+7. `GET /optimizations/{id}/download` → `.xlsx` with `Content-Disposition`; open Shipments / Summary / Parameters.
 
 UI path `/` exercises the same flow.
 

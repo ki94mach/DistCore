@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from src.web.deps import (
+    close_runtime_connections,
     get_job_store,
     resolve_db_config_path,
     resolve_jobs_root,
@@ -49,6 +50,7 @@ async def lifespan(_app: FastAPI):
     if stale:
         logger.warning("Marked %s leftover job(s) as failed after process restart", stale)
     yield
+    close_runtime_connections()
     logger.info("Shutting down DistCore web MVP")
 
 

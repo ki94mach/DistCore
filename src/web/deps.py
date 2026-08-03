@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
+import pyodbc
+
 from src.optimization.service import OptimizationService
 from src.orchestrator.health.db_health import DatabaseHealthChecker
 from src.orchestrator.pipelines.freshness import SnapshotFreshnessRepository
@@ -22,6 +24,11 @@ _factory: Optional[DBConnectionFactory] = None
 _job_store: Optional[JobStore] = None
 _lock: Optional[SingleFlightLock] = None
 _job_runner: Optional[JobRunner] = None
+
+
+def disable_odbc_pooling() -> None:
+    """Disable pyodbc driver-manager pooling for the low-traffic web process."""
+    pyodbc.pooling = False
 
 
 def get_project_root() -> Path:
@@ -56,11 +63,15 @@ def resolve_bind_port() -> int:
 def get_connection_factory() -> DBConnectionFactory:
     global _factory
     if _factory is None:
+        disable_odbc_pooling()
         config_path = resolve_db_config_path()
         if config_path is not None:
-            _factory = DBConnectionFactory.from_config_file(config_path)
+            _factory = DBConnectionFactory.from_config_file(
+                config_path,
+                use_pool=False,
+            )
         else:
-            _factory = DBConnectionFactory()
+            _factory = DBConnectionFactory(use_pool=False)
     return _factory
 
 
@@ -82,6 +93,12 @@ def get_optimization_service() -> OptimizationService:
 
 def get_health_checker() -> DatabaseHealthChecker:
     return DatabaseHealthChecker(get_connection_factory())
+
+
+def close_runtime_connections() -> None:
+    """Close any factory-managed pooled connections without creating a factory."""
+    if _factory is not None:
+        _factory.close_all_connections()
 
 
 def get_job_store(root: Optional[Path] = None) -> JobStore:

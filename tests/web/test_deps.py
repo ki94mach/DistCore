@@ -85,8 +85,22 @@ class TestWebEnvWiring(unittest.TestCase):
                 ) as from_file:
                     from_file.return_value = object()
                     factory = get_connection_factory()
-                    from_file.assert_called_once_with(config_path.resolve())
+                    from_file.assert_called_once_with(
+                        config_path.resolve(),
+                        use_pool=False,
+                    )
                     self.assertIs(factory, from_file.return_value)
+
+    def test_connection_factory_disables_pyodbc_pooling(self) -> None:
+        reset_runtime_singletons()
+        with patch.dict(os.environ, {"DISTCORE_DB_CONFIG": ""}, clear=False):
+            with patch("src.web.deps.pyodbc") as pyodbc_mock:
+                with patch("src.web.deps.DBConnectionFactory") as factory_cls:
+                    factory_cls.return_value = object()
+                    factory = get_connection_factory()
+        self.assertIs(factory, factory_cls.return_value)
+        self.assertFalse(pyodbc_mock.pooling)
+        factory_cls.assert_called_once_with(use_pool=False)
 
 
 if __name__ == "__main__":

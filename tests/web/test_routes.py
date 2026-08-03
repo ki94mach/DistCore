@@ -282,6 +282,43 @@ class TestWebRoutes(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("DistCore", response.text)
 
+    def test_live_does_not_check_database(self) -> None:
+        with patch("src.web.routes.health.get_health_checker") as checker:
+            response = self.client.get("/live")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok", "database": None})
+        checker.assert_not_called()
+
+    def test_health_checks_database_on_demand(self) -> None:
+        checker = Mock()
+        checker.check_health.return_value = {
+            "status": "healthy",
+            "database_type": "prod",
+        }
+        with patch(
+            "src.web.routes.health.get_health_checker",
+            return_value=checker,
+        ):
+            response = self.client.get("/health")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ok")
+        checker.check_health.assert_called_once_with(database_type="prod", timeout=5.0)
+
+    def test_ready_alias_checks_database_on_demand(self) -> None:
+        checker = Mock()
+        checker.check_health.return_value = {
+            "status": "healthy",
+            "database_type": "prod",
+        }
+        with patch(
+            "src.web.routes.health.get_health_checker",
+            return_value=checker,
+        ):
+            response = self.client.get("/ready")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ok")
+        checker.check_health.assert_called_once_with(database_type="prod", timeout=5.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,7 +6,7 @@
 # 1. secrets/db.yml + secrets/dms.yml
 # 2. docker compose up --build
 #
-# UI: http://localhost:8000  |  Health: http://localhost:8000/health
+# UI: http://localhost:8000  |  Live: http://localhost:8000/live  |  DB check: http://localhost:8000/health
 
 services:
   web:
