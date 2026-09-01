@@ -13,11 +13,13 @@ from src.optimization.data import OptimizationSettings
 from src.optimization.export import (
     ExportRequestMeta,
     SHIPMENTS_BASE_COLUMNS,
-    SHIPMENTS_VARIABLE_COLUMNS,
+    SHIPMENTS_DETAIL_COLUMNS,
+    SHIPMENTS_TABLE_COLUMNS,
     build_optimization_workbook,
     download_filename,
     write_optimization_xlsx,
 )
+from src.optimization.explain import shipment_column_label
 from src.optimization.service import RunResult, RunSummary, Shipment, TabularData
 
 
@@ -29,18 +31,32 @@ def _fake_result(*, include_variables: bool = False) -> RunResult:
         "quantity": 7.5,
     }
     if include_variables:
-        columns.extend(SHIPMENTS_VARIABLE_COLUMNS)
+        columns.extend(SHIPMENTS_DETAIL_COLUMNS)
         row.update(
             {
+                "explanation": "تحویل بهینه — بدون کسری نرم",
                 "distributor_inventory": 4.0,
                 "sales_ma_3": 20.0,
                 "sales_ma_6": 18.0,
                 "sales_mtd": 5.0,
                 "coverage_demand": 15.0,
+                "demand_coverage_required": 22.5,
+                "remaining_target_units": 45.0,
+                "target_units": 50.0,
+                "target_coverage_required": 67.5,
+                "product_inventory_plus_delivery": 11.5,
                 "delivery_ma_6": 9.0,
                 "has_delivery_last_6m": True,
-                "target_units": 50.0,
+                "smoothing_lower": 8.1,
+                "smoothing_upper": 10.8,
+                "inventory_plus_delivery": 11.5,
+                "demand_coverage_slack": 0.0,
+                "delivery_low_slack": 0.0,
+                "delivery_high_slack": 0.0,
+                "target_units_slack": 0.0,
+                "product_total_shipped": 7.5,
                 "factory_supply": 100.0,
+                "factory_supply_remaining": 92.5,
             }
         )
     return RunResult(
@@ -78,12 +94,12 @@ class TestOptimizationXlsxExport(unittest.TestCase):
 
         shipments = workbook["Shipments"]
         self.assertEqual(
-            [cell.value for cell in shipments[1]],
+            [cell.value for cell in shipments[2]],
             list(SHIPMENTS_BASE_COLUMNS),
         )
-        self.assertEqual(shipments["C2"].value, 7.5)
-        self.assertIsInstance(shipments["C2"].value, float)
-        self.assertEqual(shipments["B2"].value, "محصول یک")
+        self.assertEqual(shipments["C3"].value, 7.5)
+        self.assertIsInstance(shipments["C3"].value, float)
+        self.assertEqual(shipments["B3"].value, "محصول یک")
 
         parameters = workbook["Parameters"]
         values = {
@@ -98,6 +114,23 @@ class TestOptimizationXlsxExport(unittest.TestCase):
         self.assertEqual(values["settings.coverage_ratio"], 2.0)
         self.assertEqual(values["Greedy.unused"], 1)
 
+    def test_detail_columns_follow_grouped_order(self) -> None:
+        detail = list(SHIPMENTS_DETAIL_COLUMNS)
+        self.assertEqual(detail[0], "explanation")
+        sc1 = ["demand_coverage_required", "inventory_plus_delivery", "demand_coverage_slack"]
+        self.assertEqual(detail[6:9], sc1)
+        sc2 = [
+            "target_units",
+            "remaining_target_units",
+            "target_coverage_required",
+            "product_inventory_plus_delivery",
+            "target_units_slack",
+        ]
+        self.assertEqual(detail[9:14], sc2)
+        self.assertEqual(detail[14], "has_delivery_last_6m")
+        hc1 = ["factory_supply", "product_total_shipped", "factory_supply_remaining"]
+        self.assertEqual(detail[-3:], hc1)
+
     def test_variable_columns_when_requested(self) -> None:
         result = _fake_result(include_variables=True)
         request = ExportRequestMeta(
@@ -106,12 +139,16 @@ class TestOptimizationXlsxExport(unittest.TestCase):
             include_export_variables=True,
         )
         workbook = build_optimization_workbook(result, request=request)
-        headers = [cell.value for cell in workbook["Shipments"][1]]
+        headers = [cell.value for cell in workbook["Shipments"][2]]
         self.assertEqual(
             headers,
-            list(SHIPMENTS_BASE_COLUMNS) + list(SHIPMENTS_VARIABLE_COLUMNS),
+            [shipment_column_label(column) for column in SHIPMENTS_TABLE_COLUMNS],
         )
-        self.assertEqual(workbook["Shipments"]["J2"].value, True)
+        self.assertEqual(workbook["Shipments"]["A1"].value, "Result")
+        self.assertEqual(workbook["Shipments"]["J1"].value, "Demand coverage")
+        self.assertIn("required (inventory+delivery", headers[9])
+        self.assertIn("inventory+delivery (country)", headers[15])
+        self.assertEqual(workbook["Shipments"]["R3"].value, True)
 
     def test_none_becomes_blank(self) -> None:
         result = _fake_result()
@@ -140,7 +177,7 @@ class TestOptimizationXlsxExport(unittest.TestCase):
             result,
             request=ExportRequestMeta(snapshot_date=date(2026, 7, 27), solver="Greedy"),
         )
-        self.assertIsNone(workbook["Shipments"]["D2"].value)
+        self.assertIsNone(workbook["Shipments"]["D3"].value)
         self.assertIsNone(workbook["Summary"]["B2"].value)  # objective
 
     def test_write_path_and_download_filename(self) -> None:
@@ -189,13 +226,13 @@ class TestOptimizationXlsxExport(unittest.TestCase):
             request=ExportRequestMeta(snapshot_date=date(2026, 7, 27), solver="Greedy"),
         )
         sheet = workbook["Shipments"]
-        self.assertEqual(sheet["A1"].font.color.rgb, "00FFFFFF")
-        self.assertEqual(sheet["A1"].fill.fgColor.rgb, "00102A43")
-        self.assertTrue(sheet["A1"].font.bold)
-        self.assertEqual(sheet.freeze_panes, "A2")
+        self.assertEqual(sheet["A2"].font.color.rgb, "00FFFFFF")
+        self.assertEqual(sheet["A2"].fill.fgColor.rgb, "00102A43")
+        self.assertTrue(sheet["A2"].font.bold)
+        self.assertEqual(sheet.freeze_panes, "A3")
         self.assertGreaterEqual(sheet.column_dimensions["A"].width, 10)
-        # Second data row (row 3) should have alternate fill
-        self.assertEqual(sheet["A3"].fill.fgColor.rgb, "00F0F4F8")
+        # Second data row (row 4) should have alternate fill
+        self.assertEqual(sheet["A4"].fill.fgColor.rgb, "00F0F4F8")
         self.assertFalse(sheet.sheet_view.showGridLines)
 
 

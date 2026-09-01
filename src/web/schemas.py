@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from src.optimization.data import OptimizationSettings
+from src.optimization.data import OptimizationSettings, SalesWindow
 
 
 class OptimizationSettingsModel(BaseModel):
     coverage_ratio: float = Field(default=1.5, ge=0)
     target_coverage_ratio: float = Field(default=1.5, ge=0)
-    sales_window: int = 3
+    sales_window: Union[int, str] = 3
     delivery_lower_bound: float = Field(default=0.9, ge=0)
     delivery_upper_bound: float = Field(default=1.2, ge=0)
     weight_demand: float = Field(default=1.0, ge=0)
@@ -23,10 +23,17 @@ class OptimizationSettingsModel(BaseModel):
 
     @field_validator("sales_window")
     @classmethod
-    def _validate_sales_window(cls, value: int) -> int:
-        if value not in {3, 6}:
-            raise ValueError("sales_window must be 3 or 6")
-        return value
+    def _validate_sales_window(cls, value: Union[int, str]) -> SalesWindow:
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"3", "6"}:
+                return int(normalized)
+            if normalized == "max":
+                return "max"
+            raise ValueError("sales_window must be 3, 6, or max")
+        if value in {3, 6}:
+            return value
+        raise ValueError("sales_window must be 3, 6, or max")
 
     @model_validator(mode="after")
     def _validate_bounds(self) -> "OptimizationSettingsModel":

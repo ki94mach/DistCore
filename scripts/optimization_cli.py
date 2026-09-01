@@ -218,6 +218,20 @@ def configure_optimization_settings() -> OptimizationSettings:
             print_error("Invalid number. Keeping current value.")
             return current
 
+    def prompt_sales_window(label: str, current, hint: Optional[str] = None):
+        if hint:
+            print(colorize(f"  - {hint}", Colors.DIM))
+        value_str = print_prompt(f"{label} (current: {current}): ").strip()
+        if not value_str:
+            return current
+        try:
+            from src.optimization.data import parse_sales_window
+
+            return parse_sales_window(value_str)
+        except ValueError:
+            print_error("Invalid value. Use 3, 6, or max. Keeping current value.")
+            return current
+
     print_info("\nModify Optimization Parameters:")
     print(colorize("  (Press Enter to keep current value from preset)", Colors.DIM))
     
@@ -234,14 +248,11 @@ def configure_optimization_settings() -> OptimizationSettings:
         settings.target_coverage_ratio,
         param_descriptions.get("target_coverage_ratio", {}).get("description", ""),
     )
-    sales_window = prompt_int(
-        "Sales moving average window (months)",
+    sales_window = prompt_sales_window(
+        "Sales moving average window (3, 6, or max)",
         settings.sales_window,
         param_descriptions.get("sales_window", {}).get("description", ""),
     )
-    if sales_window not in {3, 6}:
-        print_warning("Unsupported sales window. Keeping current value.")
-        sales_window = settings.sales_window
 
     delivery_lower_bound = prompt_float(
         "Delivery lower bound",
@@ -488,9 +499,9 @@ def configure_output(snapshot_date: date, solver_name: str) -> dict[str, Any]:
     if csv_choice in ("y", "yes"):
         csv_base = output_file.stem
         csv_file = str(data_dir / f"{csv_base}.csv")
-        print_info("\nInclude optimization input variables in CSV:")
-        print(colorize("  - Adds columns: distributor_inventory, sales_ma, sales_mtd, coverage_demand, delivery_ma_6, has_delivery_last_6m, target_units, factory_supply", Colors.DIM))
-        var_choice = print_prompt("Include input variables in CSV? (y/n, default=n): ").strip().lower()
+        print_info("\nInclude calculation detail in CSV:")
+        print(colorize("  - Adds explanation, inputs, derived targets, slack values, and factory supply columns per row", Colors.DIM))
+        var_choice = print_prompt("Include calculation detail in CSV? (y/n, default=n): ").strip().lower()
         csv_include_variables = var_choice in ("y", "yes")
 
     return {
@@ -651,7 +662,7 @@ def main():
             if csv_file:
                 print_info(f"Output File (CSV): {csv_file}")
                 if csv_include_variables:
-                    print_info("  CSV will include optimization input variables")
+                    print_info("  CSV will include calculation detail columns")
             
             # Confirm
             confirm = print_prompt("\nProceed with optimization? (y/n, default=y): ").strip().lower()

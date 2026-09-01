@@ -6,7 +6,7 @@
 - **Inv[d,p]**: Inventory on-hand at distributor `d` for product `p`
 - **FactoryInv[p]**: Factory inventory/supply available for product `p`
 - **DelMA₆[d,p]**: 6-month moving average of *monthly* historical delivery totals to distributor `d` for product `p` (average of per-month SUMs over the last 6 Jalali months)
-- **SalesMA_k[d,p]**: k-month moving average of sales (k ∈ {3,6}, configurable via `SalesWindow`)
+- **SalesMA_k[d,p]**: k-month moving average of sales (k ∈ {3, 6, max}, configurable via `sales_window`; `max` picks per distributor-product max of 3- and 6-month MA)
 - **SalesMTD[d,p]**: Sales month-to-date at distributor `d` for product `p`
 - **TargetUnits[p]**: Target units for product `p`
 - **TotalSalesMTD[p]**: Total sales month-to-date across all distributors for product `p`

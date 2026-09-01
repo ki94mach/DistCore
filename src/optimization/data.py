@@ -3,14 +3,42 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Mapping, Sequence, Tuple
+from typing import Any, Literal, Mapping, Sequence, Tuple, Union
+
+SalesWindow = Union[Literal[3, 6], Literal["max"]]
+
+
+def parse_sales_window(value: Any) -> SalesWindow:
+    """Normalize sales_window from API/CLI/config input."""
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"3", "6"}:
+            return int(normalized)
+        if normalized == "max":
+            return "max"
+        raise ValueError(f"sales_window must be 3, 6, or max (got {value!r})")
+    if value in {3, 6, "max"}:
+        return value
+    raise ValueError(f"sales_window must be 3, 6, or max (got {value!r})")
+
+
+def resolve_sales_moving_average(window: SalesWindow, ma3: float, ma6: float) -> float:
+    """Pick the sales MA for demand based on sales_window setting."""
+    if window == 3:
+        return ma3
+    if window == 6:
+        return ma6
+    if window == "max":
+        return max(ma3, ma6)
+    raise ValueError(f"Unsupported sales_window: {window!r}. Allowed: 3, 6, 'max'")
+
 
 # Weight Fine Tuning:
 @dataclass(frozen=True)
 class OptimizationSettings:
     coverage_ratio: float = 1.5  # Distributor coverage ratio (SC1)
     target_coverage_ratio: float = 1.5  # Target units coverage ratio (SC2)
-    sales_window: int = 3
+    sales_window: SalesWindow = 3
     delivery_lower_bound: float = 0.9
     delivery_upper_bound: float = 1.2
     weight_demand: float = 1.0
@@ -40,9 +68,12 @@ class OptimizationData:
         return self.distributor_inventory.get((distributor, product), 0.0)
 
     def sales_moving_average(self, distributor: str, product: str) -> float:
-        if self.settings.sales_window == 3:
-            return self.sales_ma_3.get((distributor, product), 0.0)
-        return self.sales_ma_6.get((distributor, product), 0.0)
+        key = (distributor, product)
+        return resolve_sales_moving_average(
+            self.settings.sales_window,
+            self.sales_ma_3.get(key, 0.0),
+            self.sales_ma_6.get(key, 0.0),
+        )
 
     def sales_month_to_date(self, distributor: str, product: str) -> float:
         return self.sales_mtd.get((distributor, product), 0.0)
@@ -64,6 +95,9 @@ class OptimizationData:
             self.sales_month_to_date(distributor, product)
             for distributor in self.distributors
             )
+
+    def total_distributor_inventory(self, product: str) -> float:
+        return sum(self.inventory(distributor, product) for distributor in self.distributors)
 
     def remaining_target_units(self, product: str) -> float:
         target = self.target_units.get(product, 0.0)
@@ -90,7 +124,16 @@ class DataWithSettings:
         return getattr(self._data, name)
 
     def sales_moving_average(self, distributor: str, product: str) -> float:
-        if self.settings.sales_window == 3:
-            return self._data.sales_ma_3.get((distributor, product), 0.0)
-        return self._data.sales_ma_6.get((distributor, product), 0.0)
+        key = (distributor, product)
+        return resolve_sales_moving_average(
+            self.settings.sales_window,
+            self._data.sales_ma_3.get(key, 0.0),
+            self._data.sales_ma_6.get(key, 0.0),
+        )
+
+    def coverage_demand(self, distributor: str, product: str) -> float:
+        demand = self.sales_moving_average(distributor, product) - self.sales_month_to_date(
+            distributor, product
+        )
+        return max(0.0, demand)
 

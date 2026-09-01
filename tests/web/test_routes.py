@@ -117,6 +117,30 @@ class TestWebRoutes(unittest.TestCase):
             "refresh-progress-wrap",
         ):
             self.assertIn(f'id="{field_id}"', html)
+        self.assertIn('value="max"', html)
+        self.assertIn("max(3, 6)", html)
+
+    def test_sales_window_schema_accepts_max(self) -> None:
+        from src.web.schemas import OptimizationSettingsModel
+
+        model = OptimizationSettingsModel(sales_window="max")
+        self.assertEqual(model.sales_window, "max")
+        self.assertEqual(model.to_dataclass().sales_window, "max")
+
+        model_int = OptimizationSettingsModel(sales_window=6)
+        self.assertEqual(model_int.sales_window, 6)
+
+        model_str = OptimizationSettingsModel(sales_window="3")
+        self.assertEqual(model_str.sales_window, 3)
+
+    def test_sales_window_schema_rejects_invalid(self) -> None:
+        from pydantic import ValidationError
+        from src.web.schemas import OptimizationSettingsModel
+
+        with self.assertRaises(ValidationError):
+            OptimizationSettingsModel(sales_window=7)
+        with self.assertRaises(ValidationError):
+            OptimizationSettingsModel(sales_window="foo")
 
     def test_refresh_body_has_no_include_deliveries_field(self) -> None:
         from src.web.schemas import RefreshBody

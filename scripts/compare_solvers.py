@@ -46,6 +46,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.optimization import ModelBuilder, OptimizationSettings, solve, SnapshotDataLoader
+from src.optimization.data import parse_sales_window
 from src.optimization.solvers import (
     get_available_solver_names,
     get_default_settings,
@@ -247,10 +248,10 @@ def main() -> None:
     )
     parser.add_argument(
         "--sales-window",
-        type=int,
+        type=parse_sales_window,
         default=None,
-        choices=(3, 6),
-        help="Sales moving average window in months: 3 or 6 (default: from OptimizationSettings)",
+        metavar="{3,6,max}",
+        help="Sales moving average: 3, 6, or max (per pair max of 3- and 6-month MA) (default: from OptimizationSettings)",
     )
     parser.add_argument(
         "--delivery-lower-bound",

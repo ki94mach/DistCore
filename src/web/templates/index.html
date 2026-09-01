@@ -68,6 +68,7 @@
               <select id="sales_window" data-setting>
                 <option value="3">3</option>
                 <option value="6">6</option>
+                <option value="max">max(3, 6)</option>
               </select>
             </label>
             <label for="delivery_lower_bound">delivery_lower_bound
@@ -123,7 +124,7 @@
 
         <label>
           <input id="include_export_variables" type="checkbox" />
-          Include input variables in Excel
+          Include calculation detail in Excel
         </label>
 
         <div class="actions">
@@ -274,7 +275,12 @@
       SETTING_KEYS.forEach((key) => {
         const el = document.getElementById(key);
         if (!el) return;
-        out[key] = key === "sales_window" ? Number(el.value) : Number(el.value);
+        if (key === "sales_window") {
+          const raw = el.value;
+          out[key] = raw === "max" ? "max" : Number(raw);
+        } else {
+          out[key] = Number(el.value);
+        }
       });
       return out;
     }

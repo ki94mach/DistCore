@@ -18,6 +18,12 @@ from src.optimization.constraints import (
     ShipmentMinimizationConstraint,
 )
 from src.optimization.data import OptimizationData, OptimizationSettings
+from src.optimization.explain import (
+    build_row_detail,
+    product_totals_from_shipments,
+    row_detail_as_dict,
+    shipments_table_column_names,
+)
 from src.optimization.errors import (
     DatabaseUnavailableError,
     InvalidRunRequestError,
@@ -295,7 +301,11 @@ class OptimizationService:
             shipments=tuple(shipments),
             summary=summary,
             table=OptimizationService._build_table(
-                shipments, data, include_export_variables
+                shipments,
+                data,
+                build_result,
+                solution,
+                include_export_variables,
             ),
         )
 
@@ -303,24 +313,15 @@ class OptimizationService:
     def _build_table(
         shipments: Sequence[Shipment],
         data: OptimizationData,
+        build_result: ModelBuildResult,
+        solution: Solution,
         include_variables: bool,
     ) -> TabularData:
-        columns = ["distributor", "product", "quantity"]
-        if include_variables:
-            columns.extend(
-                [
-                    "distributor_inventory",
-                    "sales_ma_3",
-                    "sales_ma_6",
-                    "sales_mtd",
-                    "coverage_demand",
-                    "delivery_ma_6",
-                    "has_delivery_last_6m",
-                    "target_units",
-                    "factory_supply",
-                ]
-            )
+        columns = list(
+            shipments_table_column_names(include_variables)
+        )
 
+        product_totals = product_totals_from_shipments(shipments)
         rows: list[dict[str, Any]] = []
         for shipment in sorted(
             shipments, key=lambda item: (item.distributor_id, item.product_id)
@@ -331,43 +332,16 @@ class OptimizationService:
                 "quantity": shipment.quantity,
             }
             if include_variables:
-                distributor_id = shipment.distributor_id
-                product_id = shipment.product_id
-                row.update(
-                    {
-                        "distributor_inventory": round(
-                            data.inventory(distributor_id, product_id), 2
-                        ),
-                        "sales_ma_3": round(
-                            data.sales_ma_3.get((distributor_id, product_id), 0.0),
-                            2,
-                        ),
-                        "sales_ma_6": round(
-                            data.sales_ma_6.get((distributor_id, product_id), 0.0),
-                            2,
-                        ),
-                        "sales_mtd": round(
-                            data.sales_mtd.get((distributor_id, product_id), 0.0),
-                            2,
-                        ),
-                        "coverage_demand": round(
-                            data.coverage_demand(distributor_id, product_id), 2
-                        ),
-                        "delivery_ma_6": round(
-                            data.delivery_moving_average(
-                                distributor_id, product_id
-                            ),
-                            2,
-                        ),
-                        "has_delivery_last_6m": data.has_recent_delivery(
-                            distributor_id, product_id
-                        ),
-                        "target_units": round(
-                            data.target_units.get(product_id, 0.0), 2
-                        ),
-                        "factory_supply": round(data.factory_supply(product_id), 2),
-                    }
+                detail = build_row_detail(
+                    shipment.distributor_id,
+                    shipment.product_id,
+                    shipment.quantity,
+                    data,
+                    build_result,
+                    solution,
+                    product_totals,
                 )
+                row.update(row_detail_as_dict(detail))
             rows.append(row)
         return TabularData(columns=tuple(columns), rows=tuple(rows))
 

@@ -13,23 +13,41 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from src.optimization.data import OptimizationSettings
+from src.optimization.explain import (
+    CONSTRAINT_COMPARISON_COLUMNS,
+    CONSTRAINT_GROUP_LABELS,
+    ROW_DETAIL_COLUMN_NAMES,
+    SHIPMENTS_BASE_COLUMN_NAMES,
+    constraint_group_for_column,
+    shipment_column_label,
+)
 from src.optimization.service import RunResult
 
-SHIPMENTS_BASE_COLUMNS = ("distributor", "product", "quantity")
-SHIPMENTS_VARIABLE_COLUMNS = (
-    "distributor_inventory",
-    "sales_ma_3",
-    "sales_ma_6",
-    "sales_mtd",
-    "coverage_demand",
-    "delivery_ma_6",
-    "has_delivery_last_6m",
-    "target_units",
-    "factory_supply",
-)
+SHIPMENTS_BASE_COLUMNS = SHIPMENTS_BASE_COLUMN_NAMES
+SHIPMENTS_DETAIL_COLUMNS = ROW_DETAIL_COLUMN_NAMES
+SHIPMENTS_TABLE_COLUMNS = SHIPMENTS_BASE_COLUMNS + SHIPMENTS_DETAIL_COLUMNS
+# Backward-compatible alias: detail columns excluding explanation
+SHIPMENTS_VARIABLE_COLUMNS = SHIPMENTS_DETAIL_COLUMNS[1:]
 
 _HEADER_FILL = PatternFill("solid", fgColor="102A43")
 _HEADER_FONT = Font(bold=True, color="FFFFFF")
+_GROUP_BAND_FONT = Font(bold=True, color="FFFFFF")
+_GROUP_FILLS: dict[str, PatternFill] = {
+    "result": PatternFill("solid", fgColor="102A43"),
+    "explanation": PatternFill("solid", fgColor="334E68"),
+    "inputs": PatternFill("solid", fgColor="486581"),
+    "demand_coverage": PatternFill("solid", fgColor="2CB1BC"),
+    "target_units": PatternFill("solid", fgColor="F4A261"),
+    "delivery_history": PatternFill("solid", fgColor="627D98"),
+    "delivery_smoothing": PatternFill("solid", fgColor="9B8BBA"),
+    "factory_supply": PatternFill("solid", fgColor="829AB1"),
+}
+_COMPARISON_HEADER_FONT = Font(bold=True, color="102A43")
+_COMPARISON_HEADER_FILLS: dict[str, PatternFill] = {
+    "demand_coverage": PatternFill("solid", fgColor="B8ECF2"),
+    "target_units": PatternFill("solid", fgColor="FDE4CF"),
+}
+_DEFAULT_COMPARISON_FILL = PatternFill("solid", fgColor="EEF3F7")
 _ALT_ROW_FILL = PatternFill("solid", fgColor="F0F4F8")
 _THIN_BORDER = Border(
     left=Side(style="thin", color="D9E2EC"),
@@ -186,12 +204,104 @@ def _format_kv_sections(sheet: Worksheet, section_header_rows: Sequence[int]) ->
     sheet.sheet_view.showGridLines = False
 
 
+def _build_constraint_group_row(column_keys: Sequence[str]) -> tuple[list[str], list[tuple[int, int]]]:
+    """Build band labels for row 1 and 1-based column merge ranges."""
+    labels: list[str] = []
+    merges: list[tuple[int, int]] = []
+    index = 0
+    while index < len(column_keys):
+        group_id = constraint_group_for_column(column_keys[index])
+        start = index + 1
+        end = start
+        while end <= len(column_keys) and constraint_group_for_column(column_keys[end - 1]) == group_id:
+            end += 1
+        band_label = CONSTRAINT_GROUP_LABELS.get(group_id, group_id)
+        labels.append(band_label)
+        for _ in range(start + 1, end):
+            labels.append("")
+        if end - start > 1:
+            merges.append((start, end - 1))
+        index = end - 1
+    return labels, merges
+
+
+def _style_shipments_group_row(
+    sheet: Worksheet,
+    column_keys: Sequence[str],
+    *,
+    row_index: int = 1,
+) -> None:
+    index = 0
+    while index < len(column_keys):
+        group_id = constraint_group_for_column(column_keys[index])
+        start_col = index + 1
+        end_index = index
+        while end_index < len(column_keys) and constraint_group_for_column(column_keys[end_index]) == group_id:
+            end_index += 1
+        fill = _GROUP_FILLS.get(group_id, _HEADER_FILL)
+        for col_idx in range(start_col, end_index + 1):
+            cell = sheet.cell(row=row_index, column=col_idx)
+            cell.fill = fill
+            cell.font = _GROUP_BAND_FONT
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = _THIN_BORDER
+        index = end_index
+    sheet.row_dimensions[row_index].height = 20
+
+
+def _style_shipments_column_header_row(
+    sheet: Worksheet,
+    column_keys: Sequence[str],
+    *,
+    row_index: int = 2,
+) -> None:
+    comparison_by_group = CONSTRAINT_COMPARISON_COLUMNS
+    for col_idx, column_key in enumerate(column_keys, start=1):
+        cell = sheet.cell(row=row_index, column=col_idx)
+        if cell.value is None:
+            continue
+        group_id = constraint_group_for_column(column_key)
+        comparisons = comparison_by_group.get(group_id, frozenset())
+        if column_key in comparisons:
+            cell.fill = _COMPARISON_HEADER_FILLS.get(group_id, _DEFAULT_COMPARISON_FILL)
+            cell.font = _COMPARISON_HEADER_FONT
+        else:
+            cell.fill = _GROUP_FILLS.get(group_id, _HEADER_FILL)
+            cell.font = _HEADER_FONT
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = _THIN_BORDER
+    sheet.row_dimensions[row_index].height = 28
+
+
 def _write_shipments(sheet: Worksheet, result: RunResult) -> None:
     columns = list(result.table.columns)
-    sheet.append(columns)
+    group_labels, merge_ranges = _build_constraint_group_row(columns)
+    sheet.append(group_labels)
+    sheet.append([shipment_column_label(column) for column in columns])
     for row in result.table.rows:
         sheet.append([_excel_value(row.get(column)) for column in columns])
-    _format_sheet_as_table(sheet, header_row=1, freeze=True)
+    for start_col, end_col in merge_ranges:
+        sheet.merge_cells(
+            start_row=1,
+            start_column=start_col,
+            end_row=1,
+            end_column=end_col,
+        )
+    if sheet.max_row < 2 or sheet.max_column < 1:
+        return
+    _style_shipments_group_row(sheet, columns, row_index=1)
+    _style_shipments_column_header_row(sheet, columns, row_index=2)
+    if sheet.max_row > 2:
+        _style_table_body(
+            sheet,
+            start_row=3,
+            end_row=sheet.max_row,
+            start_col=1,
+            end_col=sheet.max_column,
+        )
+    _autosize_columns(sheet)
+    sheet.freeze_panes = sheet.cell(row=3, column=1).coordinate
+    sheet.sheet_view.showGridLines = False
 
 
 def _write_summary(sheet: Worksheet, result: RunResult) -> None:
@@ -288,6 +398,8 @@ def download_filename(snapshot_date: date, solver: str) -> str:
 __all__ = [
     "ExportRequestMeta",
     "SHIPMENTS_BASE_COLUMNS",
+    "SHIPMENTS_DETAIL_COLUMNS",
+    "SHIPMENTS_TABLE_COLUMNS",
     "SHIPMENTS_VARIABLE_COLUMNS",
     "build_optimization_workbook",
     "download_filename",

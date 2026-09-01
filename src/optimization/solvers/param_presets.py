@@ -23,7 +23,7 @@ from src.optimization.solvers.simulated_annealing_solver import (
     SAConfig,
     ProblemSpecificConfig,
 )
-from src.optimization.data import OptimizationSettings
+from src.optimization.data import OptimizationSettings, parse_sales_window
 
 
 # ---------------------------------------------------------------------------
@@ -500,7 +500,7 @@ def settings_from_dict(d: Dict[str, Any]) -> OptimizationSettings:
     return OptimizationSettings(
         coverage_ratio=float(d.get("coverage_ratio", defaults.coverage_ratio)),
         target_coverage_ratio=float(d.get("target_coverage_ratio", defaults.target_coverage_ratio)),
-        sales_window=int(d.get("sales_window", defaults.sales_window)),
+        sales_window=parse_sales_window(d.get("sales_window", defaults.sales_window)),
         delivery_lower_bound=float(d.get("delivery_lower_bound", defaults.delivery_lower_bound)),
         delivery_upper_bound=float(d.get("delivery_upper_bound", defaults.delivery_upper_bound)),
         weight_demand=float(d.get("weight_demand", defaults.weight_demand)),
@@ -533,8 +533,8 @@ def get_constraint_settings_description() -> Dict[str, Dict[str, Any]]:
         },
         "sales_window": {
             "default": defaults.sales_window,
-            "description": "Sales moving average window in months. Allowed values: 3 or 6.",
-            "type": "int",
+            "description": "Sales moving average window. Allowed values: 3, 6, or max (per distributor-product max of 3- and 6-month MA).",
+            "type": "int|str",
         },
         "delivery_lower_bound": {
             "default": defaults.delivery_lower_bound,

@@ -12,7 +12,7 @@ These settings define the **LP problem** (constraints and objective weights). Th
 |-----------|--------|------------|--------|
 | **coverage_ratio** | 1 | Distributor coverage (SC1) | Distributor coverage = ratio × demand. Higher → ask for more stock at distributors. |
 | **target_coverage_ratio** | 1 | Target units (SC2) | Target units coverage = ratio × remaining target. Higher → ask for more stock to meet targets. |
-| **sales_window** | 3 | Demand calculation | 3 or 6: use 3‑month or 6‑month moving average for demand. |
+| **sales_window** | 3 | Demand calculation | 3, 6, or `max`: use 3‑month MA, 6‑month MA, or per distributor‑product max of both for demand. |
 | **delivery_lower_bound** | 0.9 | Delivery smoothing (SC5) | Min delivery vs 6‑month average (fraction). Lower → allow smaller deliveries. |
 | **delivery_upper_bound** | 1.2 | Delivery smoothing (SC5) | Max delivery vs 6‑month average (fraction). Higher → allow larger spikes. |
 | **weight_demand** | 1.0 | Objective | Penalty weight for demand coverage slack. Increase to prioritize filling demand coverage gaps. |

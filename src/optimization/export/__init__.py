@@ -3,6 +3,8 @@
 from src.optimization.export.xlsx import (
     ExportRequestMeta,
     SHIPMENTS_BASE_COLUMNS,
+    SHIPMENTS_DETAIL_COLUMNS,
+    SHIPMENTS_TABLE_COLUMNS,
     SHIPMENTS_VARIABLE_COLUMNS,
     build_optimization_workbook,
     download_filename,
@@ -12,6 +14,7 @@ from src.optimization.export.xlsx import (
 __all__ = [
     "ExportRequestMeta",
     "SHIPMENTS_BASE_COLUMNS",
+    "SHIPMENTS_DETAIL_COLUMNS",
     "SHIPMENTS_VARIABLE_COLUMNS",
     "build_optimization_workbook",
     "download_filename",

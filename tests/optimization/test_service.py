@@ -22,6 +22,7 @@ from src.optimization.constraints import (
     ShipmentMinimizationConstraint,
 )
 from src.optimization.data import OptimizationData, OptimizationSettings
+from src.optimization.export import SHIPMENTS_BASE_COLUMNS
 from src.optimization.errors import (
     DatabaseUnavailableError,
     InvalidRunRequestError,
@@ -203,12 +204,15 @@ class TestOptimizationService(unittest.TestCase):
         self.assertEqual(
             result.summary.shipments_by_distributor, {"Distributor One": 7.13}
         )
-        self.assertEqual(result.table.columns[:3], ("distributor", "product", "quantity"))
-        self.assertIn("factory_supply", result.table.columns)
+        self.assertEqual(result.table.columns[:3], SHIPMENTS_BASE_COLUMNS)
+        self.assertIn("explanation", result.table.columns)
+        self.assertIn("factory_supply_remaining", result.table.columns)
         row = result.table.rows[0]
         self.assertEqual(row["product"], "محصول یک")
         self.assertEqual(row["coverage_demand"], 15.0)
         self.assertEqual(row["factory_supply"], 100.0)
+        self.assertEqual(row["demand_coverage_required"], 22.5)
+        self.assertIn("explanation", row)
         self.assertEqual(
             result.to_dict()["shipments"][0]["product"], "Product One"
         )

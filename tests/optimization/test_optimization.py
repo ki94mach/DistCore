@@ -289,8 +289,9 @@ class TestOptimizationData(unittest.TestCase):
         """Test sales moving average selection."""
         settings_3 = OptimizationSettings(sales_window=3)
         settings_6 = OptimizationSettings(sales_window=6)
-        
-        data_3 = OptimizationData(
+        settings_max = OptimizationSettings(sales_window="max")
+
+        base_kwargs = dict(
             distributors=["D1"],
             products=["P1"],
             factory_inventory={},
@@ -299,23 +300,56 @@ class TestOptimizationData(unittest.TestCase):
             sales_ma_6={("D1", "P1"): 60.0},
             sales_mtd={},
             target_units={},
-            settings=settings_3
         )
-        
-        data_6 = OptimizationData(
-            distributors=["D1"],
-            products=["P1"],
-            factory_inventory={},
-            distributor_inventory={},
-            sales_ma_3={("D1", "P1"): 50.0},
-            sales_ma_6={("D1", "P1"): 60.0},
-            sales_mtd={},
-            target_units={},
-            settings=settings_6
-        )
-        
+
+        data_3 = OptimizationData(**base_kwargs, settings=settings_3)
+        data_6 = OptimizationData(**base_kwargs, settings=settings_6)
+        data_max = OptimizationData(**base_kwargs, settings=settings_max)
+
         self.assertEqual(data_3.sales_moving_average("D1", "P1"), 50.0)
         self.assertEqual(data_6.sales_moving_average("D1", "P1"), 60.0)
+        self.assertEqual(data_max.sales_moving_average("D1", "P1"), 60.0)
+
+        # max picks MA3 when it is larger
+        data_max_ma3 = OptimizationData(
+            **{**base_kwargs, "sales_ma_3": {("D1", "P1"): 70.0}},
+            settings=settings_max,
+        )
+        self.assertEqual(data_max_ma3.sales_moving_average("D1", "P1"), 70.0)
+
+        # missing keys default to 0.0 before max
+        data_max_missing = OptimizationData(
+            distributors=["D1"],
+            products=["P1"],
+            factory_inventory={},
+            distributor_inventory={},
+            sales_ma_3={},
+            sales_ma_6={("D1", "P1"): 25.0},
+            sales_mtd={},
+            target_units={},
+            settings=settings_max,
+        )
+        self.assertEqual(data_max_missing.sales_moving_average("D1", "P1"), 25.0)
+
+    def test_sales_moving_average_data_with_settings_override(self):
+        """DataWithSettings must use overridden sales_window for demand."""
+        from src.optimization.data import DataWithSettings
+
+        data = OptimizationData(
+            distributors=["D1"],
+            products=["P1"],
+            factory_inventory={},
+            distributor_inventory={},
+            sales_ma_3={("D1", "P1"): 50.0},
+            sales_ma_6={("D1", "P1"): 60.0},
+            sales_mtd={("D1", "P1"): 10.0},
+            target_units={},
+            settings=OptimizationSettings(sales_window=3),
+        )
+        wrapped = DataWithSettings(data, OptimizationSettings(sales_window="max"))
+
+        self.assertEqual(wrapped.sales_moving_average("D1", "P1"), 60.0)
+        self.assertEqual(wrapped.coverage_demand("D1", "P1"), 50.0)
 
     def test_coverage_demand(self):
         """Test coverage demand calculation."""
